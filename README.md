@@ -1,17 +1,21 @@
 # iva-bitrix24
 
-Read-only интеграция задач Bitrix24 для [Iva](https://github.com/smixs/iva-agent),
-работающая как изолированный stdio MCP-плагин.
+Интеграция задач Bitrix24 для [Iva](https://github.com/smixs/iva-agent), работающая как
+изолированный stdio MCP-плагин.
 
 [![CI](https://github.com/mamysh/iva-bitrix24/actions/workflows/ci.yml/badge.svg)](https://github.com/mamysh/iva-bitrix24/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Iva](https://img.shields.io/badge/Iva-0.3.34%2B-6f42c1)](https://github.com/smixs/iva-agent)
-[![MCP](https://img.shields.io/badge/MCP-read--only-0a7f5a)](https://modelcontextprotocol.io/)
+[![Current release: read-only](https://img.shields.io/badge/current_release-read--only-0a7f5a)](https://modelcontextprotocol.io/)
 
 Плагин позволяет Иве проверять подключение, находить доступные задачи, читать одну задачу,
 просматривать ограниченную историю изменений и получать безопасные метаданные полей.
 Он не предоставляет произвольный доступ к REST API и не умеет создавать, изменять,
 закрывать или удалять задачи.
+
+> **Статус текущей версии:** доступны пять ограниченных инструментов чтения задач. Все
+> операции изменения данных сейчас технически отсутствуют, а не просто запрещены инструкцией
+> модели.
 
 > Проект не является официальным продуктом Bitrix24 и не аффилирован с Bitrix24.
 
@@ -19,7 +23,7 @@ Read-only интеграция задач Bitrix24 для [Iva](https://github.c
 
 | MCP-инструмент | Назначение |
 | --- | --- |
-| `bitrix24_connection_check` | Проверить webhook минимальным вызовом `profile` |
+| `bitrix24_connection_check` | Проверить webhook, текущего пользователя и scope «Задачи» |
 | `bitrix24_list_tasks` | Получить ограниченную страницу задач с безопасными фильтрами |
 | `bitrix24_get_task` | Прочитать одну доступную задачу по числовому ID |
 | `bitrix24_task_history` | Прочитать ограниченную страницу истории изменений |
@@ -35,7 +39,7 @@ Read-only интеграция задач Bitrix24 для [Iva](https://github.c
 - Ответы нормализуются: лишние поля и сырые ответы Bitrix24 наружу не передаются.
 - Списки, история, строки и тело ответа имеют жёсткие лимиты.
 
-Плагин остаётся read-only только в пределах выданных ему инструментов. Дополнительно создайте
+Текущая версия остаётся read-only в пределах выданных ей инструментов. Дополнительно создайте
 для webhook отдельного пользователя Bitrix24 с минимальными правами и scope `task`.
 
 ## Требования
