@@ -15,7 +15,11 @@ function reader(): TaskReaderPort {
 }
 
 async function connectedClient() {
-  const server = createMcpServer(reader());
+  const server = createMcpServer(reader(), {
+    check: async () => ({ state: "current" }),
+    apply: async (input) => ({ state: "started", input }),
+    status: async () => ({ state: "never_run" }),
+  });
   const client = new Client({ name: "contract-test", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([
@@ -25,7 +29,7 @@ async function connectedClient() {
   return { client, server };
 }
 
-test("publishes exactly five read-only tools", async (t) => {
+test("publishes five Bitrix read tools and three guarded update tools", async (t) => {
   const { client, server } = await connectedClient();
   t.after(async () => {
     await client.close();
@@ -40,9 +44,15 @@ test("publishes exactly five read-only tools", async (t) => {
       "bitrix24_list_tasks",
       "bitrix24_task_fields",
       "bitrix24_task_history",
+      "iva_bitrix24_update_apply",
+      "iva_bitrix24_update_check",
+      "iva_bitrix24_update_status",
     ],
   );
-  for (const tool of tools) {
+  const apply = tools.find(({ name }) => name === "iva_bitrix24_update_apply");
+  assert.equal(apply?.annotations?.readOnlyHint, false);
+  assert.equal(apply?.annotations?.destructiveHint, true);
+  for (const tool of tools.filter(({ name }) => name !== "iva_bitrix24_update_apply")) {
     assert.equal(tool.annotations?.readOnlyHint, true);
     assert.equal(tool.annotations?.destructiveHint, false);
   }

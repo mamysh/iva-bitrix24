@@ -2,11 +2,20 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { BitrixClient } from "./bitrix-client.ts";
 import { ConfigurationError, loadConfig } from "./config.ts";
-import { createMcpServer } from "./mcp-server.ts";
+import {
+  createMcpServer,
+  registerUpdaterTools,
+  type PluginUpdaterPort,
+} from "./mcp-server.ts";
+import { PluginUpdater } from "./plugin-updater.ts";
 import { TaskReader } from "./tasks.ts";
 
-function unavailableServer(error: ConfigurationError): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.1.0" });
+function unavailableServer(
+  error: ConfigurationError,
+  updater: PluginUpdaterPort | null,
+): McpServer {
+  const server = new McpServer({ name: "bitrix24-read", version: "0.2.0" });
+  registerUpdaterTools(server, updater);
   server.registerTool(
     "bitrix24_connection_check",
     {
@@ -29,11 +38,17 @@ function unavailableServer(error: ConfigurationError): McpServer {
 export function serverFromEnvironment(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): McpServer {
+  let updater: PluginUpdater | null = null;
+  try {
+    updater = new PluginUpdater(env);
+  } catch {
+    // Local development and a not-yet-trusted process do not have Iva plugin paths.
+  }
   try {
     const client = new BitrixClient(loadConfig(env));
-    return createMcpServer(new TaskReader(client));
+    return createMcpServer(new TaskReader(client), updater);
   } catch (error) {
-    if (error instanceof ConfigurationError) return unavailableServer(error);
+    if (error instanceof ConfigurationError) return unavailableServer(error, updater);
     throw error;
   }
 }

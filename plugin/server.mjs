@@ -2985,7 +2985,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve.call(this, root, ref);
+      let _sch = resolve2.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a3 = root.localRefs) === null || _a3 === void 0 ? void 0 : _a3[ref];
         const { schemaId } = this.opts;
@@ -3012,7 +3012,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve(root, ref) {
+    function resolve2(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3837,7 +3837,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve(baseURI, relativeURI, options) {
+    function resolve2(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -4199,7 +4199,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve,
+      resolve: resolve2,
       resolveComponent,
       equal,
       serialize,
@@ -33537,7 +33537,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error61) {
@@ -33554,7 +33554,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       const earlyReject = (error61) => {
         reject(error61);
       };
@@ -33632,7 +33632,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve(parseResult.data);
+            resolve2(parseResult.data);
           }
         } catch (error61) {
           reject(error61);
@@ -33893,12 +33893,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve, interval);
+      const timeoutId = setTimeout(resolve2, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -34989,7 +34989,7 @@ var McpServer = class {
     let task = createTaskResult.task;
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -35653,12 +35653,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       const json2 = serializeMessage(message);
       if (this._stdout.write(json2)) {
-        resolve();
+        resolve2();
       } else {
-        this._stdout.once("drain", resolve);
+        this._stdout.once("drain", resolve2);
       }
     });
   }
@@ -35691,7 +35691,7 @@ var BitrixRequestError = class extends Error {
 };
 var defaults = {
   fetch: globalThis.fetch,
-  sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  sleep: (milliseconds) => new Promise((resolve2) => setTimeout(resolve2, milliseconds)),
   random: Math.random
 };
 async function boundedText(response) {
@@ -36084,7 +36084,7 @@ function success2(value) {
   };
 }
 function failure(error61) {
-  const code = error61 instanceof BitrixRequestError ? error61.code : "INTERNAL_ERROR";
+  const code = error61 instanceof BitrixRequestError ? error61.code : error61 instanceof Error && /^[A-Z][A-Z0-9_]{2,80}$/u.test(error61.message) ? error61.message : "INTERNAL_ERROR";
   return {
     isError: true,
     content: [
@@ -36102,8 +36102,47 @@ async function safe(run) {
     return failure(error61);
   }
 }
-function createMcpServer(reader) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.1.0" });
+function registerUpdaterTools(server2, updater) {
+  if (!updater) return;
+  server2.registerTool(
+    "iva_bitrix24_update_check",
+    {
+      description: "Check the installed iva-bitrix24 Git source and GitHub Actions for an update. This does not change the server.",
+      inputSchema: external_exports.object({}).strict(),
+      annotations: readOnly
+    },
+    () => safe(() => updater.check())
+  );
+  server2.registerTool(
+    "iva_bitrix24_update_apply",
+    {
+      description: "Start a previously checked iva-bitrix24 update. Call only when the owner explicitly typed the exact confirmation phrase returned by iva_bitrix24_update_check in the current direct conversation.",
+      inputSchema: external_exports.object({
+        candidateSha: external_exports.string().regex(/^[a-f0-9]{40}$/u),
+        confirmation: external_exports.string().min(1).max(64)
+      }).strict(),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true
+      }
+    },
+    (input2) => safe(() => updater.apply(input2))
+  );
+  server2.registerTool(
+    "iva_bitrix24_update_status",
+    {
+      description: "Read the latest background iva-bitrix24 update or rollback status.",
+      inputSchema: external_exports.object({}).strict(),
+      annotations: readOnly
+    },
+    () => safe(() => updater.status())
+  );
+}
+function createMcpServer(reader, updater = null) {
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.2.0" });
+  registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",
     {
@@ -36174,9 +36213,311 @@ function createMcpServer(reader) {
   return server2;
 }
 
+// server/src/plugin-updater.ts
+import { execFile as execFileCallback } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { chmod, mkdir, open as open2, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
+import { promisify } from "node:util";
+var execFile = promisify(execFileCallback);
+var PLUGIN_NAME = "bitrix24-read";
+var SHA = /^[a-f0-9]{40}$/u;
+var OFFER_TTL_MS = 15 * 60 * 1e3;
+var LOCK_STALE_MS = 2 * 60 * 60 * 1e3;
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function safeSha(value) {
+  return typeof value === "string" && SHA.test(value) ? value : "";
+}
+function sourceFromEntry(entry) {
+  if (typeof entry.source !== "string" || !entry.source) return null;
+  const raw = entry.source;
+  if (raw.startsWith("/") || raw.startsWith("./") || raw.startsWith("../"))
+    return null;
+  const shorthand = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(?:\/[A-Za-z0-9_.-]+)*(?:@([A-Za-z0-9._/-]+))?$/u.exec(
+    raw
+  );
+  if (!shorthand) return null;
+  const owner = shorthand[1];
+  const repo = shorthand[2];
+  const sourceRef = shorthand[3];
+  const stateRef = typeof entry.ref === "string" && entry.ref ? entry.ref : "HEAD";
+  const at = raw.indexOf("@");
+  const base = at === -1 ? raw : raw.slice(0, at);
+  return {
+    label: base,
+    url: `https://github.com/${owner}/${repo}.git`,
+    base,
+    ref: sourceRef || stateRef,
+    owner,
+    repo
+  };
+}
+async function atomicJson(path, value) {
+  const temporary = `${path}.${randomBytes(6).toString("hex")}.tmp`;
+  await writeFile(temporary, `${JSON.stringify(value, null, 2)}
+`, {
+    mode: 384
+  });
+  await chmod(temporary, 384);
+  await rename(temporary, path);
+}
+var PluginUpdater = class {
+  #root;
+  #data;
+  #state;
+  #jobs;
+  #offer;
+  #operations;
+  constructor(env = process.env, operations = {}) {
+    this.#root = resolve(env.PLUGIN_ROOT || "");
+    this.#data = resolve(env.PLUGIN_DATA || "");
+    const plugins = dirname(this.#root);
+    const custom2 = dirname(plugins);
+    const dataDir = dirname(custom2);
+    if (!env.PLUGIN_ROOT || !env.PLUGIN_DATA || basename(this.#root) !== PLUGIN_NAME || basename(plugins) !== "plugins" || basename(custom2) !== "custom") {
+      throw new Error("UPDATE_ENVIRONMENT_UNAVAILABLE");
+    }
+    this.#state = join(dataDir, "custom", "plugins.json");
+    this.#jobs = join(this.#data, "update-jobs");
+    this.#offer = join(this.#data, "update-offer.json");
+    this.#operations = {
+      exec: async (command, args) => {
+        const result = await execFile(command, [...args], {
+          timeout: 2e4,
+          maxBuffer: 256e3
+        });
+        return { stdout: result.stdout, stderr: result.stderr };
+      },
+      fetch: globalThis.fetch,
+      now: () => /* @__PURE__ */ new Date(),
+      token: () => randomBytes(3).toString("hex").toUpperCase(),
+      ...operations
+    };
+  }
+  async #entry() {
+    const parsed = JSON.parse(await readFile(this.#state, "utf8"));
+    if (!isRecord(parsed) || !Array.isArray(parsed.plugins))
+      throw new Error("PLUGIN_STATE_INVALID");
+    const entry = parsed.plugins.find(
+      (item) => isRecord(item) && item.name === PLUGIN_NAME
+    );
+    if (!isRecord(entry)) throw new Error("PLUGIN_NOT_INSTALLED");
+    return entry;
+  }
+  async #acquireLock(path) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const lock = await open2(path, "wx", 384);
+        await lock.writeFile(`${this.#operations.now().toISOString()}
+`, "utf8");
+        await lock.close();
+        return;
+      } catch (error61) {
+        if (error61.code !== "EEXIST") throw error61;
+        const age = this.#operations.now().getTime() - (await stat(path)).mtimeMs;
+        if (attempt === 0 && age > LOCK_STALE_MS) {
+          await rm(path, { force: true });
+          continue;
+        }
+        throw new Error("UPDATE_ALREADY_RUNNING");
+      }
+    }
+  }
+  async #remoteSha(source) {
+    const { stdout } = await this.#operations.exec("git", [
+      "ls-remote",
+      "--",
+      source.url,
+      source.ref,
+      `${source.ref}^{}`
+    ]);
+    const candidates = stdout.split("\n").map((line) => line.trim().split(/\s+/u)).filter(([sha]) => SHA.test(sha || ""));
+    const peeled = candidates.find(([, name]) => name?.endsWith("^{}"));
+    const candidate = (peeled ?? candidates[0])?.[0] ?? "";
+    if (!SHA.test(candidate)) throw new Error("REMOTE_REF_NOT_FOUND");
+    return candidate;
+  }
+  async #ci(source, sha) {
+    const url2 = `https://api.github.com/repos/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}/actions/runs?head_sha=${sha}&per_page=20`;
+    const response = await this.#operations.fetch(url2, {
+      headers: { accept: "application/vnd.github+json", "user-agent": "iva-bitrix24-updater" },
+      redirect: "error",
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!response.ok) throw new Error("CI_STATUS_UNAVAILABLE");
+    const body = await response.json();
+    if (!isRecord(body) || !Array.isArray(body.workflow_runs))
+      throw new Error("CI_STATUS_INVALID");
+    const runs = body.workflow_runs.filter(isRecord);
+    if (runs.some((run) => run.status !== "completed")) return "pending";
+    return runs.length > 0 && runs.every((run) => run.conclusion === "success") ? "success" : "failure";
+  }
+  async check() {
+    const entry = await this.#entry();
+    const source = sourceFromEntry(entry);
+    if (!source) {
+      await rm(this.#offer, { force: true });
+      return {
+        ok: false,
+        state: "local_source",
+        message: "\u042D\u0442\u043E\u0442 \u044D\u043A\u0437\u0435\u043C\u043F\u043B\u044F\u0440 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D \u0438\u0437 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E\u0439 \u043F\u0430\u043F\u043A\u0438 \u0438 \u043D\u0435 \u043C\u043E\u0436\u0435\u0442 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0442\u044C GitHub. \u041E\u0434\u0438\u043D \u0440\u0430\u0437 \u043F\u0435\u0440\u0435\u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u0435 \u0435\u0433\u043E \u0438\u0437 mamysh/iva-bitrix24/plugin."
+      };
+    }
+    const currentSha = safeSha(entry.sha);
+    if (!currentSha) throw new Error("CURRENT_SHA_UNAVAILABLE");
+    const candidateSha = await this.#remoteSha(source);
+    if (candidateSha === currentSha) {
+      await rm(this.#offer, { force: true });
+      return {
+        ok: true,
+        state: "current",
+        source: source.label,
+        ref: source.ref,
+        currentSha,
+        enabled: entry.enabled === true,
+        trusted: entry.trusted === true
+      };
+    }
+    const ci = await this.#ci(source, candidateSha);
+    const confirmation = `\u041E\u0411\u041D\u041E\u0412\u0418\u0422\u042C ${candidateSha.slice(0, 12)}`;
+    const offer = {
+      schema: "iva-bitrix24-update-offer/v1",
+      createdAt: this.#operations.now().toISOString(),
+      currentSha,
+      candidateSha,
+      confirmation,
+      source: entry.source,
+      sourceBase: source.base,
+      ref: source.ref
+    };
+    await mkdir(this.#data, { recursive: true, mode: 448 });
+    if (ci === "success") await atomicJson(this.#offer, offer);
+    else await rm(this.#offer, { force: true });
+    return {
+      ok: true,
+      state: ci === "success" ? "available" : "blocked",
+      source: source.label,
+      ref: source.ref,
+      currentSha,
+      candidateSha,
+      ci,
+      ...ci === "success" ? { confirmation } : {}
+    };
+  }
+  async apply(input2) {
+    const lockPath = join(this.#data, "update.lock");
+    try {
+      const lockInfo = await stat(lockPath);
+      const age2 = this.#operations.now().getTime() - lockInfo.mtimeMs;
+      if (age2 <= LOCK_STALE_MS) throw new Error("UPDATE_ALREADY_RUNNING");
+      await rm(lockPath, { force: true });
+    } catch (error61) {
+      if (error61.code !== "ENOENT") throw error61;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(await readFile(this.#offer, "utf8"));
+    } catch (error61) {
+      if (error61.code === "ENOENT")
+        throw new Error("UPDATE_CHECK_REQUIRED");
+      throw new Error("UPDATE_OFFER_INVALID");
+    }
+    if (!isRecord(parsed) || parsed.schema !== "iva-bitrix24-update-offer/v1")
+      throw new Error("UPDATE_OFFER_INVALID");
+    const offer = parsed;
+    const age = this.#operations.now().getTime() - Date.parse(offer.createdAt);
+    if (!Number.isFinite(age) || age < 0 || age > OFFER_TTL_MS)
+      throw new Error("UPDATE_OFFER_EXPIRED");
+    if (input2.candidateSha !== offer.candidateSha || input2.confirmation !== offer.confirmation)
+      throw new Error("UPDATE_CONFIRMATION_MISMATCH");
+    const entry = await this.#entry();
+    if (safeSha(entry.sha) !== offer.currentSha)
+      throw new Error("PLUGIN_CHANGED_SINCE_CHECK");
+    const source = sourceFromEntry(entry);
+    if (!source || await this.#remoteSha(source) !== offer.candidateSha)
+      throw new Error("REMOTE_CHANGED_SINCE_CHECK");
+    if (await this.#ci(source, offer.candidateSha) !== "success")
+      throw new Error("CI_NOT_SUCCESSFUL");
+    const jobId = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+    await mkdir(this.#jobs, { recursive: true, mode: 448 });
+    const jobPath = join(this.#jobs, `${jobId}.json`);
+    await this.#acquireLock(lockPath);
+    await atomicJson(jobPath, {
+      schema: "iva-bitrix24-update-job/v1",
+      id: jobId,
+      status: "queued",
+      action: "update",
+      createdAt: this.#operations.now().toISOString(),
+      pluginName: PLUGIN_NAME,
+      pluginData: this.#data,
+      statePath: this.#state,
+      previousSha: offer.currentSha,
+      expectedSha: offer.candidateSha,
+      source: offer.source,
+      sourceBase: offer.sourceBase,
+      ref: offer.ref,
+      lockPath
+    });
+    const worker = join(this.#root, "update-worker.mjs");
+    const unit = `iva-bitrix24-update-${jobId}`;
+    try {
+      await this.#operations.exec("systemd-run", [
+        "--user",
+        "--collect",
+        `--unit=${unit}`,
+        `--setenv=PATH=${process.env.PATH || "/usr/local/bin:/usr/bin:/bin"}`,
+        process.execPath,
+        worker,
+        jobPath
+      ]);
+      await rm(this.#offer, { force: true });
+    } catch (error61) {
+      await rm(lockPath, { force: true });
+      throw error61;
+    }
+    return {
+      ok: true,
+      state: "started",
+      jobId,
+      from: offer.currentSha,
+      to: offer.candidateSha,
+      message: "\u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u0437\u0430\u043F\u0443\u0449\u0435\u043D\u043E \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E \u0438 \u043F\u0435\u0440\u0435\u0436\u0438\u0432\u0451\u0442 \u043F\u0435\u0440\u0435\u0437\u0430\u043F\u0443\u0441\u043A MCP. \u0421\u043F\u0440\u043E\u0441\u0438\u0442\u0435 \u0418\u0432\u0443 \u043E \u0441\u0442\u0430\u0442\u0443\u0441\u0435 \u0447\u0435\u0440\u0435\u0437 \u043C\u0438\u043D\u0443\u0442\u0443."
+    };
+  }
+  async status() {
+    let names;
+    try {
+      names = await readdir(this.#jobs);
+    } catch {
+      return { ok: true, state: "never_run" };
+    }
+    const latest = names.filter((name) => name.endsWith(".json")).sort().at(-1);
+    if (!latest) return { ok: true, state: "never_run" };
+    const parsed = JSON.parse(await readFile(join(this.#jobs, latest), "utf8"));
+    if (!isRecord(parsed)) throw new Error("UPDATE_JOB_INVALID");
+    const allowed2 = [
+      "id",
+      "status",
+      "action",
+      "createdAt",
+      "startedAt",
+      "finishedAt",
+      "previousSha",
+      "expectedSha",
+      "installedSha",
+      "message",
+      "rollbackStatus"
+    ];
+    return Object.fromEntries(allowed2.flatMap((key) => key in parsed ? [[key, parsed[key]]] : []));
+  }
+};
+
 // server/src/main.ts
-function unavailableServer(error61) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.1.0" });
+function unavailableServer(error61, updater) {
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.2.0" });
+  registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",
     {
@@ -36196,11 +36537,16 @@ function unavailableServer(error61) {
   return server2;
 }
 function serverFromEnvironment(env = process.env) {
+  let updater = null;
+  try {
+    updater = new PluginUpdater(env);
+  } catch {
+  }
   try {
     const client = new BitrixClient(loadConfig(env));
-    return createMcpServer(new TaskReader(client));
+    return createMcpServer(new TaskReader(client), updater);
   } catch (error61) {
-    if (error61 instanceof ConfigurationError) return unavailableServer(error61);
+    if (error61 instanceof ConfigurationError) return unavailableServer(error61, updater);
     throw error61;
   }
 }

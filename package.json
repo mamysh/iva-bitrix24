@@ -1,8 +1,8 @@
 {
   "name": "iva-bitrix24",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Bitrix24 integration plugin for Iva over MCP; the current release reads tasks.",
+  "description": "Bitrix24 integration plugin for Iva with bounded task reading and managed updates.",
   "license": "MIT",
   "repository": {
     "type": "git",

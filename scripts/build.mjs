@@ -4,6 +4,7 @@ import { build } from "esbuild";
 const entries = [
   { input: "server/src/main.ts", output: "plugin/server.mjs" },
   { input: "server/src/installer-main.ts", output: "plugin/setup.mjs" },
+  { input: "server/src/updater-worker.ts", output: "plugin/update-worker.mjs" },
 ];
 
 await mkdir("plugin", { recursive: true });

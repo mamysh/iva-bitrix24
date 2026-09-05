@@ -1,6 +1,6 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "bitrix24-read",
-  "version": "0.1.0",
-  "description": "Read-only access to Bitrix24 tasks through an isolated MCP server."
+  "version": "0.2.0",
+  "description": "Bounded Bitrix24 task reading and owner-confirmed plugin updates through an isolated MCP server."
 }
