@@ -45,6 +45,17 @@ test("preserves safe pagination metadata for bounded list consumers", async () =
   });
 });
 
+test("rejects negative pagination metadata from upstream", async () => {
+  const client = new BitrixClient(config, {
+    fetch: async () =>
+      Response.json({ result: { tasks: [] }, next: -50, total: -1 }),
+  });
+
+  const page = await client.callPage("tasks.task.list");
+  assert.equal(page.next, null);
+  assert.equal(page.total, null);
+});
+
 test("builds a task page URL without exposing the webhook secret", () => {
   const client = new BitrixClient(config);
   const url = client.taskWebUrl(77);
@@ -136,6 +147,20 @@ test("does not retry authorization failures or expose their description", async 
     return true;
   });
   assert.equal(calls, 1);
+});
+
+test("does not expose a malformed upstream error code", async () => {
+  const secret = "https://portal.example.invalid/rest/123/test";
+  const client = new BitrixClient(config, {
+    fetch: async () => Response.json({ error: secret }, { status: 400 }),
+  });
+
+  await assert.rejects(client.call("profile"), (error: unknown) => {
+    assert.ok(error instanceof BitrixRequestError);
+    assert.equal(error.code, "UPSTREAM_ERROR");
+    assert.equal(error.message.includes(secret), false);
+    return true;
+  });
 });
 
 test("bounds the upstream response body", async () => {

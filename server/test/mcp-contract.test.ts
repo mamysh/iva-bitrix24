@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { BitrixRequestError } from "../src/bitrix-client.ts";
 import { createMcpServer, type TaskReaderPort } from "../src/mcp-server.ts";
 
 function reader(): TaskReaderPort {
@@ -14,8 +15,8 @@ function reader(): TaskReaderPort {
   };
 }
 
-async function connectedClient() {
-  const server = createMcpServer(reader(), {
+async function connectedClient(taskReader: TaskReaderPort = reader()) {
+  const server = createMcpServer(taskReader, {
     check: async () => ({ state: "current" }),
     apply: async (input) => ({ state: "started", input }),
     status: async () => ({ state: "never_run" }),
@@ -77,6 +78,12 @@ test("validates task identifiers and list limits at the MCP boundary", async (t)
   });
   assert.equal(invalidLimit.isError, true);
 
+  const invalidLegacyStatus = await client.callTool({
+    name: "bitrix24_list_tasks",
+    arguments: { status: 1 },
+  });
+  assert.equal(invalidLegacyStatus.isError, true);
+
   const invalidHistoryLimit = await client.callTool({
     name: "bitrix24_task_history",
     arguments: { taskId: 1, limit: 51 },
@@ -88,4 +95,33 @@ test("validates task identifiers and list limits at the MCP boundary", async (t)
     arguments: { method: "tasks.task.delete" },
   });
   assert.equal(unknown.isError, true);
+});
+
+test("returns bounded actionable error metadata without upstream details", async (t) => {
+  const taskReader = reader();
+  const { client, server } = await connectedClient({
+    ...taskReader,
+    getTask: async () => {
+      throw new BitrixRequestError("INSUFFICIENT_SCOPE");
+    },
+  });
+  t.after(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  const result = await client.callTool({
+    name: "bitrix24_get_task",
+    arguments: { taskId: 1 },
+  });
+  assert.equal(result.isError, true);
+  const content = result.content as Array<{ type: string; text?: string }>;
+  const text = content[0]?.type === "text" ? (content[0].text ?? "") : "";
+  assert.deepEqual(JSON.parse(text), {
+    ok: false,
+    error: "INSUFFICIENT_SCOPE",
+    category: "permission",
+    retryable: false,
+    action: "add_required_scope",
+  });
 });

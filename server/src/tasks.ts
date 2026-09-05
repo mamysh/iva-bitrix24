@@ -14,6 +14,9 @@ const LIST_FIELDS = [
   "GROUP_ID",
   "PARENT_ID",
   "MARK",
+  "CREATOR",
+  "RESPONSIBLE",
+  "GROUP",
 ] as const;
 
 const GET_FIELDS = [...LIST_FIELDS, "DESCRIPTION"] as const;
@@ -66,38 +69,101 @@ export const TASK_HISTORY_FIELDS = [
 
 export type TaskHistoryField = (typeof TASK_HISTORY_FIELDS)[number];
 
+function isRecordLike(value: unknown): value is RecordLike {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function record(value: unknown): RecordLike {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as RecordLike)
-    : {};
+  return isRecordLike(value) ? value : {};
 }
 
 function pick(source: RecordLike, upper: string, camel: string): unknown {
   return source[camel] ?? source[upper];
 }
 
-function scalar(value: unknown, maxLength = 20_000): string | number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
+function text(value: unknown, maxLength: number): string | null {
   if (typeof value === "string") return value.slice(0, maxLength);
   return null;
 }
 
+function historyValue(value: unknown): string | null {
+  if (typeof value === "string") return value.slice(0, 2_000);
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return null;
+}
+
+function identifier(value: unknown): string | null {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value > 0)
+    return String(value);
+  return typeof value === "string" && /^[1-9]\d*$/u.test(value) ? value : null;
+}
+
+function integer(value: unknown): number | null {
+  if (typeof value === "number" && Number.isSafeInteger(value)) return value;
+  if (typeof value === "string" && /^-?\d+$/u.test(value)) {
+    const parsed = Number(value);
+    if (Number.isSafeInteger(parsed)) return parsed;
+  }
+  return null;
+}
+
+function isoDate(value: unknown, field: string, warnings: string[]): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (
+    typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(value) &&
+    Number.isFinite(Date.parse(value))
+  )
+    return value;
+  warnings.push(`invalid_${field}`);
+  return null;
+}
+
+const STATUS_NAMES: Readonly<Record<number, string>> = {
+  2: "pending",
+  3: "in_progress",
+  4: "awaiting_control",
+  5: "completed",
+  6: "deferred",
+};
+
+const PRIORITY_NAMES: Readonly<Record<number, string>> = {
+  0: "low",
+  1: "medium",
+  2: "high",
+};
+
+function entityName(value: unknown, expectedId: string | null): string | null {
+  if (expectedId === null) return null;
+  const source = record(value);
+  const embeddedId = identifier(pick(source, "ID", "id"));
+  if (embeddedId !== null && embeddedId !== expectedId) return null;
+  return text(pick(source, "NAME", "name"), 300);
+}
+
 export type NormalizedTask = {
-  readonly id: string | number | null;
+  readonly id: string | null;
   readonly webUrl: string | null;
-  readonly title: string | number | null;
-  readonly status: string | number | null;
-  readonly priority: string | number | null;
-  readonly deadline: string | number | null;
-  readonly createdDate: string | number | null;
-  readonly changedDate: string | number | null;
-  readonly closedDate: string | number | null;
-  readonly responsibleId: string | number | null;
-  readonly createdBy: string | number | null;
-  readonly groupId: string | number | null;
-  readonly parentId: string | number | null;
-  readonly mark: string | number | null;
-  readonly description?: string | number | null;
+  readonly title: string | null;
+  readonly status: number | null;
+  readonly statusName: string;
+  readonly priority: number | null;
+  readonly priorityName: string;
+  readonly deadline: string | null;
+  readonly createdDate: string | null;
+  readonly changedDate: string | null;
+  readonly closedDate: string | null;
+  readonly responsibleId: string | null;
+  readonly responsibleName: string | null;
+  readonly createdBy: string | null;
+  readonly createdByName: string | null;
+  readonly groupId: string | null;
+  readonly groupName: string | null;
+  readonly parentId: string | null;
+  readonly mark: "N" | "P" | null;
+  readonly markName: "negative" | "positive" | "unrated" | "unknown";
+  readonly dataWarnings?: readonly string[];
+  readonly description?: string | null;
 };
 
 function normalizeTask(
@@ -106,28 +172,60 @@ function normalizeTask(
   includeDescription = false,
 ): NormalizedTask {
   const source = record(value);
-  const id = scalar(pick(source, "ID", "id"));
+  const warnings: string[] = [];
+  const id = identifier(pick(source, "ID", "id"));
+  const status = integer(pick(source, "STATUS", "status"));
+  const priority = integer(pick(source, "PRIORITY", "priority"));
+  const rawMark = pick(source, "MARK", "mark");
+  const mark = rawMark === "N" || rawMark === "P" ? rawMark : null;
+  const responsibleId = identifier(pick(source, "RESPONSIBLE_ID", "responsibleId"));
+  const createdBy = identifier(pick(source, "CREATED_BY", "createdBy"));
+  const groupId = identifier(pick(source, "GROUP_ID", "groupId"));
   return {
     id,
     webUrl: id === null ? null : taskWebUrl(id),
-    title: scalar(pick(source, "TITLE", "title"), 1_000),
-    status: scalar(pick(source, "STATUS", "status")),
-    priority: scalar(pick(source, "PRIORITY", "priority")),
-    deadline: scalar(pick(source, "DEADLINE", "deadline")),
-    createdDate: scalar(pick(source, "CREATED_DATE", "createdDate")),
-    changedDate: scalar(pick(source, "CHANGED_DATE", "changedDate")),
-    closedDate: scalar(pick(source, "CLOSED_DATE", "closedDate")),
-    responsibleId: scalar(pick(source, "RESPONSIBLE_ID", "responsibleId")),
-    createdBy: scalar(pick(source, "CREATED_BY", "createdBy")),
-    groupId: scalar(pick(source, "GROUP_ID", "groupId")),
-    parentId: scalar(pick(source, "PARENT_ID", "parentId")),
-    mark: scalar(pick(source, "MARK", "mark")),
+    title: text(pick(source, "TITLE", "title"), 1_000),
+    status,
+    statusName: status === null ? "unknown" : (STATUS_NAMES[status] ?? "unknown"),
+    priority,
+    priorityName:
+      priority === null ? "unknown" : (PRIORITY_NAMES[priority] ?? "unknown"),
+    deadline: isoDate(pick(source, "DEADLINE", "deadline"), "deadline", warnings),
+    createdDate: isoDate(
+      pick(source, "CREATED_DATE", "createdDate"),
+      "created_date",
+      warnings,
+    ),
+    changedDate: isoDate(
+      pick(source, "CHANGED_DATE", "changedDate"),
+      "changed_date",
+      warnings,
+    ),
+    closedDate: isoDate(
+      pick(source, "CLOSED_DATE", "closedDate"),
+      "closed_date",
+      warnings,
+    ),
+    responsibleId,
+    responsibleName: entityName(source.responsible, responsibleId),
+    createdBy,
+    createdByName: entityName(source.creator, createdBy),
+    groupId,
+    groupName: entityName(source.group, groupId),
+    parentId: identifier(pick(source, "PARENT_ID", "parentId")),
+    mark,
+    markName:
+      rawMark === null || rawMark === undefined || rawMark === ""
+        ? "unrated"
+        : rawMark === "N"
+          ? "negative"
+          : rawMark === "P"
+            ? "positive"
+            : "unknown",
+    ...(warnings.length > 0 ? { dataWarnings: warnings } : {}),
     ...(includeDescription
       ? {
-          description: scalar(
-            pick(source, "DESCRIPTION", "description"),
-            20_000,
-          ),
+          description: text(pick(source, "DESCRIPTION", "description"), 20_000),
         }
       : {}),
   };
@@ -153,6 +251,68 @@ export type TaskHistoryOptions = {
   readonly sortDirection: "asc" | "desc";
 };
 
+export type ConnectionResult = {
+  readonly connected: true;
+  readonly taskScope: true;
+  readonly user: {
+    readonly id: string | null;
+    readonly name: string | null;
+    readonly lastName: string | null;
+    readonly admin: boolean;
+  };
+};
+
+export type TaskListResult = {
+  readonly tasks: readonly NormalizedTask[];
+  readonly returned: number;
+  readonly partial: boolean;
+  readonly skippedMalformed: number;
+  readonly start: number;
+  readonly nextStart: number | null;
+  readonly total: number | null;
+  readonly truncated: boolean;
+};
+
+export type TaskHistoryEvent = {
+  readonly id: string | null;
+  readonly createdDate: string | null;
+  readonly field: string | null;
+  readonly from: string | null;
+  readonly to: string | null;
+  readonly dataWarnings?: readonly string[];
+  readonly actor: {
+    readonly id: string | null;
+    readonly name: string | null;
+    readonly lastName: string | null;
+    readonly secondName: string | null;
+  };
+};
+
+export type TaskHistoryResult = {
+  readonly events: readonly TaskHistoryEvent[];
+  readonly returned: number;
+  readonly partial: boolean;
+  readonly skippedMalformed: number;
+  readonly start: number;
+  readonly nextStart: number | null;
+  readonly total: number | null;
+  readonly truncated: boolean;
+};
+
+export type TaskFieldMetadata = {
+  readonly name: string;
+  readonly title: string | null;
+  readonly type: string | null;
+  readonly required: boolean;
+  readonly multiple: boolean;
+  readonly readonly: boolean;
+};
+
+export type TaskFieldsResult = {
+  readonly fields: readonly TaskFieldMetadata[];
+  readonly truncated: false;
+};
+
 export class TaskReader {
   readonly #client: BitrixClient;
 
@@ -160,22 +320,24 @@ export class TaskReader {
     this.#client = client;
   }
 
-  async connectionCheck(): Promise<unknown> {
+  async connectionCheck(): Promise<ConnectionResult> {
     const profile = record(await this.#client.call("profile"));
     await this.#client.call("tasks.task.getFields");
     return {
       connected: true,
       taskScope: true,
       user: {
-        id: scalar(pick(profile, "ID", "id")),
-        name: scalar(pick(profile, "NAME", "name"), 200),
-        lastName: scalar(pick(profile, "LAST_NAME", "lastName"), 200),
-        admin: scalar(pick(profile, "ADMIN", "admin")),
+        id: identifier(pick(profile, "ID", "id")),
+        name: text(pick(profile, "NAME", "name"), 200),
+        lastName: text(pick(profile, "LAST_NAME", "lastName"), 200),
+        admin:
+          pick(profile, "ADMIN", "admin") === true ||
+          pick(profile, "ADMIN", "admin") === "Y",
       },
     };
   }
 
-  async listTasks(options: ListTaskOptions): Promise<unknown> {
+  async listTasks(options: ListTaskOptions): Promise<TaskListResult> {
     const filter: Record<string, unknown> = {};
     if (options.scope === "mine") {
       const profile = record(await this.#client.call("profile"));
@@ -186,27 +348,33 @@ export class TaskReader {
     } else if (options.responsibleId !== undefined) {
       filter.RESPONSIBLE_ID = options.responsibleId;
     }
-    if (options.status !== undefined) filter.STATUS = options.status;
+    if (options.status !== undefined) filter.REAL_STATUS = options.status;
     if (options.deadlineFrom) filter[">=DEADLINE"] = options.deadlineFrom;
     if (options.deadlineTo) filter["<=DEADLINE"] = options.deadlineTo;
 
     const page = await this.#client.callPage("tasks.task.list", {
-        order: { [options.sortBy]: options.sortDirection },
-        filter,
-        select: LIST_FIELDS,
-        start: options.start,
-      });
+      order: { [options.sortBy]: options.sortDirection },
+      filter,
+      select: LIST_FIELDS,
+      start: options.start,
+    });
     const raw = record(page.result);
-    const tasks = Array.isArray(raw.tasks) ? raw.tasks : [];
+    if (!Array.isArray(raw.tasks)) throw new BitrixRequestError("INVALID_RESPONSE");
+    const tasks = raw.tasks;
     const hasMoreInFetchedPage = tasks.length > options.limit;
     const nextStart = hasMoreInFetchedPage
       ? options.start + options.limit
       : page.next;
+    const selected = tasks.slice(0, options.limit);
+    const normalized = selected
+      .filter(isRecordLike)
+      .map((task) => normalizeTask(task, (id) => this.#client.taskWebUrl(id)));
+    const skippedMalformed = selected.length - normalized.length;
     return {
-      tasks: tasks
-        .slice(0, options.limit)
-        .map((task) => normalizeTask(task, (id) => this.#client.taskWebUrl(id))),
-      returned: Math.min(tasks.length, options.limit),
+      tasks: normalized,
+      returned: normalized.length,
+      partial: skippedMalformed > 0,
+      skippedMalformed,
       start: options.start,
       nextStart,
       total: page.total,
@@ -214,13 +382,14 @@ export class TaskReader {
     };
   }
 
-  async getTask(taskId: number): Promise<unknown> {
+  async getTask(taskId: number): Promise<{ readonly task: NormalizedTask }> {
     const raw = record(
       await this.#client.call("tasks.task.get", {
         taskId,
         select: GET_FIELDS,
       }),
     );
+    if (!isRecordLike(raw.task)) throw new BitrixRequestError("INVALID_RESPONSE");
     return {
       task: normalizeTask(
         raw.task,
@@ -230,7 +399,7 @@ export class TaskReader {
     };
   }
 
-  async taskHistory(options: TaskHistoryOptions): Promise<unknown> {
+  async taskHistory(options: TaskHistoryOptions): Promise<TaskHistoryResult> {
     const page = await this.#client.callPage("tasks.task.history.list", {
       taskId: options.taskId,
       ...(options.event ? { filter: { FIELD: options.event } } : {}),
@@ -238,31 +407,39 @@ export class TaskReader {
       start: options.start,
     });
     const raw = record(page.result);
-    const history = Array.isArray(raw.list) ? raw.list : [];
+    if (!Array.isArray(raw.list)) throw new BitrixRequestError("INVALID_RESPONSE");
+    const history = raw.list;
     const hasMoreInFetchedPage = history.length > options.limit;
     const nextStart = hasMoreInFetchedPage
       ? options.start + options.limit
       : page.next;
+    const selected = history.slice(0, options.limit);
+    const normalized = selected.filter(isRecordLike).map((value) => {
+      const source = record(value);
+      const change = record(source.value);
+      const user = record(source.user);
+      const warnings: string[] = [];
+      return {
+        id: identifier(source.id),
+        createdDate: isoDate(source.createdDate, "created_date", warnings),
+        field: text(source.field, 100),
+        from: historyValue(change.from),
+        to: historyValue(change.to),
+        actor: {
+          id: identifier(user.id),
+          name: text(user.name, 200),
+          lastName: text(user.lastName, 200),
+          secondName: text(user.secondName, 200),
+        },
+        ...(warnings.length > 0 ? { dataWarnings: warnings } : {}),
+      };
+    });
+    const skippedMalformed = selected.length - normalized.length;
     return {
-      events: history.slice(0, options.limit).map((value) => {
-        const source = record(value);
-        const change = record(source.value);
-        const user = record(source.user);
-        return {
-          id: scalar(source.id),
-          createdDate: scalar(source.createdDate),
-          field: scalar(source.field, 100),
-          from: scalar(change.from, 2_000),
-          to: scalar(change.to, 2_000),
-          actor: {
-            id: scalar(user.id),
-            name: scalar(user.name, 200),
-            lastName: scalar(user.lastName, 200),
-            secondName: scalar(user.secondName, 200),
-          },
-        };
-      }),
-      returned: Math.min(history.length, options.limit),
+      events: normalized,
+      returned: normalized.length,
+      partial: skippedMalformed > 0,
+      skippedMalformed,
       start: options.start,
       nextStart,
       total: page.total,
@@ -270,20 +447,25 @@ export class TaskReader {
     };
   }
 
-  async taskFields(): Promise<unknown> {
+  async taskFields(): Promise<TaskFieldsResult> {
     const raw = record(await this.#client.call("tasks.task.getFields"));
-    const fields = record(raw.fields);
-    const safe = Object.entries(fields).map(([name, value]) => {
-      const field = record(value);
-      return {
-        name: name.slice(0, 200),
-        title: scalar(field.title, 500),
-        type: scalar(field.type, 100),
-        required: field.required === true,
-        multiple: field.multiple === true,
-        readonly: field.readonly === true,
-      };
-    });
-    return { fields: safe.slice(0, 500), truncated: safe.length > 500 };
+    if (!isRecordLike(raw.fields)) throw new BitrixRequestError("INVALID_RESPONSE");
+    const fields = raw.fields;
+    const selectedFields = new Set<string>(GET_FIELDS);
+    const safe = Object.entries(fields)
+      .filter(([name]) => selectedFields.has(name))
+      .map(([name, value]) => {
+        const field = record(value);
+        return {
+          name: name.slice(0, 200),
+          title: text(field.title, 500),
+          type: text(field.type, 100),
+          required: field.required === true,
+          multiple: field.multiple === true,
+          readonly: field.readonly === true,
+        };
+      });
+    safe.sort((left, right) => left.name.localeCompare(right.name));
+    return { fields: safe, truncated: false };
   }
 }

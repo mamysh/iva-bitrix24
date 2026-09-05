@@ -4614,7 +4614,7 @@ var require_core = __commonJS({
       errorsText(errors = this.errors, { separator = ", ", dataVar = "data" } = {}) {
         if (!errors || errors.length === 0)
           return "No errors";
-        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text, msg) => text + separator + msg);
+        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text2, msg) => text2 + separator + msg);
       }
       $dataMetaSchema(metaSchema, keywordsJsonPointers) {
         const rules = this.RULES.all;
@@ -19908,8 +19908,8 @@ function ko_default() {
 }
 
 // node_modules/zod/v4/locales/lt.js
-var capitalizeFirstCharacter = (text) => {
-  return text.charAt(0).toUpperCase() + text.slice(1);
+var capitalizeFirstCharacter = (text2) => {
+  return text2.charAt(0).toUpperCase() + text2.slice(1);
 };
 function getUnitTypeFromNumber(number4) {
   const abs = Math.abs(number4);
@@ -34273,33 +34273,33 @@ var ExperimentalServerTasks = class {
 };
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js
-function assertToolsCallTaskCapability(requests, method, entityName) {
+function assertToolsCallTaskCapability(requests, method, entityName2) {
   if (!requests) {
-    throw new Error(`${entityName} does not support task creation (required for ${method})`);
+    throw new Error(`${entityName2} does not support task creation (required for ${method})`);
   }
   switch (method) {
     case "tools/call":
       if (!requests.tools?.call) {
-        throw new Error(`${entityName} does not support task creation for tools/call (required for ${method})`);
+        throw new Error(`${entityName2} does not support task creation for tools/call (required for ${method})`);
       }
       break;
     default:
       break;
   }
 }
-function assertClientRequestTaskCapability(requests, method, entityName) {
+function assertClientRequestTaskCapability(requests, method, entityName2) {
   if (!requests) {
-    throw new Error(`${entityName} does not support task creation (required for ${method})`);
+    throw new Error(`${entityName2} does not support task creation (required for ${method})`);
   }
   switch (method) {
     case "sampling/createMessage":
       if (!requests.sampling?.createMessage) {
-        throw new Error(`${entityName} does not support task creation for sampling/createMessage (required for ${method})`);
+        throw new Error(`${entityName2} does not support task creation for sampling/createMessage (required for ${method})`);
       }
       break;
     case "elicitation/create":
       if (!requests.elicitation?.create) {
-        throw new Error(`${entityName} does not support task creation for elicitation/create (required for ${method})`);
+        throw new Error(`${entityName2} does not support task creation for elicitation/create (required for ${method})`);
       }
       break;
     default:
@@ -35694,6 +35694,12 @@ var defaults = {
   sleep: (milliseconds) => new Promise((resolve2) => setTimeout(resolve2, milliseconds)),
   random: Math.random
 };
+function safeUpstreamCode(value, status) {
+  if (typeof value !== "string") return `HTTP_${status}`;
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "") return `HTTP_${status}`;
+  return /^[A-Z][A-Z0-9_]{1,79}$/u.test(normalized) ? normalized : "UPSTREAM_ERROR";
+}
 async function boundedText(response) {
   const announced = Number(response.headers.get("content-length") ?? "0");
   if (announced > MAX_RESPONSE_BYTES)
@@ -35702,7 +35708,7 @@ async function boundedText(response) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let total = 0;
-  let text = "";
+  let text2 = "";
   for (; ; ) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -35711,9 +35717,9 @@ async function boundedText(response) {
       await reader.cancel();
       throw new BitrixRequestError("RESPONSE_TOO_LARGE");
     }
-    text += decoder.decode(value, { stream: true });
+    text2 += decoder.decode(value, { stream: true });
   }
-  return text + decoder.decode();
+  return text2 + decoder.decode();
 }
 function retryDelay(attempt, random) {
   const base = 250 * 2 ** attempt;
@@ -35737,8 +35743,8 @@ var BitrixClient = class {
     const envelope = await this.#callEnvelope(method, params);
     return {
       result: envelope.result,
-      next: typeof envelope.next === "number" && Number.isInteger(envelope.next) ? envelope.next : null,
-      total: typeof envelope.total === "number" && Number.isInteger(envelope.total) ? envelope.total : null
+      next: typeof envelope.next === "number" && Number.isInteger(envelope.next) && envelope.next >= 0 ? envelope.next : null,
+      total: typeof envelope.total === "number" && Number.isInteger(envelope.total) && envelope.total >= 0 ? envelope.total : null
     };
   }
   async #callEnvelope(method, params) {
@@ -35794,9 +35800,9 @@ var BitrixClient = class {
         retryableStatus
       );
     }
-    const upstreamCode = typeof envelope.error === "string" ? envelope.error : void 0;
-    if (!response.ok || upstreamCode) {
-      const code = upstreamCode || `HTTP_${response.status}`;
+    const hasUpstreamError = typeof envelope.error === "string" ? envelope.error.trim() !== "" : envelope.error !== void 0 && envelope.error !== null;
+    if (!response.ok || hasUpstreamError) {
+      const code = safeUpstreamCode(envelope.error, response.status);
       throw new BitrixRequestError(
         code,
         retryableStatus || RETRYABLE_CODES.has(code)
@@ -35866,7 +35872,10 @@ var LIST_FIELDS = [
   "CREATED_BY",
   "GROUP_ID",
   "PARENT_ID",
-  "MARK"
+  "MARK",
+  "CREATOR",
+  "RESPONSIBLE",
+  "GROUP"
 ];
 var GET_FIELDS = [...LIST_FIELDS, "DESCRIPTION"];
 var TASK_HISTORY_FIELDS = [
@@ -35912,40 +35921,110 @@ var TASK_HISTORY_FIELDS = [
   "ALLOW_CHANGE_DEADLINE",
   "FLOW_ID"
 ];
+function isRecordLike(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 function record2(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+  return isRecordLike(value) ? value : {};
 }
 function pick2(source, upper, camel) {
   return source[camel] ?? source[upper];
 }
-function scalar(value, maxLength = 2e4) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
+function text(value, maxLength) {
   if (typeof value === "string") return value.slice(0, maxLength);
   return null;
 }
+function historyValue(value) {
+  if (typeof value === "string") return value.slice(0, 2e3);
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return null;
+}
+function identifier(value) {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value > 0)
+    return String(value);
+  return typeof value === "string" && /^[1-9]\d*$/u.test(value) ? value : null;
+}
+function integer2(value) {
+  if (typeof value === "number" && Number.isSafeInteger(value)) return value;
+  if (typeof value === "string" && /^-?\d+$/u.test(value)) {
+    const parsed = Number(value);
+    if (Number.isSafeInteger(parsed)) return parsed;
+  }
+  return null;
+}
+function isoDate(value, field, warnings) {
+  if (value === null || value === void 0 || value === "") return null;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(value) && Number.isFinite(Date.parse(value)))
+    return value;
+  warnings.push(`invalid_${field}`);
+  return null;
+}
+var STATUS_NAMES = {
+  2: "pending",
+  3: "in_progress",
+  4: "awaiting_control",
+  5: "completed",
+  6: "deferred"
+};
+var PRIORITY_NAMES = {
+  0: "low",
+  1: "medium",
+  2: "high"
+};
+function entityName(value, expectedId) {
+  if (expectedId === null) return null;
+  const source = record2(value);
+  const embeddedId = identifier(pick2(source, "ID", "id"));
+  if (embeddedId !== null && embeddedId !== expectedId) return null;
+  return text(pick2(source, "NAME", "name"), 300);
+}
 function normalizeTask(value, taskWebUrl, includeDescription = false) {
   const source = record2(value);
-  const id = scalar(pick2(source, "ID", "id"));
+  const warnings = [];
+  const id = identifier(pick2(source, "ID", "id"));
+  const status = integer2(pick2(source, "STATUS", "status"));
+  const priority = integer2(pick2(source, "PRIORITY", "priority"));
+  const rawMark = pick2(source, "MARK", "mark");
+  const mark = rawMark === "N" || rawMark === "P" ? rawMark : null;
+  const responsibleId = identifier(pick2(source, "RESPONSIBLE_ID", "responsibleId"));
+  const createdBy = identifier(pick2(source, "CREATED_BY", "createdBy"));
+  const groupId = identifier(pick2(source, "GROUP_ID", "groupId"));
   return {
     id,
     webUrl: id === null ? null : taskWebUrl(id),
-    title: scalar(pick2(source, "TITLE", "title"), 1e3),
-    status: scalar(pick2(source, "STATUS", "status")),
-    priority: scalar(pick2(source, "PRIORITY", "priority")),
-    deadline: scalar(pick2(source, "DEADLINE", "deadline")),
-    createdDate: scalar(pick2(source, "CREATED_DATE", "createdDate")),
-    changedDate: scalar(pick2(source, "CHANGED_DATE", "changedDate")),
-    closedDate: scalar(pick2(source, "CLOSED_DATE", "closedDate")),
-    responsibleId: scalar(pick2(source, "RESPONSIBLE_ID", "responsibleId")),
-    createdBy: scalar(pick2(source, "CREATED_BY", "createdBy")),
-    groupId: scalar(pick2(source, "GROUP_ID", "groupId")),
-    parentId: scalar(pick2(source, "PARENT_ID", "parentId")),
-    mark: scalar(pick2(source, "MARK", "mark")),
+    title: text(pick2(source, "TITLE", "title"), 1e3),
+    status,
+    statusName: status === null ? "unknown" : STATUS_NAMES[status] ?? "unknown",
+    priority,
+    priorityName: priority === null ? "unknown" : PRIORITY_NAMES[priority] ?? "unknown",
+    deadline: isoDate(pick2(source, "DEADLINE", "deadline"), "deadline", warnings),
+    createdDate: isoDate(
+      pick2(source, "CREATED_DATE", "createdDate"),
+      "created_date",
+      warnings
+    ),
+    changedDate: isoDate(
+      pick2(source, "CHANGED_DATE", "changedDate"),
+      "changed_date",
+      warnings
+    ),
+    closedDate: isoDate(
+      pick2(source, "CLOSED_DATE", "closedDate"),
+      "closed_date",
+      warnings
+    ),
+    responsibleId,
+    responsibleName: entityName(source.responsible, responsibleId),
+    createdBy,
+    createdByName: entityName(source.creator, createdBy),
+    groupId,
+    groupName: entityName(source.group, groupId),
+    parentId: identifier(pick2(source, "PARENT_ID", "parentId")),
+    mark,
+    markName: rawMark === null || rawMark === void 0 || rawMark === "" ? "unrated" : rawMark === "N" ? "negative" : rawMark === "P" ? "positive" : "unknown",
+    ...warnings.length > 0 ? { dataWarnings: warnings } : {},
     ...includeDescription ? {
-      description: scalar(
-        pick2(source, "DESCRIPTION", "description"),
-        2e4
-      )
+      description: text(pick2(source, "DESCRIPTION", "description"), 2e4)
     } : {}
   };
 }
@@ -35961,10 +36040,10 @@ var TaskReader = class {
       connected: true,
       taskScope: true,
       user: {
-        id: scalar(pick2(profile, "ID", "id")),
-        name: scalar(pick2(profile, "NAME", "name"), 200),
-        lastName: scalar(pick2(profile, "LAST_NAME", "lastName"), 200),
-        admin: scalar(pick2(profile, "ADMIN", "admin"))
+        id: identifier(pick2(profile, "ID", "id")),
+        name: text(pick2(profile, "NAME", "name"), 200),
+        lastName: text(pick2(profile, "LAST_NAME", "lastName"), 200),
+        admin: pick2(profile, "ADMIN", "admin") === true || pick2(profile, "ADMIN", "admin") === "Y"
       }
     };
   }
@@ -35979,7 +36058,7 @@ var TaskReader = class {
     } else if (options.responsibleId !== void 0) {
       filter.RESPONSIBLE_ID = options.responsibleId;
     }
-    if (options.status !== void 0) filter.STATUS = options.status;
+    if (options.status !== void 0) filter.REAL_STATUS = options.status;
     if (options.deadlineFrom) filter[">=DEADLINE"] = options.deadlineFrom;
     if (options.deadlineTo) filter["<=DEADLINE"] = options.deadlineTo;
     const page = await this.#client.callPage("tasks.task.list", {
@@ -35989,12 +36068,18 @@ var TaskReader = class {
       start: options.start
     });
     const raw = record2(page.result);
-    const tasks = Array.isArray(raw.tasks) ? raw.tasks : [];
+    if (!Array.isArray(raw.tasks)) throw new BitrixRequestError("INVALID_RESPONSE");
+    const tasks = raw.tasks;
     const hasMoreInFetchedPage = tasks.length > options.limit;
     const nextStart = hasMoreInFetchedPage ? options.start + options.limit : page.next;
+    const selected = tasks.slice(0, options.limit);
+    const normalized = selected.filter(isRecordLike).map((task) => normalizeTask(task, (id) => this.#client.taskWebUrl(id)));
+    const skippedMalformed = selected.length - normalized.length;
     return {
-      tasks: tasks.slice(0, options.limit).map((task) => normalizeTask(task, (id) => this.#client.taskWebUrl(id))),
-      returned: Math.min(tasks.length, options.limit),
+      tasks: normalized,
+      returned: normalized.length,
+      partial: skippedMalformed > 0,
+      skippedMalformed,
       start: options.start,
       nextStart,
       total: page.total,
@@ -36008,6 +36093,7 @@ var TaskReader = class {
         select: GET_FIELDS
       })
     );
+    if (!isRecordLike(raw.task)) throw new BitrixRequestError("INVALID_RESPONSE");
     return {
       task: normalizeTask(
         raw.task,
@@ -36024,29 +36110,37 @@ var TaskReader = class {
       start: options.start
     });
     const raw = record2(page.result);
-    const history = Array.isArray(raw.list) ? raw.list : [];
+    if (!Array.isArray(raw.list)) throw new BitrixRequestError("INVALID_RESPONSE");
+    const history = raw.list;
     const hasMoreInFetchedPage = history.length > options.limit;
     const nextStart = hasMoreInFetchedPage ? options.start + options.limit : page.next;
+    const selected = history.slice(0, options.limit);
+    const normalized = selected.filter(isRecordLike).map((value) => {
+      const source = record2(value);
+      const change = record2(source.value);
+      const user = record2(source.user);
+      const warnings = [];
+      return {
+        id: identifier(source.id),
+        createdDate: isoDate(source.createdDate, "created_date", warnings),
+        field: text(source.field, 100),
+        from: historyValue(change.from),
+        to: historyValue(change.to),
+        actor: {
+          id: identifier(user.id),
+          name: text(user.name, 200),
+          lastName: text(user.lastName, 200),
+          secondName: text(user.secondName, 200)
+        },
+        ...warnings.length > 0 ? { dataWarnings: warnings } : {}
+      };
+    });
+    const skippedMalformed = selected.length - normalized.length;
     return {
-      events: history.slice(0, options.limit).map((value) => {
-        const source = record2(value);
-        const change = record2(source.value);
-        const user = record2(source.user);
-        return {
-          id: scalar(source.id),
-          createdDate: scalar(source.createdDate),
-          field: scalar(source.field, 100),
-          from: scalar(change.from, 2e3),
-          to: scalar(change.to, 2e3),
-          actor: {
-            id: scalar(user.id),
-            name: scalar(user.name, 200),
-            lastName: scalar(user.lastName, 200),
-            secondName: scalar(user.secondName, 200)
-          }
-        };
-      }),
-      returned: Math.min(history.length, options.limit),
+      events: normalized,
+      returned: normalized.length,
+      partial: skippedMalformed > 0,
+      skippedMalformed,
       start: options.start,
       nextStart,
       total: page.total,
@@ -36055,19 +36149,22 @@ var TaskReader = class {
   }
   async taskFields() {
     const raw = record2(await this.#client.call("tasks.task.getFields"));
-    const fields = record2(raw.fields);
-    const safe2 = Object.entries(fields).map(([name, value]) => {
+    if (!isRecordLike(raw.fields)) throw new BitrixRequestError("INVALID_RESPONSE");
+    const fields = raw.fields;
+    const selectedFields = new Set(GET_FIELDS);
+    const safe2 = Object.entries(fields).filter(([name]) => selectedFields.has(name)).map(([name, value]) => {
       const field = record2(value);
       return {
         name: name.slice(0, 200),
-        title: scalar(field.title, 500),
-        type: scalar(field.type, 100),
+        title: text(field.title, 500),
+        type: text(field.type, 100),
         required: field.required === true,
         multiple: field.multiple === true,
         readonly: field.readonly === true
       };
     });
-    return { fields: safe2.slice(0, 500), truncated: safe2.length > 500 };
+    safe2.sort((left, right) => left.name.localeCompare(right.name));
+    return { fields: safe2, truncated: false };
   }
 };
 
@@ -36085,15 +36182,61 @@ function success2(value) {
 }
 function failure(error61) {
   const code = error61 instanceof BitrixRequestError ? error61.code : error61 instanceof Error && /^[A-Z][A-Z0-9_]{2,80}$/u.test(error61.message) ? error61.message : "INTERNAL_ERROR";
+  const details = errorDetails(
+    code,
+    error61 instanceof BitrixRequestError && error61.retryable
+  );
   return {
     isError: true,
     content: [
       {
         type: "text",
-        text: JSON.stringify({ ok: false, error: code })
+        text: JSON.stringify({ ok: false, error: code, ...details })
       }
     ]
   };
+}
+function errorDetails(code, retryable) {
+  if (["NO_AUTH_FOUND", "INVALID_CREDENTIALS", "WRONG_AUTH_TYPE"].includes(code))
+    return {
+      category: "authentication",
+      retryable: false,
+      action: "rotate_webhook"
+    };
+  if (code === "INSUFFICIENT_SCOPE")
+    return {
+      category: "permission",
+      retryable: false,
+      action: "add_required_scope"
+    };
+  if (["ACCESS_DENIED", "ERROR_CORE"].includes(code))
+    return {
+      category: "access",
+      retryable: false,
+      action: "check_user_access"
+    };
+  if ([
+    "QUERY_LIMIT_EXCEEDED",
+    "OPERATION_TIME_LIMIT",
+    "OVERLOAD_LIMIT",
+    "HTTP_429",
+    "HTTP_503"
+  ].includes(code))
+    return { category: "temporary", retryable: true, action: "retry_later" };
+  if (["TIMEOUT", "NETWORK_ERROR"].includes(code))
+    return { category: "network", retryable: true, action: "check_network" };
+  if ([
+    "INVALID_RESPONSE",
+    "RESPONSE_TOO_LARGE",
+    "REDIRECT_REFUSED",
+    "UPSTREAM_ERROR"
+  ].includes(code))
+    return {
+      category: "upstream",
+      retryable: false,
+      action: "inspect_integration"
+    };
+  return { category: "internal", retryable, action: "inspect_plugin" };
 }
 async function safe(run) {
   try {
@@ -36141,7 +36284,7 @@ function registerUpdaterTools(server2, updater) {
   );
 }
 function createMcpServer(reader, updater = null) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.2.0" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.1" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",
@@ -36155,11 +36298,13 @@ function createMcpServer(reader, updater = null) {
   server2.registerTool(
     "bitrix24_list_tasks",
     {
-      description: "List a bounded page of Bitrix24 tasks. Defaults to tasks assigned to the webhook user.",
+      description: "List a bounded normalized page of Bitrix24 tasks. Defaults to tasks assigned to the webhook user and filters by real status.",
       inputSchema: external_exports.object({
         scope: external_exports.enum(["mine", "accessible"]).default("mine"),
         responsibleId: external_exports.number().int().positive().optional(),
-        status: external_exports.number().int().min(1).max(7).optional(),
+        status: external_exports.number().int().min(2).max(6).describe(
+          "Real task status: 2 pending, 3 in progress, 4 awaiting control, 5 completed, 6 deferred."
+        ).optional(),
         deadlineFrom: external_exports.iso.datetime({ offset: true }).optional(),
         deadlineTo: external_exports.iso.datetime({ offset: true }).optional(),
         limit: external_exports.number().int().min(1).max(50).default(20),
@@ -36204,7 +36349,7 @@ function createMcpServer(reader, updater = null) {
   server2.registerTool(
     "bitrix24_task_fields",
     {
-      description: "Read safe metadata for task fields without returning values from any task.",
+      description: "Read safe metadata only for fields exposed by the public task contract, without returning values from any task.",
       inputSchema: external_exports.object({}).strict(),
       annotations: readOnly
     },
@@ -36516,7 +36661,7 @@ var PluginUpdater = class {
 
 // server/src/main.ts
 function unavailableServer(error61, updater) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.2.0" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.1" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",

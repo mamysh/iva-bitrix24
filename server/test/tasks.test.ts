@@ -58,7 +58,7 @@ test("list defaults can be constrained to the webhook user's tasks", async () =>
 
   assert.equal(JSON.stringify(result).includes("must not appear"), false);
   assert.equal(
-    (result as { tasks: Array<{ webUrl: string }> }).tasks[0]?.webUrl,
+    (result as { tasks: ReadonlyArray<{ webUrl: string }> }).tasks[0]?.webUrl,
     "https://example.test/company/personal/user/1/tasks/task/view/7/",
   );
   assert.deepEqual(requests.map(({ method }) => method), [
@@ -69,6 +69,83 @@ test("list defaults can be constrained to the webhook user's tasks", async () =>
     (requests[1]?.body.filter as Record<string, unknown>).RESPONSIBLE_ID,
     "42",
   );
+});
+
+test("normalizes task semantics and embedded display names without extra scopes", async () => {
+  let requestBody: Record<string, unknown> = {};
+  const client = new BitrixClient(config, {
+    fetch: async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return Response.json({
+        result: {
+          tasks: [
+            {
+              id: 7,
+              title: "Synthetic task",
+              status: "3",
+              priority: "2",
+              mark: "P",
+              deadline: "2026-09-10T18:30:00+03:00",
+              createdDate: "not-a-date",
+              responsibleId: "42",
+              responsible: {
+                id: "42",
+                name: "Synthetic Assignee",
+                email: "hidden@example.test",
+              },
+              createdBy: "43",
+              creator: { id: "43", name: "Synthetic Creator" },
+              groupId: "9",
+              group: {
+                id: "9",
+                name: "Synthetic Project",
+                description: "hidden",
+              },
+            },
+          ],
+        },
+      });
+    },
+  });
+
+  const result = (await new TaskReader(client).listTasks({
+    scope: "accessible",
+    status: 3,
+    limit: 20,
+    start: 0,
+    sortBy: "DEADLINE",
+    sortDirection: "asc",
+  })) as { tasks: ReadonlyArray<Record<string, unknown>> };
+
+  assert.deepEqual(requestBody.filter, { REAL_STATUS: 3 });
+  assert.ok((requestBody.select as string[]).includes("RESPONSIBLE"));
+  assert.ok((requestBody.select as string[]).includes("CREATOR"));
+  assert.ok((requestBody.select as string[]).includes("GROUP"));
+  assert.deepEqual(result.tasks[0], {
+    id: "7",
+    webUrl: "https://example.test/company/personal/user/1/tasks/task/view/7/",
+    title: "Synthetic task",
+    status: 3,
+    statusName: "in_progress",
+    priority: 2,
+    priorityName: "high",
+    deadline: "2026-09-10T18:30:00+03:00",
+    createdDate: null,
+    changedDate: null,
+    closedDate: null,
+    responsibleId: "42",
+    responsibleName: "Synthetic Assignee",
+    createdBy: "43",
+    createdByName: "Synthetic Creator",
+    groupId: "9",
+    groupName: "Synthetic Project",
+    parentId: null,
+    mark: "P",
+    markName: "positive",
+    dataWarnings: ["invalid_created_date"],
+  });
+  assert.equal(JSON.stringify(result).includes("hidden@example.test"), false);
+  assert.equal(JSON.stringify(result).includes("hidden"), false);
 });
 
 test("get returns only the normalized allowlisted fields", async () => {
@@ -119,7 +196,7 @@ test("list exposes a cursor without skipping locally trimmed tasks", async () =>
     sortBy: "ID",
     sortDirection: "asc",
   })) as {
-    tasks: unknown[];
+    tasks: readonly unknown[];
     nextStart: number | null;
     total: number | null;
     truncated: boolean;
@@ -129,6 +206,46 @@ test("list exposes a cursor without skipping locally trimmed tasks", async () =>
   assert.equal(result.nextStart, 5);
   assert.equal(result.total, 73);
   assert.equal(result.truncated, true);
+});
+
+test("marks a list partial instead of treating malformed items as tasks", async () => {
+  const client = new BitrixClient(config, {
+    fetch: async (input) => {
+      const method = /\/([^/]+(?:\.[^/]+)*)\.json$/u.exec(String(input))?.[1];
+      if (method === "profile") return Response.json({ result: { ID: "42" } });
+      return Response.json({
+        result: { tasks: [{ id: "1", title: "Valid" }, "malformed"] },
+      });
+    },
+  });
+
+  const result = (await new TaskReader(client).listTasks({
+    scope: "mine",
+    limit: 20,
+    start: 0,
+    sortBy: "ID",
+    sortDirection: "asc",
+  })) as {
+    tasks: readonly unknown[];
+    returned: number;
+    partial: boolean;
+    skippedMalformed: number;
+  };
+  assert.equal(result.tasks.length, 1);
+  assert.equal(result.returned, 1);
+  assert.equal(result.partial, true);
+  assert.equal(result.skippedMalformed, 1);
+});
+
+test("rejects a malformed single-task envelope", async () => {
+  const client = new BitrixClient(config, {
+    fetch: async () => Response.json({ result: { task: null } }),
+  });
+  await assert.rejects(
+    new TaskReader(client).getTask(8),
+    (error: unknown) =>
+      error instanceof Error && error.message.includes("INVALID_RESPONSE"),
+  );
 });
 
 test("history is bounded, paginated and omits the actor login", async () => {
@@ -164,7 +281,7 @@ test("history is bounded, paginated and omits the actor login", async () => {
     start: 0,
     sortDirection: "desc",
   })) as {
-    events: Array<{ actor: Record<string, unknown> }>;
+    events: ReadonlyArray<{ actor: Record<string, unknown> }>;
     nextStart: number | null;
     total: number | null;
     truncated: boolean;
@@ -182,4 +299,29 @@ test("history is bounded, paginated and omits the actor login", async () => {
     order: { createdDate: "desc" },
     start: 0,
   });
+});
+
+test("field metadata is restricted to fields used by the public task contract", async () => {
+  const client = new BitrixClient(config, {
+    fetch: async () =>
+      Response.json({
+        result: {
+          fields: {
+            ID: { title: "ID", type: "integer" },
+            STATUS: { title: "Status", type: "enum" },
+            UF_PRIVATE_PIPELINE: {
+              title: "Internal pipeline",
+              type: "string",
+            },
+          },
+        },
+      }),
+  });
+
+  const result = (await new TaskReader(client).taskFields()) as {
+    fields: ReadonlyArray<{ name: string }>;
+    truncated: boolean;
+  };
+  assert.deepEqual(result.fields.map(({ name }) => name), ["ID", "STATUS"]);
+  assert.equal(result.truncated, false);
 });

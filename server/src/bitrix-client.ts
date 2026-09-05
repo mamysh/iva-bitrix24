@@ -56,6 +56,15 @@ export type BitrixPage = {
   readonly total: number | null;
 };
 
+function safeUpstreamCode(value: unknown, status: number): string {
+  if (typeof value !== "string") return `HTTP_${status}`;
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "") return `HTTP_${status}`;
+  return /^[A-Z][A-Z0-9_]{1,79}$/u.test(normalized)
+    ? normalized
+    : "UPSTREAM_ERROR";
+}
+
 async function boundedText(response: Response): Promise<string> {
   const announced = Number(response.headers.get("content-length") ?? "0");
   if (announced > MAX_RESPONSE_BYTES)
@@ -110,11 +119,15 @@ export class BitrixClient {
     return {
       result: envelope.result,
       next:
-        typeof envelope.next === "number" && Number.isInteger(envelope.next)
+        typeof envelope.next === "number" &&
+        Number.isInteger(envelope.next) &&
+        envelope.next >= 0
           ? envelope.next
           : null,
       total:
-        typeof envelope.total === "number" && Number.isInteger(envelope.total)
+        typeof envelope.total === "number" &&
+        Number.isInteger(envelope.total) &&
+        envelope.total >= 0
           ? envelope.total
           : null,
     };
@@ -191,10 +204,12 @@ export class BitrixClient {
       );
     }
 
-    const upstreamCode =
-      typeof envelope.error === "string" ? envelope.error : undefined;
-    if (!response.ok || upstreamCode) {
-      const code = upstreamCode || `HTTP_${response.status}`;
+    const hasUpstreamError =
+      typeof envelope.error === "string"
+        ? envelope.error.trim() !== ""
+        : envelope.error !== undefined && envelope.error !== null;
+    if (!response.ok || hasUpstreamError) {
+      const code = safeUpstreamCode(envelope.error, response.status);
       throw new BitrixRequestError(
         code,
         retryableStatus || RETRYABLE_CODES.has(code),

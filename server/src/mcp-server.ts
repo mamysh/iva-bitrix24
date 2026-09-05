@@ -42,15 +42,66 @@ function failure(error: unknown) {
       : error instanceof Error && /^[A-Z][A-Z0-9_]{2,80}$/u.test(error.message)
         ? error.message
         : "INTERNAL_ERROR";
+  const details = errorDetails(
+    code,
+    error instanceof BitrixRequestError && error.retryable,
+  );
   return {
     isError: true,
     content: [
       {
         type: "text" as const,
-        text: JSON.stringify({ ok: false, error: code }),
+        text: JSON.stringify({ ok: false, error: code, ...details }),
       },
     ],
   };
+}
+
+function errorDetails(code: string, retryable: boolean) {
+  if (["NO_AUTH_FOUND", "INVALID_CREDENTIALS", "WRONG_AUTH_TYPE"].includes(code))
+    return {
+      category: "authentication",
+      retryable: false,
+      action: "rotate_webhook",
+    };
+  if (code === "INSUFFICIENT_SCOPE")
+    return {
+      category: "permission",
+      retryable: false,
+      action: "add_required_scope",
+    };
+  if (["ACCESS_DENIED", "ERROR_CORE"].includes(code))
+    return {
+      category: "access",
+      retryable: false,
+      action: "check_user_access",
+    };
+  if (
+    [
+      "QUERY_LIMIT_EXCEEDED",
+      "OPERATION_TIME_LIMIT",
+      "OVERLOAD_LIMIT",
+      "HTTP_429",
+      "HTTP_503",
+    ].includes(code)
+  )
+    return { category: "temporary", retryable: true, action: "retry_later" };
+  if (["TIMEOUT", "NETWORK_ERROR"].includes(code))
+    return { category: "network", retryable: true, action: "check_network" };
+  if (
+    [
+      "INVALID_RESPONSE",
+      "RESPONSE_TOO_LARGE",
+      "REDIRECT_REFUSED",
+      "UPSTREAM_ERROR",
+    ].includes(code)
+  )
+    return {
+      category: "upstream",
+      retryable: false,
+      action: "inspect_integration",
+    };
+  return { category: "internal", retryable, action: "inspect_plugin" };
 }
 
 async function safe(run: () => Promise<unknown>) {
@@ -111,7 +162,7 @@ export function createMcpServer(
   reader: TaskReaderPort,
   updater: PluginUpdaterPort | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.2.0" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.1" });
   registerUpdaterTools(server, updater);
 
   server.registerTool(
@@ -129,12 +180,20 @@ export function createMcpServer(
     "bitrix24_list_tasks",
     {
       description:
-        "List a bounded page of Bitrix24 tasks. Defaults to tasks assigned to the webhook user.",
+        "List a bounded normalized page of Bitrix24 tasks. Defaults to tasks assigned to the webhook user and filters by real status.",
       inputSchema: z
         .object({
           scope: z.enum(["mine", "accessible"]).default("mine"),
           responsibleId: z.number().int().positive().optional(),
-          status: z.number().int().min(1).max(7).optional(),
+          status: z
+            .number()
+            .int()
+            .min(2)
+            .max(6)
+            .describe(
+              "Real task status: 2 pending, 3 in progress, 4 awaiting control, 5 completed, 6 deferred.",
+            )
+            .optional(),
           deadlineFrom: z.iso.datetime({ offset: true }).optional(),
           deadlineTo: z.iso.datetime({ offset: true }).optional(),
           limit: z.number().int().min(1).max(50).default(20),
@@ -191,7 +250,7 @@ export function createMcpServer(
     "bitrix24_task_fields",
     {
       description:
-        "Read safe metadata for task fields without returning values from any task.",
+        "Read safe metadata only for fields exposed by the public task contract, without returning values from any task.",
       inputSchema: z.object({}).strict(),
       annotations: readOnly,
     },
