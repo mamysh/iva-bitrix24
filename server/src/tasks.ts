@@ -107,6 +107,10 @@ function integer(value: unknown): number | null {
   return null;
 }
 
+function hasValue(value: unknown): boolean {
+  return value !== null && value !== undefined && value !== "";
+}
+
 function isoDate(value: unknown, field: string, warnings: string[]): string | null {
   if (value === null || value === undefined || value === "") return null;
   if (
@@ -133,11 +137,19 @@ const PRIORITY_NAMES: Readonly<Record<number, string>> = {
   2: "high",
 };
 
-function entityName(value: unknown, expectedId: string | null): string | null {
+function entityName(
+  value: unknown,
+  expectedId: string | null,
+  field: string,
+  warnings: string[],
+): string | null {
   if (expectedId === null) return null;
   const source = record(value);
   const embeddedId = identifier(pick(source, "ID", "id"));
-  if (embeddedId !== null && embeddedId !== expectedId) return null;
+  if (embeddedId !== null && embeddedId !== expectedId) {
+    warnings.push(`${field}_id_mismatch`);
+    return null;
+  }
   return text(pick(source, "NAME", "name"), 300);
 }
 
@@ -173,14 +185,37 @@ function normalizeTask(
 ): NormalizedTask {
   const source = record(value);
   const warnings: string[] = [];
-  const id = identifier(pick(source, "ID", "id"));
-  const status = integer(pick(source, "STATUS", "status"));
-  const priority = integer(pick(source, "PRIORITY", "priority"));
+  const rawId = pick(source, "ID", "id");
+  const rawStatus = pick(source, "STATUS", "status");
+  const rawPriority = pick(source, "PRIORITY", "priority");
+  const rawResponsibleId = pick(source, "RESPONSIBLE_ID", "responsibleId");
+  const rawCreatedBy = pick(source, "CREATED_BY", "createdBy");
+  const rawGroupId = pick(source, "GROUP_ID", "groupId");
+  const rawParentId = pick(source, "PARENT_ID", "parentId");
+  const id = identifier(rawId);
+  const status = integer(rawStatus);
+  const priority = integer(rawPriority);
   const rawMark = pick(source, "MARK", "mark");
   const mark = rawMark === "N" || rawMark === "P" ? rawMark : null;
-  const responsibleId = identifier(pick(source, "RESPONSIBLE_ID", "responsibleId"));
-  const createdBy = identifier(pick(source, "CREATED_BY", "createdBy"));
-  const groupId = identifier(pick(source, "GROUP_ID", "groupId"));
+  const responsibleId = identifier(rawResponsibleId);
+  const createdBy = identifier(rawCreatedBy);
+  const groupId = identifier(rawGroupId);
+  const parentId = identifier(rawParentId);
+  if (hasValue(rawId) && id === null) warnings.push("invalid_id");
+  if (hasValue(rawStatus) && (status === null || STATUS_NAMES[status] === undefined))
+    warnings.push("unknown_status");
+  if (
+    hasValue(rawPriority) &&
+    (priority === null || PRIORITY_NAMES[priority] === undefined)
+  )
+    warnings.push("unknown_priority");
+  if (hasValue(rawMark) && mark === null) warnings.push("unknown_mark");
+  if (hasValue(rawResponsibleId) && responsibleId === null)
+    warnings.push("invalid_responsible_id");
+  if (hasValue(rawCreatedBy) && createdBy === null)
+    warnings.push("invalid_created_by");
+  if (hasValue(rawGroupId) && groupId === null) warnings.push("invalid_group_id");
+  if (hasValue(rawParentId) && parentId === null) warnings.push("invalid_parent_id");
   return {
     id,
     webUrl: id === null ? null : taskWebUrl(id),
@@ -207,12 +242,17 @@ function normalizeTask(
       warnings,
     ),
     responsibleId,
-    responsibleName: entityName(source.responsible, responsibleId),
+    responsibleName: entityName(
+      source.responsible,
+      responsibleId,
+      "responsible",
+      warnings,
+    ),
     createdBy,
-    createdByName: entityName(source.creator, createdBy),
+    createdByName: entityName(source.creator, createdBy, "creator", warnings),
     groupId,
-    groupName: entityName(source.group, groupId),
-    parentId: identifier(pick(source, "PARENT_ID", "parentId")),
+    groupName: entityName(source.group, groupId, "group", warnings),
+    parentId,
     mark,
     markName:
       rawMark === null || rawMark === undefined || rawMark === ""
@@ -254,6 +294,8 @@ export type TaskHistoryOptions = {
 export type ConnectionResult = {
   readonly connected: true;
   readonly taskScope: true;
+  readonly contractVersion: "0.3";
+  readonly apiFamily: "tasks-rest";
   readonly user: {
     readonly id: string | null;
     readonly name: string | null;
@@ -326,6 +368,8 @@ export class TaskReader {
     return {
       connected: true,
       taskScope: true,
+      contractVersion: "0.3",
+      apiFamily: "tasks-rest",
       user: {
         id: identifier(pick(profile, "ID", "id")),
         name: text(pick(profile, "NAME", "name"), 200),

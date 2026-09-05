@@ -211,6 +211,16 @@ export function createMcpServer(
             message: "responsibleId is only valid with scope=accessible",
             path: ["responsibleId"],
           },
+        )
+        .refine(
+          (value) =>
+            value.deadlineFrom === undefined ||
+            value.deadlineTo === undefined ||
+            Date.parse(value.deadlineFrom) <= Date.parse(value.deadlineTo),
+          {
+            message: "deadlineFrom must not be later than deadlineTo",
+            path: ["deadlineTo"],
+          },
         ),
       annotations: readOnly,
     },

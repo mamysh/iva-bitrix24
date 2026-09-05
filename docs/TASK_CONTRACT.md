@@ -3,6 +3,10 @@
 The plugin never forwards a raw Bitrix24 task object. It requests an explicit field set and
 returns a bounded normalized representation.
 
+`bitrix24_connection_check` reports `contractVersion: "0.3"` and
+`apiFamily: "tasks-rest"`, allowing diagnostics to identify this contract without exposing
+the portal or webhook.
+
 ## Task fields
 
 `bitrix24_list_tasks` and `bitrix24_get_task` return:
@@ -55,9 +59,9 @@ If a page contains malformed individual entries, the plugin skips them and retur
 `partial: true` with `skippedMalformed`. A malformed result envelope causes
 `INVALID_RESPONSE`; it is never silently reported as an empty task list.
 
-Invalid date values are replaced with `null` and named in the task's bounded `dataWarnings`
-array. Unknown object fields, profile links, avatar URLs, email addresses and custom task
-fields are discarded.
+Invalid dates and identifiers, unknown enum values and inconsistent embedded entity IDs are
+replaced or ignored and named in the task's bounded `dataWarnings` array. Unknown object
+fields, profile links, avatar URLs, email addresses and custom task fields are discarded.
 
 ## Safe errors
 

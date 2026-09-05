@@ -35952,6 +35952,9 @@ function integer2(value) {
   }
   return null;
 }
+function hasValue(value) {
+  return value !== null && value !== void 0 && value !== "";
+}
 function isoDate(value, field, warnings) {
   if (value === null || value === void 0 || value === "") return null;
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(value) && Number.isFinite(Date.parse(value)))
@@ -35971,24 +35974,47 @@ var PRIORITY_NAMES = {
   1: "medium",
   2: "high"
 };
-function entityName(value, expectedId) {
+function entityName(value, expectedId, field, warnings) {
   if (expectedId === null) return null;
   const source = record2(value);
   const embeddedId = identifier(pick2(source, "ID", "id"));
-  if (embeddedId !== null && embeddedId !== expectedId) return null;
+  if (embeddedId !== null && embeddedId !== expectedId) {
+    warnings.push(`${field}_id_mismatch`);
+    return null;
+  }
   return text(pick2(source, "NAME", "name"), 300);
 }
 function normalizeTask(value, taskWebUrl, includeDescription = false) {
   const source = record2(value);
   const warnings = [];
-  const id = identifier(pick2(source, "ID", "id"));
-  const status = integer2(pick2(source, "STATUS", "status"));
-  const priority = integer2(pick2(source, "PRIORITY", "priority"));
+  const rawId = pick2(source, "ID", "id");
+  const rawStatus = pick2(source, "STATUS", "status");
+  const rawPriority = pick2(source, "PRIORITY", "priority");
+  const rawResponsibleId = pick2(source, "RESPONSIBLE_ID", "responsibleId");
+  const rawCreatedBy = pick2(source, "CREATED_BY", "createdBy");
+  const rawGroupId = pick2(source, "GROUP_ID", "groupId");
+  const rawParentId = pick2(source, "PARENT_ID", "parentId");
+  const id = identifier(rawId);
+  const status = integer2(rawStatus);
+  const priority = integer2(rawPriority);
   const rawMark = pick2(source, "MARK", "mark");
   const mark = rawMark === "N" || rawMark === "P" ? rawMark : null;
-  const responsibleId = identifier(pick2(source, "RESPONSIBLE_ID", "responsibleId"));
-  const createdBy = identifier(pick2(source, "CREATED_BY", "createdBy"));
-  const groupId = identifier(pick2(source, "GROUP_ID", "groupId"));
+  const responsibleId = identifier(rawResponsibleId);
+  const createdBy = identifier(rawCreatedBy);
+  const groupId = identifier(rawGroupId);
+  const parentId = identifier(rawParentId);
+  if (hasValue(rawId) && id === null) warnings.push("invalid_id");
+  if (hasValue(rawStatus) && (status === null || STATUS_NAMES[status] === void 0))
+    warnings.push("unknown_status");
+  if (hasValue(rawPriority) && (priority === null || PRIORITY_NAMES[priority] === void 0))
+    warnings.push("unknown_priority");
+  if (hasValue(rawMark) && mark === null) warnings.push("unknown_mark");
+  if (hasValue(rawResponsibleId) && responsibleId === null)
+    warnings.push("invalid_responsible_id");
+  if (hasValue(rawCreatedBy) && createdBy === null)
+    warnings.push("invalid_created_by");
+  if (hasValue(rawGroupId) && groupId === null) warnings.push("invalid_group_id");
+  if (hasValue(rawParentId) && parentId === null) warnings.push("invalid_parent_id");
   return {
     id,
     webUrl: id === null ? null : taskWebUrl(id),
@@ -36014,12 +36040,17 @@ function normalizeTask(value, taskWebUrl, includeDescription = false) {
       warnings
     ),
     responsibleId,
-    responsibleName: entityName(source.responsible, responsibleId),
+    responsibleName: entityName(
+      source.responsible,
+      responsibleId,
+      "responsible",
+      warnings
+    ),
     createdBy,
-    createdByName: entityName(source.creator, createdBy),
+    createdByName: entityName(source.creator, createdBy, "creator", warnings),
     groupId,
-    groupName: entityName(source.group, groupId),
-    parentId: identifier(pick2(source, "PARENT_ID", "parentId")),
+    groupName: entityName(source.group, groupId, "group", warnings),
+    parentId,
     mark,
     markName: rawMark === null || rawMark === void 0 || rawMark === "" ? "unrated" : rawMark === "N" ? "negative" : rawMark === "P" ? "positive" : "unknown",
     ...warnings.length > 0 ? { dataWarnings: warnings } : {},
@@ -36039,6 +36070,8 @@ var TaskReader = class {
     return {
       connected: true,
       taskScope: true,
+      contractVersion: "0.3",
+      apiFamily: "tasks-rest",
       user: {
         id: identifier(pick2(profile, "ID", "id")),
         name: text(pick2(profile, "NAME", "name"), 200),
@@ -36316,6 +36349,12 @@ function createMcpServer(reader, updater = null) {
         {
           message: "responsibleId is only valid with scope=accessible",
           path: ["responsibleId"]
+        }
+      ).refine(
+        (value) => value.deadlineFrom === void 0 || value.deadlineTo === void 0 || Date.parse(value.deadlineFrom) <= Date.parse(value.deadlineTo),
+        {
+          message: "deadlineFrom must not be later than deadlineTo",
+          path: ["deadlineTo"]
         }
       ),
       annotations: readOnly

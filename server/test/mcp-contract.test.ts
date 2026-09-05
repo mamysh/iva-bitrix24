@@ -84,6 +84,15 @@ test("validates task identifiers and list limits at the MCP boundary", async (t)
   });
   assert.equal(invalidLegacyStatus.isError, true);
 
+  const invalidDeadlineRange = await client.callTool({
+    name: "bitrix24_list_tasks",
+    arguments: {
+      deadlineFrom: "2026-09-07T00:00:00+03:00",
+      deadlineTo: "2026-09-06T00:00:00+03:00",
+    },
+  });
+  assert.equal(invalidDeadlineRange.isError, true);
+
   const invalidHistoryLimit = await client.callTool({
     name: "bitrix24_task_history",
     arguments: { taskId: 1, limit: 51 },

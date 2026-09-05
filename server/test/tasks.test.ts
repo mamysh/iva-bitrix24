@@ -22,7 +22,9 @@ test("connection check verifies both identity and Tasks scope", async () => {
 
   const result = await new TaskReader(client).connectionCheck();
   assert.deepEqual(methods, ["profile", "tasks.task.getFields"]);
-  assert.equal((result as { taskScope: boolean }).taskScope, true);
+  assert.equal(result.taskScope, true);
+  assert.equal(result.contractVersion, "0.3");
+  assert.equal(result.apiFamily, "tasks-rest");
 });
 
 test("list defaults can be constrained to the webhook user's tasks", async () => {
