@@ -50,38 +50,25 @@ Read-only интеграция задач Bitrix24 для [Iva](https://github.c
 
 ## Установка
 
-Клонируйте репозиторий на хост с Iva и добавьте папку `plugin/`:
+На сервере, где уже работает Iva, выполните одну команду под пользователем Iva:
 
 ```bash
-git clone https://github.com/mamysh/iva-bitrix24.git
-cd iva-bitrix24
-iva plugin add "$PWD/plugin"
+curl -fsSL https://raw.githubusercontent.com/mamysh/iva-bitrix24/main/install.sh | bash
 ```
 
-Сначала оставьте плагин в состоянии `enabled · untrusted`. Создайте конфигурацию без секрета
-в истории shell:
+Русскоязычный мастер установит плагин через штатный CLI Iva, объяснит, как подготовить
+входящий webhook Bitrix24, примет его скрытым вводом через терминал, проверит доступ к профилю
+и задачам и только после подтверждения запустит MCP-процесс. В конце мастер подскажет точную
+фразу для продолжения настройки с Ивой в Telegram.
+
+Установить плагин без мастера можно напрямую через официальный plugin flow Iva:
 
 ```bash
-install -m 600 /dev/null data/custom/plugins/bitrix24-read.env
-${EDITOR:-vi} data/custom/plugins/bitrix24-read.env
+iva plugin add mamysh/iva-bitrix24/plugin
 ```
 
-Добавьте в редакторе:
-
-```dotenv
-BITRIX24_WEBHOOK_BASE_URL=https://example.bitrix24.com/rest/USER_ID/WEBHOOK_SECRET
-```
-
-Затем разрешите запуск и проверьте состояние:
-
-```bash
-iva plugin trust bitrix24-read
-iva plugin list
-iva doctor
-```
-
-Не вставляйте webhook в командную строку, чат, issue или лог. Подробная установка, первый
-тест, ротация и удаление описаны в [docs/SETUP.md](docs/SETUP.md).
+Не вставляйте webhook в командную строку, Telegram, issue или лог. Подробности, прозрачный
+ручной fallback, первый тест, ротация и удаление описаны в [docs/SETUP.md](docs/SETUP.md).
 
 ## Разработка
 

@@ -11,24 +11,37 @@
 Администраторские права не требуются и не рекомендуются: REST API видит задачи в пределах
 прав пользователя, создавшего webhook.
 
-## 2. Установите плагин
+## 2. Рекомендуемая установка одной командой
 
-Требуется Iva `0.3.34` или новее. Клонируйте проект на тот же хост и добавьте installable
-директорию `plugin/`:
+Требуется Iva `0.3.34` или новее. Подключитесь к серверу по SSH под тем Unix-пользователем,
+которому принадлежит установка Iva, и выполните:
 
 ```bash
-git clone https://github.com/mamysh/iva-bitrix24.git
-cd iva-bitrix24
-iva plugin add "$PWD/plugin"
-iva plugin list
+curl -fsSL https://raw.githubusercontent.com/mamysh/iva-bitrix24/main/install.sh | bash
+```
+
+Мастер использует `/dev/tty`, поэтому остаётся интерактивным внутри pipe. Он:
+
+1. добавляет `mamysh/iva-bitrix24/plugin` через штатный `iva plugin add` без trust;
+2. объясняет, какой входящий webhook создать;
+3. принимает URL скрыто, проверяет `profile` и `tasks.task.getFields`;
+4. атомарно сохраняет `data/custom/plugins/bitrix24-read.env` с правами `0600`;
+5. после явного подтверждения выполняет `iva plugin trust bitrix24-read` и `iva doctor`;
+6. предлагает вернуться в Telegram и написать Иве: «Проверь подключение к Bitrix24».
+
+Не запускайте мастер от `root`: он должен работать с теми же файлами и systemd user units,
+что и Iva.
+
+## 3. Прозрачный ручной fallback
+
+Если bootstrap недоступен, установите подпапку плагина напрямую без клонирования репозитория:
+
+```bash
+iva plugin add mamysh/iva-bitrix24/plugin
 ```
 
 После добавления ожидается состояние `enabled · untrusted`. Не включайте trust до создания
-env-файла.
-
-## 3. Сохраните webhook без следов в shell history
-
-Из корня установки Iva создайте пустой файл с закрытыми правами и откройте его редактором:
+env-файла. Из корня установки Iva создайте пустой файл с закрытыми правами:
 
 ```bash
 install -m 600 /dev/null data/custom/plugins/bitrix24-read.env
@@ -50,7 +63,7 @@ stat -c '%a %n' data/custom/plugins/bitrix24-read.env
 
 Ожидаемые права — `600`.
 
-## 4. Разрешите запуск
+## 4. Разрешите запуск при ручной установке
 
 Все команды жизненного цикла выполняйте под тем Unix-пользователем, которому принадлежит
 установка Iva:

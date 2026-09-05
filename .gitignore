@@ -12,6 +12,7 @@ coverage/
 .dev.vars.*
 *.pem
 *.key
+/PRIVATE_PLAN.md
 
 # Logs and local output
 *.log
