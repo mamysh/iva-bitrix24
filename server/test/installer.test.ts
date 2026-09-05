@@ -71,6 +71,27 @@ test("maps authorization errors without echoing the webhook", async () => {
     },
   );
 
+  let calls = 0;
+  await assert.rejects(
+    probeWebhook(secret, {
+      fetchImpl: async () => {
+        calls += 1;
+        return calls === 1
+          ? new Response(JSON.stringify({ result: {} }), { status: 200 })
+          : new Response(JSON.stringify({ error: "insufficient_scope" }), {
+              status: 403,
+            });
+      },
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof InstallerError);
+      assert.equal(error.code, "INSUFFICIENT_SCOPE");
+      assert.match(error.message, /Задачи.*task.*Ресурсы разработчика/u);
+      assert.equal(error.message.includes(secret), false);
+      return true;
+    },
+  );
+
   await assert.rejects(
     probeWebhook(secret, {
       fetchImpl: async () =>

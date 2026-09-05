@@ -99,7 +99,7 @@ function upstreamMessage(code: string, method: string): string {
   if (code === "ACCESS_DENIED" || code === "INSUFFICIENT_SCOPE") {
     return method === "profile"
       ? "Webhook принят, но у его пользователя недостаточно прав."
-      : "Webhook работает, но ему не выдан доступ к задачам. Добавьте право «Задачи» в Bitrix24.";
+      : "Webhook работает, но ему не выдан scope «Задачи» (task). Откройте Приложения → Ресурсы разработчика → Интеграции, отредактируйте webhook и добавьте «Задачи» на шаге «Права доступа».";
   }
   if (code === "QUERY_LIMIT_EXCEEDED" || code === "OPERATION_TIME_LIMIT") {
     return "Bitrix24 временно ограничил запросы. Подождите минуту и повторите установку.";
@@ -143,7 +143,9 @@ async function call(
   }
   const envelope = await boundedJson(response);
   const rawCode = typeof envelope.error === "string" ? envelope.error : undefined;
-  const code = rawCode && /^[A-Z0-9_]{1,80}$/u.test(rawCode) ? rawCode : undefined;
+  const safeCode =
+    rawCode && /^[A-Za-z0-9_.-]{1,80}$/u.test(rawCode) ? rawCode : undefined;
+  const code = safeCode?.toUpperCase();
   if (!response.ok || rawCode) {
     throw new InstallerError(
       code ?? (response.ok ? "UPSTREAM_ERROR" : `HTTP_${response.status}`),

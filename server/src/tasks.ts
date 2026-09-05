@@ -162,8 +162,10 @@ export class TaskReader {
 
   async connectionCheck(): Promise<unknown> {
     const profile = record(await this.#client.call("profile"));
+    await this.#client.call("tasks.task.getFields");
     return {
       connected: true,
+      taskScope: true,
       user: {
         id: scalar(pick(profile, "ID", "id")),
         name: scalar(pick(profile, "NAME", "name"), 200),

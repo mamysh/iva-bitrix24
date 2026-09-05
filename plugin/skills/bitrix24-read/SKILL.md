@@ -44,6 +44,29 @@ Status codes are: 1 new, 2 pending, 3 in progress, 4 awaiting the creator's cont
 `deadlineTo` and query relevant open statuses; a deadline filter alone does not exclude
 completed tasks.
 
+## Permission guidance
+
+When Bitrix24 returns `INSUFFICIENT_SCOPE` or `insufficient_scope`, explain this exact path:
+
+1. In Bitrix24 open **Applications → Developer resources → Integrations**.
+2. Find the webhook, open its menu (≡) and choose edit.
+3. At **Assign permissions**, add **Tasks** (scope `task`) and save.
+4. Run the installer again in the server terminal because editing a webhook may change its
+   secret, then return to Telegram.
+
+Warn that when an administrator edits another user's webhook, Bitrix24 resets the secret and
+transfers webhook ownership to that administrator. Never ask the owner to paste the new URL
+in chat.
+
+Do not confuse a scope error with an employee permission error. `ACCESS_DENIED` means the
+webhook may already have scope `task`, while the employee who created it cannot see or perform
+the requested action on that particular task. In that case, explain that task access must be
+changed in Bitrix24 or the integration must use a dedicated employee with the intended rights;
+adding more REST scopes does not fix employee permissions.
+
+Recommend only the scopes required by an enabled capability. Never suggest selecting every
+permission.
+
 ## Hard boundary
 
 This plugin exposes reading only. It cannot create, change, complete, delegate, comment on or

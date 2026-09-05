@@ -8,6 +8,23 @@ const config = loadConfig({
   BITRIX24_WEBHOOK_BASE_URL: "https://example.test/rest/1/secret",
 });
 
+test("connection check verifies both identity and Tasks scope", async () => {
+  const methods: string[] = [];
+  const client = new BitrixClient(config, {
+    fetch: async (input) => {
+      const method = /\/([^/]+(?:\.[^/]+)*)\.json$/u.exec(String(input))?.[1] ?? "";
+      methods.push(method);
+      return method === "profile"
+        ? Response.json({ result: { ID: "42", NAME: "Synthetic" } })
+        : Response.json({ result: { fields: {} } });
+    },
+  });
+
+  const result = await new TaskReader(client).connectionCheck();
+  assert.deepEqual(methods, ["profile", "tasks.task.getFields"]);
+  assert.equal((result as { taskScope: boolean }).taskScope, true);
+});
+
 test("list defaults can be constrained to the webhook user's tasks", async () => {
   const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
   const client = new BitrixClient(config, {

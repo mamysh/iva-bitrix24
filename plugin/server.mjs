@@ -35956,8 +35956,10 @@ var TaskReader = class {
   }
   async connectionCheck() {
     const profile = record2(await this.#client.call("profile"));
+    await this.#client.call("tasks.task.getFields");
     return {
       connected: true,
+      taskScope: true,
       user: {
         id: scalar(pick2(profile, "ID", "id")),
         name: scalar(pick2(profile, "NAME", "name"), 200),
@@ -36105,7 +36107,7 @@ function createMcpServer(reader) {
   server2.registerTool(
     "bitrix24_connection_check",
     {
-      description: "Check the configured Bitrix24 webhook with the read-only profile method.",
+      description: "Check the configured Bitrix24 webhook, current user and Tasks scope with read-only methods.",
       inputSchema: external_exports.object({}).strict(),
       annotations: readOnly
     },

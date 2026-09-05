@@ -57,7 +57,7 @@ export function createMcpServer(reader: TaskReaderPort): McpServer {
     "bitrix24_connection_check",
     {
       description:
-        "Check the configured Bitrix24 webhook with the read-only profile method.",
+        "Check the configured Bitrix24 webhook, current user and Tasks scope with read-only methods.",
       inputSchema: z.object({}).strict(),
       annotations: readOnly,
     },

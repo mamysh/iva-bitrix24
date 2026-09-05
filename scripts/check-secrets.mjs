@@ -51,6 +51,11 @@ function isPlaceholder(value) {
   );
 }
 
+const publicBitrixDocumentationHosts = new Set([
+  "helpdesk.bitrix24.com",
+  "apidocs.bitrix24.com",
+]);
+
 function inspect(label, source, findings) {
   for (const rule of rules) {
     rule.pattern.lastIndex = 0;
@@ -66,7 +71,11 @@ function inspect(label, source, findings) {
     } catch {
       continue;
     }
-    if (/bitrix24/iu.test(url.hostname) && !isPlaceholder(url.hostname)) {
+    if (
+      /bitrix24/iu.test(url.hostname) &&
+      !isPlaceholder(url.hostname) &&
+      !publicBitrixDocumentationHosts.has(url.hostname.toLowerCase())
+    ) {
       findings.add(`${label}: non-example Bitrix24 hostname`);
     }
     if (url.username || url.password) {
