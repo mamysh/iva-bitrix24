@@ -1,0 +1,25 @@
+# Dependencies and build caches
+node_modules/
+.wrangler/
+coverage/
+.cache/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.pem
+*.key
+
+# Logs and local output
+*.log
+tmp/
+dist/
+server/bundle/
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/

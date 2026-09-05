@@ -1,0 +1,28 @@
+name: Feature request
+description: Propose a narrowly scoped capability
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: Describe the user outcome without private portal data.
+    validations:
+      required: true
+  - type: textarea
+    id: permissions
+    attributes:
+      label: Permission and privacy impact
+      description: Which Bitrix24 methods, scopes and returned fields would be required?
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundary
+    attributes:
+      label: Read-only boundary
+      options:
+        - label: This proposal does not add a generic REST-call tool.
+          required: true
+        - label: The example contains no real webhook, portal or task data.
+          required: true

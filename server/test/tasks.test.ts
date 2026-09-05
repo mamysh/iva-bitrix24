@@ -1,0 +1,168 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { BitrixClient } from "../src/bitrix-client.ts";
+import { loadConfig } from "../src/config.ts";
+import { TaskReader } from "../src/tasks.ts";
+
+const config = loadConfig({
+  BITRIX24_WEBHOOK_BASE_URL: "https://example.test/rest/1/secret",
+});
+
+test("list defaults can be constrained to the webhook user's tasks", async () => {
+  const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
+  const client = new BitrixClient(config, {
+    fetch: async (input, init) => {
+      const method = /\/([^/]+(?:\.[^/]+)*)\.json$/u.exec(String(input))?.[1] ?? "";
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      requests.push({ method, body });
+      if (method === "profile") return Response.json({ result: { ID: "42" } });
+      return Response.json({
+        result: {
+          tasks: [
+            {
+              id: "7",
+              title: "Synthetic task",
+              description: "must not appear in list output",
+              responsibleId: "42",
+            },
+          ],
+        },
+      });
+    },
+  });
+
+  const result = await new TaskReader(client).listTasks({
+    scope: "mine",
+    limit: 20,
+    start: 0,
+    sortBy: "DEADLINE",
+    sortDirection: "asc",
+  });
+
+  assert.equal(JSON.stringify(result).includes("must not appear"), false);
+  assert.equal(
+    (result as { tasks: Array<{ webUrl: string }> }).tasks[0]?.webUrl,
+    "https://example.test/company/personal/user/1/tasks/task/view/7/",
+  );
+  assert.deepEqual(requests.map(({ method }) => method), [
+    "profile",
+    "tasks.task.list",
+  ]);
+  assert.deepEqual(
+    (requests[1]?.body.filter as Record<string, unknown>).RESPONSIBLE_ID,
+    "42",
+  );
+});
+
+test("get returns only the normalized allowlisted fields", async () => {
+  const client = new BitrixClient(config, {
+    fetch: async () =>
+      Response.json({
+        result: {
+          task: {
+            id: "8",
+            title: "Synthetic detail",
+            description: "Safe synthetic description",
+            email: "private@example.test",
+          },
+        },
+      }),
+  });
+  const result = await new TaskReader(client).getTask(8);
+  assert.equal(JSON.stringify(result).includes("private@example.test"), false);
+  assert.equal(JSON.stringify(result).includes("Safe synthetic description"), true);
+  assert.equal(
+    (result as { task: { webUrl: string } }).task.webUrl,
+    "https://example.test/company/personal/user/1/tasks/task/view/8/",
+  );
+});
+
+test("list exposes a cursor without skipping locally trimmed tasks", async () => {
+  const client = new BitrixClient(config, {
+    fetch: async (input) => {
+      const method = /\/([^/]+(?:\.[^/]+)*)\.json$/u.exec(String(input))?.[1];
+      if (method === "profile") return Response.json({ result: { ID: "42" } });
+      return Response.json({
+        result: {
+          tasks: Array.from({ length: 10 }, (_, index) => ({
+            id: String(index + 1),
+            title: `Synthetic ${index + 1}`,
+          })),
+        },
+        next: 50,
+        total: 73,
+      });
+    },
+  });
+
+  const result = (await new TaskReader(client).listTasks({
+    scope: "mine",
+    limit: 5,
+    start: 0,
+    sortBy: "ID",
+    sortDirection: "asc",
+  })) as {
+    tasks: unknown[];
+    nextStart: number | null;
+    total: number | null;
+    truncated: boolean;
+  };
+
+  assert.equal(result.tasks.length, 5);
+  assert.equal(result.nextStart, 5);
+  assert.equal(result.total, 73);
+  assert.equal(result.truncated, true);
+});
+
+test("history is bounded, paginated and omits the actor login", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const client = new BitrixClient(config, {
+    fetch: async (_input, init) => {
+      requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return Response.json({
+        result: {
+          list: Array.from({ length: 4 }, (_, index) => ({
+            id: index + 1,
+            createdDate: "2026-09-05T12:00:00+03:00",
+            field: "DEADLINE",
+            value: { from: "old", to: "new" },
+            user: {
+              id: 42,
+              name: "Synthetic",
+              lastName: "Actor",
+              login: "private@example.test",
+            },
+          })),
+        },
+        next: 50,
+        total: 72,
+      });
+    },
+  });
+
+  const result = (await new TaskReader(client).taskHistory({
+    taskId: 8,
+    event: "DEADLINE",
+    limit: 2,
+    start: 0,
+    sortDirection: "desc",
+  })) as {
+    events: Array<{ actor: Record<string, unknown> }>;
+    nextStart: number | null;
+    total: number | null;
+    truncated: boolean;
+  };
+
+  assert.equal(result.events.length, 2);
+  assert.equal(Object.hasOwn(result.events[0]?.actor ?? {}, "login"), false);
+  assert.equal(JSON.stringify(result).includes("private@example.test"), false);
+  assert.equal(result.nextStart, 2);
+  assert.equal(result.total, 72);
+  assert.equal(result.truncated, true);
+  assert.deepEqual(requests[0], {
+    taskId: 8,
+    filter: { FIELD: "DEADLINE" },
+    order: { createdDate: "desc" },
+    start: 0,
+  });
+});

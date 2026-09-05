@@ -1,0 +1,42 @@
+{
+  "name": "iva-bitrix24",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only Bitrix24 tasks plugin for Iva over MCP.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mamysh/iva-bitrix24.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mamysh/iva-bitrix24/issues"
+  },
+  "homepage": "https://github.com/mamysh/iva-bitrix24#readme",
+  "keywords": [
+    "iva",
+    "bitrix24",
+    "mcp",
+    "agent-plugin",
+    "read-only"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check:bundle": "node scripts/check-bundle.mjs",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "smoke:live": "node scripts/smoke-live.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test server/test/*.test.ts",
+    "check": "npm run check:secrets && npm run typecheck && npm test && npm run build && npm run check:bundle"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@types/node": "26.4.1",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2",
+    "zod": "4.5.4"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
