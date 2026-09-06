@@ -8,6 +8,12 @@ import { PluginUpdater, type UpdaterOperations } from "../src/plugin-updater.ts"
 const OLD = "1".repeat(40);
 const NEW = "2".repeat(40);
 
+type TestCall = {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly environment?: Readonly<Record<string, string>>;
+};
+
 async function world(
   t: TestContext,
   source = "mamysh/iva-bitrix24/plugin",
@@ -39,14 +45,14 @@ async function world(
 }
 
 function operations(
-  calls: { command: string; args: readonly string[] }[],
+  calls: TestCall[],
   remote = NEW,
 ): Partial<UpdaterOperations> {
   return {
     now: () => new Date("2026-09-05T15:00:00.000Z"),
     token: () => "ABC123",
-    exec: async (command, args) => {
-      calls.push({ command, args });
+    exec: async (command, args, environment) => {
+      calls.push({ command, args, ...(environment ? { environment } : {}) });
       return command === "git"
         ? { stdout: `${remote}\tHEAD\n`, stderr: "" }
         : { stdout: "Running as unit test.service\n", stderr: "" };
@@ -61,7 +67,7 @@ function operations(
 
 test("checks the recorded Git source and creates a bounded confirmed offer", async (t) => {
   const paths = await world(t);
-  const calls: { command: string; args: readonly string[] }[] = [];
+  const calls: TestCall[] = [];
   const updater = new PluginUpdater(
     { PLUGIN_ROOT: paths.root, PLUGIN_DATA: paths.pluginData },
     operations(calls),
@@ -96,7 +102,7 @@ test("refuses chat updates for a local folder source", async (t) => {
 
 test("starts only the exact fresh offer in a transient systemd unit", async (t) => {
   const paths = await world(t);
-  const calls: { command: string; args: readonly string[] }[] = [];
+  const calls: TestCall[] = [];
   const updater = new PluginUpdater(
     { PLUGIN_ROOT: paths.root, PLUGIN_DATA: paths.pluginData },
     operations(calls),
@@ -114,6 +120,12 @@ test("starts only the exact fresh offer in a transient systemd unit", async (t) 
   const launch = calls.find(({ command }) => command === "systemd-run");
   assert.ok(launch);
   assert.ok(launch.args.includes("--user"));
+  assert.ok(launch.args.includes("--no-block"));
+  assert.match(launch.environment?.XDG_RUNTIME_DIR ?? "", /^\/run\/user\/\d+$/u);
+  assert.match(
+    launch.environment?.DBUS_SESSION_BUS_ADDRESS ?? "",
+    /^unix:path=\/run\/user\/\d+\/bus$/u,
+  );
   const jobs = join(paths.pluginData, "update-jobs");
   const jobName = `${started.jobId}.json`;
   const job = JSON.parse(await readFile(join(jobs, jobName), "utf8"));
@@ -128,6 +140,35 @@ test("starts only the exact fresh offer in a transient systemd unit", async (t) 
   );
 });
 
+test("normalizes a user-systemd launch failure and releases its lock", async (t) => {
+  const paths = await world(t);
+  const calls: TestCall[] = [];
+  const base = operations(calls);
+  const baseExec = base.exec!;
+  const updater = new PluginUpdater(
+    { PLUGIN_ROOT: paths.root, PLUGIN_DATA: paths.pluginData },
+    {
+      ...base,
+      exec: async (command, args, environment) => {
+        if (command === "systemd-run") throw new Error("unsafe bus details");
+        return baseExec(command, args, environment);
+      },
+    },
+  );
+  await updater.check();
+  await assert.rejects(
+    updater.apply({
+      candidateSha: NEW,
+      confirmation: `ОБНОВИТЬ ${NEW.slice(0, 12)}`,
+    }),
+    /UPDATE_WORKER_LAUNCH_FAILED/u,
+  );
+  await assert.rejects(
+    readFile(join(paths.pluginData, "update.lock")),
+    /ENOENT/u,
+  );
+});
+
 test("reports current without creating an update offer", async (t) => {
   const paths = await world(t);
   const updater = new PluginUpdater(
@@ -136,6 +177,58 @@ test("reports current without creating an update offer", async (t) => {
   );
   const result = (await updater.check()) as Record<string, unknown>;
   assert.equal(result.state, "current");
+});
+
+test("reports a stale terminal job as superseded by current plugin state", async (t) => {
+  const paths = await world(t);
+  const jobs = join(paths.pluginData, "update-jobs");
+  await mkdir(jobs, { recursive: true });
+  await writeFile(
+    join(jobs, "100-test.json"),
+    JSON.stringify({
+      id: "100-test",
+      status: "failed",
+      installedSha: NEW,
+      expectedSha: NEW,
+      message: "old result",
+    }),
+  );
+  const updater = new PluginUpdater(
+    { PLUGIN_ROOT: paths.root, PLUGIN_DATA: paths.pluginData },
+    operations([]),
+  );
+
+  const result = (await updater.status()) as Record<string, unknown>;
+  assert.equal(result.status, "superseded");
+  assert.equal(result.previousStatus, "failed");
+  assert.equal(result.currentSha, OLD);
+  assert.equal(String(result.message).includes("old result"), false);
+});
+
+test("reports a queued job that never started as stalled", async (t) => {
+  const paths = await world(t);
+  const jobs = join(paths.pluginData, "update-jobs");
+  await mkdir(jobs, { recursive: true });
+  await writeFile(
+    join(jobs, "100-test.json"),
+    JSON.stringify({
+      id: "100-test",
+      status: "queued",
+      createdAt: "2026-09-05T14:57:00.000Z",
+      previousSha: OLD,
+      expectedSha: NEW,
+      message: "queued",
+    }),
+  );
+  const updater = new PluginUpdater(
+    { PLUGIN_ROOT: paths.root, PLUGIN_DATA: paths.pluginData },
+    operations([]),
+  );
+
+  const result = (await updater.status()) as Record<string, unknown>;
+  assert.equal(result.status, "stalled");
+  assert.equal(result.previousStatus, "queued");
+  assert.equal(String(result.message).includes("shell"), true);
 });
 
 test("rechecks a moving remote ref immediately before apply", async (t) => {

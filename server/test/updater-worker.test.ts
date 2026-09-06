@@ -14,18 +14,18 @@ async function fixture(
 ) {
   const root = await mkdtemp(join(tmpdir(), "iva-bitrix24-worker-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const bin = join(root, "bin");
+  const bin = join(root, ".local", "bin");
   const statePath = join(root, "plugins.json");
   const counter = join(root, "doctor-count");
   const lockPath = join(root, "update.lock");
   const jobPath = join(root, "job.json");
-  await mkdir(bin);
+  await mkdir(bin, { recursive: true });
   await writeFile(lockPath, "locked\n", { mode: 0o600 });
   await writeFile(
     statePath,
     JSON.stringify({ plugins: [{ name: "bitrix24-read", sha: OLD }] }),
   );
-  const fake = `#!/usr/bin/env node
+  const fake = `#!${process.execPath}
 const fs = require("node:fs");
 const [a,b,c] = process.argv.slice(2);
 const statePath = process.env.TEST_STATE;
@@ -67,7 +67,9 @@ process.exit(2);
     encoding: "utf8",
     env: {
       ...process.env,
-      PATH: `${bin}:${process.env.PATH || ""}`,
+      HOME: root,
+      PATH: process.env.PATH || "/usr/bin:/bin",
+      IVA_BITRIX24_WORKER_DELAY_MS: "0",
       TEST_STATE: statePath,
       TEST_NEW: NEW,
       TEST_COUNTER: counter,
@@ -91,6 +93,8 @@ test("worker restores the previous SHA when doctor fails", async (t) => {
   assert.equal(done.job.status, "rolled_back");
   assert.equal(done.job.rollbackStatus, "succeeded");
   assert.equal(done.job.installedSha, OLD);
+  assert.equal(done.job.failureStage, "iva_doctor");
+  assert.equal(done.job.failureCode, "IVA_CLI_FAILED");
   await assert.rejects(readFile(done.lockPath), /ENOENT/u);
 });
 
@@ -100,5 +104,7 @@ test("worker leaves the previous version installed when update fails before movi
   assert.equal(done.job.status, "failed");
   assert.equal(done.job.rollbackStatus, "not_needed");
   assert.equal(done.job.installedSha, OLD);
+  assert.equal(done.job.failureStage, "plugin_update");
+  assert.equal(done.job.failureCode, "IVA_CLI_FAILED");
   await assert.rejects(readFile(done.lockPath), /ENOENT/u);
 });

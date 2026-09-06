@@ -5,13 +5,26 @@
 import { execFileSync } from "node:child_process";
 import { chmod, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+var IVA_CLI = join(homedir(), ".local", "bin", "iva");
+var START_DELAY_MS = process.env.IVA_BITRIX24_WORKER_DELAY_MS === "0" ? 0 : 5e3;
 function run(args) {
-  execFileSync("iva", args, {
-    stdio: "pipe",
-    timeout: 20 * 60 * 1e3,
-    maxBuffer: 2e6,
-    env: process.env
-  });
+  try {
+    execFileSync(IVA_CLI, args, {
+      stdio: "pipe",
+      timeout: 20 * 60 * 1e3,
+      maxBuffer: 2e6,
+      env: process.env
+    });
+  } catch (error) {
+    const failure = error;
+    if (failure.code === "ENOENT") throw new Error("IVA_CLI_NOT_FOUND");
+    if (failure.code === "ETIMEDOUT" || failure.signal === "SIGTERM")
+      throw new Error("IVA_CLI_TIMEOUT");
+    throw new Error("IVA_CLI_FAILED");
+  }
 }
 async function save(path, job2) {
   const temporary = `${path}.${randomBytes(5).toString("hex")}.tmp`;
@@ -44,19 +57,25 @@ var jobPath = process.argv[2];
 if (!jobPath) process.exit(2);
 var job = JSON.parse(await readFile(jobPath, "utf8"));
 try {
+  await delay(START_DELAY_MS);
   job.status = "running";
   job.startedAt = (/* @__PURE__ */ new Date()).toISOString();
   await save(jobPath, job);
+  let stage = "plugin_update";
   try {
     run(["plugin", "update", job.pluginName]);
+    stage = "sha_verification";
     const sha = await installedSha(job);
-    if (sha !== job.expectedSha) throw new Error("installed SHA does not match the checked candidate");
+    if (sha !== job.expectedSha) throw new Error("SHA_MISMATCH");
+    stage = "iva_doctor";
     run(["doctor"]);
     job.status = "succeeded";
     job.installedSha = sha;
     job.message = "\u041F\u043B\u0430\u0433\u0438\u043D \u043E\u0431\u043D\u043E\u0432\u043B\u0451\u043D, \u0448\u0442\u0430\u0442\u043D\u0430\u044F \u0434\u0438\u0430\u0433\u043D\u043E\u0441\u0442\u0438\u043A\u0430 Iva \u043F\u0440\u043E\u0448\u043B\u0430.";
-  } catch {
+  } catch (error) {
     job.status = "failed";
+    job.failureStage = stage;
+    job.failureCode = error instanceof Error && /^[A-Z][A-Z0-9_]{2,80}$/u.test(error.message) ? error.message : "UPDATE_STEP_FAILED";
     const current = await installedSha(job);
     job.installedSha = current;
     if (current === job.expectedSha) {

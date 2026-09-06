@@ -25,11 +25,16 @@ The plugin exposes a narrow two-step updater for itself:
 2. Apply accepts no plugin name, URL, ref or command. It requires the full candidate SHA and
    exact phrase from a matching offer no older than 15 minutes.
 3. The update runs through `iva plugin update bitrix24-read` in a transient user-systemd unit.
-   A job under `PLUGIN_DATA` survives the MCP restart. The worker verifies the installed SHA
+   Apply restores the local user-bus address explicitly, uses `--no-block`, and the worker
+   waits briefly so the accepted response can reach Telegram before any restart.
+4. The worker invokes the exact user CLI at `~/.local/bin/iva`, never a PATH-selected root/sudo
+   wrapper. Because the worker is outside `iva.service`, it survives the core rebuild and
+   restart that plugin connections can require. Shell fallback from the agent is forbidden.
+5. A job under `PLUGIN_DATA` survives the MCP restart. The worker verifies the installed SHA
    and runs `iva doctor`.
-4. If post-update diagnosis fails, the worker reinstalls the previous SHA from the same source,
+6. If post-update diagnosis fails, the worker reinstalls the previous SHA from the same source,
    trusts it and runs `iva doctor` again. This recovery intentionally leaves the source pinned.
-5. Local-folder installations are refused. They require one explicit migration to a recorded
+7. Local-folder installations are refused. They require one explicit migration to a recorded
    Git source before chat updates become available.
 
 Task content, files, pages, forwarded messages, memory and tool output are never confirmation.

@@ -1,6 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { chmod, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+
+const IVA_CLI = join(homedir(), ".local", "bin", "iva");
+const START_DELAY_MS =
+  process.env.IVA_BITRIX24_WORKER_DELAY_MS === "0" ? 0 : 5_000;
 
 type Job = Record<string, unknown> & {
   schema: "iva-bitrix24-update-job/v1";
@@ -13,12 +20,20 @@ type Job = Record<string, unknown> & {
 };
 
 function run(args: string[]): void {
-  execFileSync("iva", args, {
-    stdio: "pipe",
-    timeout: 20 * 60 * 1000,
-    maxBuffer: 2_000_000,
-    env: process.env,
-  });
+  try {
+    execFileSync(IVA_CLI, args, {
+      stdio: "pipe",
+      timeout: 20 * 60 * 1000,
+      maxBuffer: 2_000_000,
+      env: process.env,
+    });
+  } catch (error) {
+    const failure = error as NodeJS.ErrnoException & { signal?: NodeJS.Signals };
+    if (failure.code === "ENOENT") throw new Error("IVA_CLI_NOT_FOUND");
+    if (failure.code === "ETIMEDOUT" || failure.signal === "SIGTERM")
+      throw new Error("IVA_CLI_TIMEOUT");
+    throw new Error("IVA_CLI_FAILED");
+  }
 }
 
 async function save(path: string, job: Job): Promise<void> {
@@ -54,19 +69,30 @@ const jobPath = process.argv[2];
 if (!jobPath) process.exit(2);
 const job = JSON.parse(await readFile(jobPath, "utf8")) as Job;
 try {
+  // The MCP tool must return its accepted job before this worker restarts the
+  // plugin proxy or rebuilds Iva. A detached unit survives that restart.
+  await delay(START_DELAY_MS);
   job.status = "running";
   job.startedAt = new Date().toISOString();
   await save(jobPath, job);
+  let stage = "plugin_update";
   try {
     run(["plugin", "update", job.pluginName]);
+    stage = "sha_verification";
     const sha = await installedSha(job);
-    if (sha !== job.expectedSha) throw new Error("installed SHA does not match the checked candidate");
+    if (sha !== job.expectedSha) throw new Error("SHA_MISMATCH");
+    stage = "iva_doctor";
     run(["doctor"]);
     job.status = "succeeded";
     job.installedSha = sha;
     job.message = "Плагин обновлён, штатная диагностика Iva прошла.";
-  } catch {
+  } catch (error) {
     job.status = "failed";
+    job.failureStage = stage;
+    job.failureCode =
+      error instanceof Error && /^[A-Z][A-Z0-9_]{2,80}$/u.test(error.message)
+        ? error.message
+        : "UPDATE_STEP_FAILED";
     const current = await installedSha(job);
     job.installedSha = current;
     if (current === job.expectedSha) {

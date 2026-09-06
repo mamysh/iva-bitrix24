@@ -36317,7 +36317,7 @@ function registerUpdaterTools(server2, updater) {
   );
 }
 function createMcpServer(reader, updater = null) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.1" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.2" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",
@@ -36408,6 +36408,7 @@ var PLUGIN_NAME = "bitrix24-read";
 var SHA = /^[a-f0-9]{40}$/u;
 var OFFER_TTL_MS = 15 * 60 * 1e3;
 var LOCK_STALE_MS = 2 * 60 * 60 * 1e3;
+var JOB_START_TIMEOUT_MS = 2 * 60 * 1e3;
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -36467,10 +36468,11 @@ var PluginUpdater = class {
     this.#jobs = join(this.#data, "update-jobs");
     this.#offer = join(this.#data, "update-offer.json");
     this.#operations = {
-      exec: async (command, args) => {
+      exec: async (command, args, environment) => {
         const result = await execFile(command, [...args], {
           timeout: 2e4,
-          maxBuffer: 256e3
+          maxBuffer: 256e3,
+          env: { ...process.env, ...environment }
         });
         return { stdout: result.stdout, stderr: result.stderr };
       },
@@ -36646,20 +36648,34 @@ var PluginUpdater = class {
     });
     const worker = join(this.#root, "update-worker.mjs");
     const unit = `iva-bitrix24-update-${jobId}`;
-    try {
-      await this.#operations.exec("systemd-run", [
-        "--user",
-        "--collect",
-        `--unit=${unit}`,
-        `--setenv=PATH=${process.env.PATH || "/usr/local/bin:/usr/bin:/bin"}`,
-        process.execPath,
-        worker,
-        jobPath
-      ]);
-      await rm(this.#offer, { force: true });
-    } catch (error61) {
+    const uid = process.getuid?.();
+    if (uid === void 0) {
       await rm(lockPath, { force: true });
-      throw error61;
+      throw new Error("USER_SYSTEMD_UNAVAILABLE");
+    }
+    const runtimeDirectory = process.env.XDG_RUNTIME_DIR || `/run/user/${uid}`;
+    const busAddress = process.env.DBUS_SESSION_BUS_ADDRESS || `unix:path=${runtimeDirectory}/bus`;
+    try {
+      await this.#operations.exec(
+        "systemd-run",
+        [
+          "--user",
+          "--collect",
+          "--no-block",
+          `--unit=${unit}`,
+          process.execPath,
+          worker,
+          jobPath
+        ],
+        {
+          XDG_RUNTIME_DIR: runtimeDirectory,
+          DBUS_SESSION_BUS_ADDRESS: busAddress
+        }
+      );
+      await rm(this.#offer, { force: true });
+    } catch {
+      await rm(lockPath, { force: true });
+      throw new Error("UPDATE_WORKER_LAUNCH_FAILED");
     }
     return {
       ok: true,
@@ -36692,15 +36708,42 @@ var PluginUpdater = class {
       "expectedSha",
       "installedSha",
       "message",
-      "rollbackStatus"
+      "rollbackStatus",
+      "failureStage",
+      "failureCode"
     ];
-    return Object.fromEntries(allowed2.flatMap((key) => key in parsed ? [[key, parsed[key]]] : []));
+    const safe2 = Object.fromEntries(
+      allowed2.flatMap((key) => key in parsed ? [[key, parsed[key]]] : [])
+    );
+    const currentSha = safeSha((await this.#entry()).sha);
+    const recordedSha = safeSha(parsed.installedSha);
+    if (currentSha && recordedSha && currentSha !== recordedSha) {
+      return {
+        ...safe2,
+        status: "superseded",
+        previousStatus: parsed.status,
+        currentSha,
+        message: "\u0421\u043E\u0441\u0442\u043E\u044F\u043D\u0438\u0435 \u043F\u043B\u0430\u0433\u0438\u043D\u0430 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u043E\u0441\u044C \u043F\u043E\u0441\u043B\u0435 \u044D\u0442\u043E\u0439 job; \u043F\u043E\u043A\u0430\u0437\u0430\u043D \u0442\u0435\u043A\u0443\u0449\u0438\u0439 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043D\u044B\u0439 SHA."
+      };
+    }
+    if (parsed.status === "queued" && typeof parsed.createdAt === "string") {
+      const queuedFor = this.#operations.now().getTime() - Date.parse(parsed.createdAt);
+      if (Number.isFinite(queuedFor) && queuedFor > JOB_START_TIMEOUT_MS) {
+        return {
+          ...safe2,
+          status: "stalled",
+          previousStatus: "queued",
+          message: "\u0424\u043E\u043D\u043E\u0432\u044B\u0439 worker \u043D\u0435 \u043D\u0430\u0447\u0430\u043B \u0440\u0430\u0431\u043E\u0442\u0443 \u0432\u043E\u0432\u0440\u0435\u043C\u044F; \u043F\u043E\u0432\u0442\u043E\u0440\u043D\u044B\u0439 \u0437\u0430\u043F\u0443\u0441\u043A \u0447\u0435\u0440\u0435\u0437 shell \u0437\u0430\u043F\u0440\u0435\u0449\u0451\u043D."
+        };
+      }
+    }
+    return safe2;
   }
 };
 
 // server/src/main.ts
 function unavailableServer(error61, updater) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.1" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.2" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",

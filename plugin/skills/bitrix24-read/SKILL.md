@@ -67,6 +67,12 @@ the plugin. When the owner asks for progress, call `iva_bitrix24_update_status`.
 is `rolled_back`, say that the previous SHA was restored and that the instance is now pinned;
 do not silently retry.
 
+If check, apply or status returns an error, never compensate with a shell tool, `systemctl`,
+`iva plugin update`, `iva restart` or a manually created systemd unit. Report the safe error
+code and use only `iva_bitrix24_update_status` for an already accepted job. A plugin update can
+rebuild and restart Iva; launching it as a child of Iva itself can kill the updater together
+with its parent service and leave Telegram unavailable.
+
 ## Permission guidance
 
 When Bitrix24 returns `INSUFFICIENT_SCOPE` or `insufficient_scope`, explain this exact path:

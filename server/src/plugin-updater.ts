@@ -9,6 +9,7 @@ const PLUGIN_NAME = "bitrix24-read";
 const SHA = /^[a-f0-9]{40}$/u;
 const OFFER_TTL_MS = 15 * 60 * 1000;
 const LOCK_STALE_MS = 2 * 60 * 60 * 1000;
+const JOB_START_TIMEOUT_MS = 2 * 60 * 1000;
 
 type PluginEntry = {
   readonly name?: unknown;
@@ -48,6 +49,7 @@ export type UpdaterOperations = {
   readonly exec: (
     command: string,
     args: readonly string[],
+    environment?: Readonly<Record<string, string>>,
   ) => Promise<CommandResult>;
   readonly fetch: typeof fetch;
   readonly now: () => Date;
@@ -131,10 +133,11 @@ export class PluginUpdater {
     this.#jobs = join(this.#data, "update-jobs");
     this.#offer = join(this.#data, "update-offer.json");
     this.#operations = {
-      exec: async (command, args) => {
+      exec: async (command, args, environment) => {
         const result = await execFile(command, [...args], {
           timeout: 20_000,
           maxBuffer: 256_000,
+          env: { ...process.env, ...environment },
         });
         return { stdout: result.stdout, stderr: result.stderr };
       },
@@ -321,20 +324,35 @@ export class PluginUpdater {
     });
     const worker = join(this.#root, "update-worker.mjs");
     const unit = `iva-bitrix24-update-${jobId}`;
-    try {
-      await this.#operations.exec("systemd-run", [
-        "--user",
-        "--collect",
-        `--unit=${unit}`,
-        `--setenv=PATH=${process.env.PATH || "/usr/local/bin:/usr/bin:/bin"}`,
-        process.execPath,
-        worker,
-        jobPath,
-      ]);
-      await rm(this.#offer, { force: true });
-    } catch (error) {
+    const uid = process.getuid?.();
+    if (uid === undefined) {
       await rm(lockPath, { force: true });
-      throw error;
+      throw new Error("USER_SYSTEMD_UNAVAILABLE");
+    }
+    const runtimeDirectory = process.env.XDG_RUNTIME_DIR || `/run/user/${uid}`;
+    const busAddress =
+      process.env.DBUS_SESSION_BUS_ADDRESS || `unix:path=${runtimeDirectory}/bus`;
+    try {
+      await this.#operations.exec(
+        "systemd-run",
+        [
+          "--user",
+          "--collect",
+          "--no-block",
+          `--unit=${unit}`,
+          process.execPath,
+          worker,
+          jobPath,
+        ],
+        {
+          XDG_RUNTIME_DIR: runtimeDirectory,
+          DBUS_SESSION_BUS_ADDRESS: busAddress,
+        },
+      );
+      await rm(this.#offer, { force: true });
+    } catch {
+      await rm(lockPath, { force: true });
+      throw new Error("UPDATE_WORKER_LAUNCH_FAILED");
     }
     return {
       ok: true,
@@ -369,7 +387,36 @@ export class PluginUpdater {
       "installedSha",
       "message",
       "rollbackStatus",
+      "failureStage",
+      "failureCode",
     ];
-    return Object.fromEntries(allowed.flatMap((key) => (key in parsed ? [[key, parsed[key]]] : [])));
+    const safe = Object.fromEntries(
+      allowed.flatMap((key) => (key in parsed ? [[key, parsed[key]]] : [])),
+    );
+    const currentSha = safeSha((await this.#entry()).sha);
+    const recordedSha = safeSha(parsed.installedSha);
+    if (currentSha && recordedSha && currentSha !== recordedSha) {
+      return {
+        ...safe,
+        status: "superseded",
+        previousStatus: parsed.status,
+        currentSha,
+        message:
+          "Состояние плагина изменилось после этой job; показан текущий установленный SHA.",
+      };
+    }
+    if (parsed.status === "queued" && typeof parsed.createdAt === "string") {
+      const queuedFor = this.#operations.now().getTime() - Date.parse(parsed.createdAt);
+      if (Number.isFinite(queuedFor) && queuedFor > JOB_START_TIMEOUT_MS) {
+        return {
+          ...safe,
+          status: "stalled",
+          previousStatus: "queued",
+          message:
+            "Фоновый worker не начал работу вовремя; повторный запуск через shell запрещён.",
+        };
+      }
+    }
+    return safe;
   }
 }
