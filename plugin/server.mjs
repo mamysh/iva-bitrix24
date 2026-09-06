@@ -36353,7 +36353,7 @@ function registerUpdaterTools(server2, updater) {
   );
 }
 function createMcpServer(reader, updater = null) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.6" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.7" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",
@@ -36809,7 +36809,7 @@ var PluginUpdater = class {
 
 // server/src/main.ts
 function unavailableServer(error61, updater) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.6" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.7" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",
