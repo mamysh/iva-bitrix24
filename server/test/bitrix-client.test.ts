@@ -163,6 +163,24 @@ test("does not expose a malformed upstream error code", async () => {
   });
 });
 
+test("attaches only the allowlisted required scope to insufficient-scope errors", async () => {
+  const client = new BitrixClient(config, {
+    fetch: async () =>
+      Response.json(
+        { error: "insufficient_scope", error_description: "hidden upstream detail" },
+        { status: 403 },
+      ),
+  });
+
+  await assert.rejects(client.call("im.dialog.messages.get"), (error: unknown) => {
+    assert.ok(error instanceof BitrixRequestError);
+    assert.equal(error.code, "INSUFFICIENT_SCOPE");
+    assert.equal(error.requiredScope, "im");
+    assert.equal(error.message.includes("hidden upstream detail"), false);
+    return true;
+  });
+});
+
 test("normalizes ambiguous task error zero without reading its description", async () => {
   const client = new BitrixClient(config, {
     fetch: async () =>

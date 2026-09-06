@@ -305,7 +305,7 @@ export type ConnectionResult = {
   readonly connected: true;
   readonly taskScope: true;
   readonly taskContentChecked: false;
-  readonly contractVersion: "0.3";
+  readonly contractVersion: "0.4";
   readonly apiFamily: "tasks-rest";
   readonly user: {
     readonly id: string | null;
@@ -384,7 +384,7 @@ export class TaskReader {
       connected: true,
       taskScope: true,
       taskContentChecked: false,
-      contractVersion: "0.3",
+      contractVersion: "0.4",
       apiFamily: "tasks-rest",
       user: {
         id: profileId,

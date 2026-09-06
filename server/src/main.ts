@@ -8,13 +8,14 @@ import {
   type PluginUpdaterPort,
 } from "./mcp-server.ts";
 import { PluginUpdater } from "./plugin-updater.ts";
+import { ReadCapabilityReader } from "./read-capabilities.ts";
 import { TaskReader } from "./tasks.ts";
 
 function unavailableServer(
   error: ConfigurationError,
   updater: PluginUpdaterPort | null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.3.0" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.4.0-rc.1" });
   registerUpdaterTools(server, updater);
   server.registerTool(
     "bitrix24_connection_check",
@@ -46,7 +47,26 @@ export function serverFromEnvironment(
   }
   try {
     const client = new BitrixClient(loadConfig(env));
-    return createMcpServer(new TaskReader(client), updater);
+    const tasks = new TaskReader(client);
+    const capabilities = new ReadCapabilityReader(client);
+    return createMcpServer(
+      {
+        connectionCheck: () => tasks.connectionCheck(),
+        listTasks: (options) => tasks.listTasks(options),
+        getTask: (taskId) => tasks.getTask(taskId),
+        taskHistory: (options) => tasks.taskHistory(options),
+        taskFields: () => tasks.taskFields(),
+        capabilities: () => capabilities.capabilities(),
+        taskComments: (options) => capabilities.taskComments(options),
+        searchProjects: (options) => capabilities.searchProjects(options),
+        searchPeople: (options) => capabilities.searchPeople(options),
+        listDepartments: (options) => capabilities.listDepartments(options),
+        taskFiles: (options) => capabilities.taskFiles(options),
+        taskChecklist: (options) => capabilities.taskChecklist(options),
+        taskRelations: (options) => capabilities.taskRelations(options),
+      },
+      updater,
+    );
   } catch (error) {
     if (error instanceof ConfigurationError) return unavailableServer(error, updater);
     throw error;

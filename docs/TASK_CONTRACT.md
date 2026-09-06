@@ -1,9 +1,9 @@
-# Task read contract
+# Bitrix24 read contract
 
 The plugin never forwards a raw Bitrix24 task object. It requests an explicit field set and
 returns a bounded normalized representation.
 
-`bitrix24_connection_check` reports `contractVersion: "0.3"` and
+`bitrix24_connection_check` reports `contractVersion: "0.4"` and
 `apiFamily: "tasks-rest"`, allowing diagnostics to identify this contract without exposing
 the portal or webhook. It also returns `taskContentChecked: false`: the check verifies the
 profile and Tasks field metadata but deliberately reads no task row.
@@ -88,3 +88,57 @@ their bounded ID, first name and last name; login and middle name are discarded.
 Bitrix24 may use error code `0` for either an unavailable task or denied access. For task get
 and history calls the plugin reports `TASK_NOT_FOUND_OR_DENIED` and never inspects or reflects
 the raw description to guess which case occurred.
+
+## Capability and permission contract
+
+`bitrix24_capabilities` calls only the official `scope` method. It returns the known scopes
+used by this plugin, the availability of each read block and a fixed permission guide. Unknown
+or unrelated webhook scopes are not echoed. `user_brief`, `user_basic` and `user` all satisfy
+the people-search block, but the least-privilege recommendation is `user_brief`.
+
+An `INSUFFICIENT_SCOPE` error may include only the allowlisted `requiredScope` associated with
+the called method. It does not contain the upstream description. Scope availability and the
+webhook employee's access to an individual object remain independent.
+
+## Discussions
+
+`bitrix24_task_comments` has two explicit adapters. In `auto` mode it first asks
+`tasks.task.get` for `ID` and `CHAT_ID`. A valid chat ID selects `im.dialog.messages.get`; a
+missing `im` scope is reported rather than hidden by trying the obsolete API. A task without a
+chat ID selects `task.commentitem.getlist` for legacy portals. The caller can explicitly choose
+an adapter for diagnostics.
+
+Both adapters return the same bounded shape: ID, author ID/name, ISO date, text up to 8,000
+characters, safe attachment metadata and `untrustedContent: true`. Emails, phones, presence,
+UUIDs, arbitrary chat params, HTML and download/view URLs are discarded. Continuation uses an
+opaque typed `nextCursor`; cursors from one adapter cannot be used with the other.
+
+## Projects, people and departments
+
+Project and people search require exactly one bounded selector: a positive exact ID or a name
+query of at least two characters. Limits are at most 20 and offset is capped at 10,000.
+Department reading requires exactly one department ID or parent ID, preventing an unfiltered
+company-structure dump.
+
+Projects expose only ID, bounded name, project/group flag, owner ID and activity/visibility flags. People expose
+ID, first/last name, active flag, position and at most 20 department IDs. Departments expose
+ID, name, parent and head user ID. Contact details, biographies, avatars, descriptions and
+membership lists are not returned.
+
+## File metadata
+
+`bitrix24_task_files` first asks the accessible task for `UF_TASK_WEBDAV_FILES`, then resolves
+at most 20 selected attachment IDs through `disk.attachedObject.get`. It returns identifiers,
+bounded name, byte size, date, creator and binding metadata. It never returns or follows
+`DOWNLOAD_URL`, and it never downloads file content. An inaccessible individual attachment
+produces a partial result; missing `disk` scope stops the call with `requiredScope: "disk"`.
+
+## Checklists and relations
+
+Checklist pages contain at most 50 normalized items. Titles and member names are bounded and
+untrusted; member avatars and attachment URLs are discarded. Each item must have a valid ID
+and belong to the requested task.
+
+Relations are deliberately shallow: one parent summary, up to 20 dependency summaries and up
+to 20 immediate subtasks. The tool does not recurse. Every related task remains subject to the
+webhook employee's ordinary Bitrix24 access.

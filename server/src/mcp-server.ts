@@ -7,6 +7,15 @@ import {
   type TaskHistoryOptions,
 } from "./tasks.ts";
 import type { ApplyUpdateInput } from "./plugin-updater.ts";
+import type {
+  ChecklistOptions,
+  CommentOptions,
+  DepartmentOptions,
+  PeopleSearchOptions,
+  ProjectSearchOptions,
+  RelationsOptions,
+  TaskFilesOptions,
+} from "./read-capabilities.ts";
 
 export type TaskReaderPort = {
   readonly connectionCheck: () => Promise<unknown>;
@@ -15,6 +24,19 @@ export type TaskReaderPort = {
   readonly taskHistory: (options: TaskHistoryOptions) => Promise<unknown>;
   readonly taskFields: () => Promise<unknown>;
 };
+
+export type ReadCapabilityReaderPort = {
+  readonly capabilities: () => Promise<unknown>;
+  readonly taskComments: (options: CommentOptions) => Promise<unknown>;
+  readonly searchProjects: (options: ProjectSearchOptions) => Promise<unknown>;
+  readonly searchPeople: (options: PeopleSearchOptions) => Promise<unknown>;
+  readonly listDepartments: (options: DepartmentOptions) => Promise<unknown>;
+  readonly taskFiles: (options: TaskFilesOptions) => Promise<unknown>;
+  readonly taskChecklist: (options: ChecklistOptions) => Promise<unknown>;
+  readonly taskRelations: (options: RelationsOptions) => Promise<unknown>;
+};
+
+export type BitrixReaderPort = TaskReaderPort & ReadCapabilityReaderPort;
 
 export type PluginUpdaterPort = {
   readonly check: () => Promise<unknown>;
@@ -51,7 +73,14 @@ function failure(error: unknown) {
     content: [
       {
         type: "text" as const,
-        text: JSON.stringify({ ok: false, error: code, ...details }),
+        text: JSON.stringify({
+          ok: false,
+          error: code,
+          ...details,
+          ...(error instanceof BitrixRequestError && error.requiredScope
+            ? { requiredScope: error.requiredScope }
+            : {}),
+        }),
       },
     ],
   };
@@ -81,6 +110,18 @@ function errorDetails(code: string, retryable: boolean) {
       category: "access",
       retryable: false,
       action: "check_task_id_or_access",
+    };
+  if (code === "INVALID_CURSOR")
+    return {
+      category: "input",
+      retryable: false,
+      action: "use_returned_cursor",
+    };
+  if (code === "TASK_CHAT_UNAVAILABLE")
+    return {
+      category: "compatibility",
+      retryable: false,
+      action: "use_auto_mode",
     };
   if (["INVALID_PROFILE", "TASK_ID_MISMATCH"].includes(code))
     return {
@@ -171,10 +212,10 @@ export function registerUpdaterTools(
 }
 
 export function createMcpServer(
-  reader: TaskReaderPort,
+  reader: BitrixReaderPort,
   updater: PluginUpdaterPort | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.3.0" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.4.0-rc.1" });
   registerUpdaterTools(server, updater);
 
   server.registerTool(
@@ -186,6 +227,152 @@ export function createMcpServer(
       annotations: readOnly,
     },
     () => safe(() => reader.connectionCheck()),
+  );
+
+  server.registerTool(
+    "bitrix24_capabilities",
+    {
+      description:
+        "Report which iva-bitrix24 read capability blocks are enabled by the webhook scopes and how to add only a missing permission.",
+      inputSchema: z.object({}).strict(),
+      annotations: readOnly,
+    },
+    () => safe(() => reader.capabilities()),
+  );
+
+  server.registerTool(
+    "bitrix24_task_comments",
+    {
+      description:
+        "Read a bounded page of discussion messages for one accessible task, using task chat on new Bitrix24 cards and legacy comments on old cards.",
+      inputSchema: z
+        .object({
+          taskId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+          mode: z.enum(["auto", "task_chat", "legacy_comments"]).default("auto"),
+          limit: z.number().int().min(1).max(50).default(20),
+          cursor: z.string().regex(/^(chat|legacy):[1-9]\d{0,15}$/u).optional(),
+        })
+        .strict(),
+      annotations: readOnly,
+    },
+    (options) => safe(() => reader.taskComments(options)),
+  );
+
+  server.registerTool(
+    "bitrix24_search_projects",
+    {
+      description:
+        "Find an accessible Bitrix24 project or workgroup by exact ID or a bounded name search.",
+      inputSchema: z
+        .object({
+          projectId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+          query: z.string().trim().min(2).max(200).optional(),
+          limit: z.number().int().min(1).max(20).default(10),
+          start: z.number().int().min(0).max(10_000).default(0),
+        })
+        .strict()
+        .refine((value) => (value.projectId === undefined) !== (value.query === undefined), {
+          message: "provide exactly one of projectId or query",
+        }),
+      annotations: readOnly,
+    },
+    (options) => safe(() => reader.searchProjects(options)),
+  );
+
+  server.registerTool(
+    "bitrix24_search_people",
+    {
+      description:
+        "Find a Bitrix24 employee by exact ID or bounded name search, returning no contact details.",
+      inputSchema: z
+        .object({
+          userId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+          query: z.string().trim().min(2).max(200).optional(),
+          limit: z.number().int().min(1).max(20).default(10),
+          start: z.number().int().min(0).max(10_000).default(0),
+        })
+        .strict()
+        .refine((value) => (value.userId === undefined) !== (value.query === undefined), {
+          message: "provide exactly one of userId or query",
+        }),
+      annotations: readOnly,
+    },
+    (options) => safe(() => reader.searchPeople(options)),
+  );
+
+  server.registerTool(
+    "bitrix24_list_departments",
+    {
+      description:
+        "Read one Bitrix24 department or a bounded page of direct child departments without listing employees.",
+      inputSchema: z
+        .object({
+          departmentId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+          parentId: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+          limit: z.number().int().min(1).max(20).default(10),
+          start: z.number().int().min(0).max(10_000).default(0),
+        })
+        .strict()
+        .refine(
+          (value) => (value.departmentId === undefined) !== (value.parentId === undefined),
+          { message: "provide exactly one of departmentId or parentId" },
+        ),
+      annotations: readOnly,
+    },
+    (options) => safe(() => reader.listDepartments(options)),
+  );
+
+  server.registerTool(
+    "bitrix24_task_files",
+    {
+      description:
+        "Read bounded safe metadata for files attached to one accessible task; never downloads files or returns download URLs.",
+      inputSchema: z
+        .object({
+          taskId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+          limit: z.number().int().min(1).max(20).default(10),
+          start: z.number().int().min(0).max(10_000).default(0),
+        })
+        .strict(),
+      annotations: readOnly,
+    },
+    (options) => safe(() => reader.taskFiles(options)),
+  );
+
+  server.registerTool(
+    "bitrix24_task_checklist",
+    {
+      description: "Read a bounded normalized checklist for one accessible Bitrix24 task.",
+      inputSchema: z
+        .object({
+          taskId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+          limit: z.number().int().min(1).max(50).default(20),
+          start: z.number().int().min(0).max(10_000).default(0),
+          sortBy: z
+            .enum(["ID", "SORT_INDEX", "IS_COMPLETE", "IS_IMPORTANT"])
+            .default("SORT_INDEX"),
+          sortDirection: z.enum(["asc", "desc"]).default("asc"),
+        })
+        .strict(),
+      annotations: readOnly,
+    },
+    (options) => safe(() => reader.taskChecklist(options)),
+  );
+
+  server.registerTool(
+    "bitrix24_task_relations",
+    {
+      description:
+        "Read the parent, direct subtasks and dependency summaries for one accessible Bitrix24 task without recursive traversal.",
+      inputSchema: z
+        .object({
+          taskId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+          subtaskLimit: z.number().int().min(1).max(20).default(10),
+        })
+        .strict(),
+      annotations: readOnly,
+    },
+    (options) => safe(() => reader.taskRelations(options)),
   );
 
   server.registerTool(

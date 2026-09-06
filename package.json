@@ -1,8 +1,8 @@
 {
   "name": "iva-bitrix24",
-  "version": "0.3.0",
+  "version": "0.4.0-rc.1",
   "private": true,
-  "description": "Bitrix24 integration plugin for Iva with bounded task reading and managed updates.",
+  "description": "Bitrix24 integration plugin for Iva with bounded task, discussion, project, people and attachment reading.",
   "license": "MIT",
   "repository": {
     "type": "git",

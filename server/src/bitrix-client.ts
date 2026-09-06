@@ -2,15 +2,36 @@ import type { BitrixConfig } from "./config.ts";
 
 export const ALLOWED_METHODS = [
   "profile",
+  "scope",
+  "department.get",
+  "disk.attachedObject.get",
+  "im.dialog.messages.get",
+  "sonet_group.get",
+  "task.checklistitem.getlist",
+  "task.commentitem.getlist",
   "tasks.task.get",
   "tasks.task.list",
   "tasks.task.getFields",
   "tasks.task.history.list",
+  "user.get",
 ] as const;
 
 export type AllowedMethod = (typeof ALLOWED_METHODS)[number];
 
 const allowed = new Set<string>(ALLOWED_METHODS);
+const REQUIRED_SCOPES: Partial<Record<AllowedMethod, string>> = {
+  "department.get": "department",
+  "disk.attachedObject.get": "disk",
+  "im.dialog.messages.get": "im",
+  "sonet_group.get": "sonet_group",
+  "task.checklistitem.getlist": "task",
+  "task.commentitem.getlist": "task",
+  "tasks.task.get": "task",
+  "tasks.task.list": "task",
+  "tasks.task.getFields": "task",
+  "tasks.task.history.list": "task",
+  "user.get": "user_brief",
+};
 const RETRYABLE_CODES = new Set([
   "QUERY_LIMIT_EXCEEDED",
   "OPERATION_TIME_LIMIT",
@@ -21,12 +42,14 @@ const MAX_RESPONSE_BYTES = 1_000_000;
 export class BitrixRequestError extends Error {
   readonly code: string;
   readonly retryable: boolean;
+  readonly requiredScope: string | null;
 
-  constructor(code: string, retryable = false) {
+  constructor(code: string, retryable = false, requiredScope: string | null = null) {
     super(`Bitrix24 request failed (${code})`);
     this.name = "BitrixRequestError";
     this.code = code;
     this.retryable = retryable;
+    this.requiredScope = requiredScope;
   }
 }
 
@@ -222,6 +245,7 @@ export class BitrixClient {
       throw new BitrixRequestError(
         code,
         retryableStatus || RETRYABLE_CODES.has(code),
+        code === "INSUFFICIENT_SCOPE" ? (REQUIRED_SCOPES[method] ?? null) : null,
       );
     }
     return envelope;

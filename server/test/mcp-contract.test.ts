@@ -3,19 +3,27 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { BitrixRequestError } from "../src/bitrix-client.ts";
-import { createMcpServer, type TaskReaderPort } from "../src/mcp-server.ts";
+import { createMcpServer, type BitrixReaderPort } from "../src/mcp-server.ts";
 
-function reader(): TaskReaderPort {
+function reader(): BitrixReaderPort {
   return {
     connectionCheck: async () => ({ connected: true, user: { id: "42" } }),
     listTasks: async (options) => ({ tasks: [], options }),
     getTask: async (taskId) => ({ task: { id: taskId } }),
     taskHistory: async (options) => ({ events: [], options }),
     taskFields: async () => ({ fields: [] }),
+    capabilities: async () => ({ blocks: {} }),
+    taskComments: async (options) => ({ messages: [], options }),
+    searchProjects: async (options) => ({ projects: [], options }),
+    searchPeople: async (options) => ({ people: [], options }),
+    listDepartments: async (options) => ({ departments: [], options }),
+    taskFiles: async (options) => ({ files: [], options }),
+    taskChecklist: async (options) => ({ items: [], options }),
+    taskRelations: async (options) => ({ subtasks: [], options }),
   };
 }
 
-async function connectedClient(taskReader: TaskReaderPort = reader()) {
+async function connectedClient(taskReader: BitrixReaderPort = reader()) {
   const server = createMcpServer(taskReader, {
     check: async () => ({ state: "current" }),
     apply: async (input) => ({ state: "started", input }),
@@ -30,7 +38,7 @@ async function connectedClient(taskReader: TaskReaderPort = reader()) {
   return { client, server };
 }
 
-test("publishes five Bitrix read tools and three bounded update tools", async (t) => {
+test("publishes thirteen Bitrix read tools and three bounded update tools", async (t) => {
   const { client, server } = await connectedClient();
   t.after(async () => {
     await client.close();
@@ -40,11 +48,19 @@ test("publishes five Bitrix read tools and three bounded update tools", async (t
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
+      "bitrix24_capabilities",
       "bitrix24_connection_check",
       "bitrix24_get_task",
+      "bitrix24_list_departments",
       "bitrix24_list_tasks",
+      "bitrix24_search_people",
+      "bitrix24_search_projects",
+      "bitrix24_task_checklist",
+      "bitrix24_task_comments",
       "bitrix24_task_fields",
+      "bitrix24_task_files",
       "bitrix24_task_history",
+      "bitrix24_task_relations",
       "iva_bitrix24_update_apply",
       "iva_bitrix24_update_check",
       "iva_bitrix24_update_status",
@@ -123,11 +139,69 @@ test("validates task identifiers and list limits at the MCP boundary", async (t)
   });
   assert.equal(invalidHistoryLimit.isError, true);
 
+  const broadProjectSearch = await client.callTool({
+    name: "bitrix24_search_projects",
+    arguments: {},
+  });
+  assert.equal(broadProjectSearch.isError, true);
+
+  const ambiguousPeopleSearch = await client.callTool({
+    name: "bitrix24_search_people",
+    arguments: { userId: 1, query: "Sy" },
+  });
+  assert.equal(ambiguousPeopleSearch.isError, true);
+
+  const broadDepartmentList = await client.callTool({
+    name: "bitrix24_list_departments",
+    arguments: {},
+  });
+  assert.equal(broadDepartmentList.isError, true);
+
+  const invalidCommentCursor = await client.callTool({
+    name: "bitrix24_task_comments",
+    arguments: { taskId: 1, cursor: "../../../secret" },
+  });
+  assert.equal(invalidCommentCursor.isError, true);
+
+  const excessiveFileLimit = await client.callTool({
+    name: "bitrix24_task_files",
+    arguments: { taskId: 1, limit: 21 },
+  });
+  assert.equal(excessiveFileLimit.isError, true);
+
   const unknown = await client.callTool({
     name: "bitrix24_connection_check",
     arguments: { method: "tasks.task.delete" },
   });
   assert.equal(unknown.isError, true);
+});
+
+test("names the required optional scope without upstream details", async (t) => {
+  const bitrixReader = reader();
+  const { client, server } = await connectedClient({
+    ...bitrixReader,
+    taskComments: async () => {
+      throw new BitrixRequestError("INSUFFICIENT_SCOPE", false, "im");
+    },
+  });
+  t.after(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  const result = await client.callTool({
+    name: "bitrix24_task_comments",
+    arguments: { taskId: 1 },
+  });
+  const content = result.content as Array<{ type: string; text?: string }>;
+  assert.deepEqual(JSON.parse(content[0]?.text ?? "{}"), {
+    ok: false,
+    error: "INSUFFICIENT_SCOPE",
+    category: "permission",
+    retryable: false,
+    action: "add_required_scope",
+    requiredScope: "im",
+  });
 });
 
 test("returns bounded actionable error metadata without upstream details", async (t) => {

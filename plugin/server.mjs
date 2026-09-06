@@ -4614,7 +4614,7 @@ var require_core = __commonJS({
       errorsText(errors = this.errors, { separator = ", ", dataVar = "data" } = {}) {
         if (!errors || errors.length === 0)
           return "No errors";
-        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text2, msg) => text2 + separator + msg);
+        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text3, msg) => text3 + separator + msg);
       }
       $dataMetaSchema(metaSchema, keywordsJsonPointers) {
         const rules = this.RULES.all;
@@ -6882,7 +6882,7 @@ var require_formats = __commonJS({
     }
     exports.fullFormats = {
       // date: http://tools.ietf.org/html/rfc3339#section-5.6
-      date: fmtDef(date5, compareDate),
+      date: fmtDef(date6, compareDate),
       // date-time: http://tools.ietf.org/html/rfc3339#section-5.6
       time: fmtDef(getTime(true), compareTime),
       "date-time": fmtDef(getDateTime(true), compareDateTime),
@@ -6948,7 +6948,7 @@ var require_formats = __commonJS({
     }
     var DATE = /^(\d\d\d\d)-(\d\d)-(\d\d)$/;
     var DAYS = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    function date5(str) {
+    function date6(str) {
       const matches = DATE.exec(str);
       if (!matches)
         return false;
@@ -7017,7 +7017,7 @@ var require_formats = __commonJS({
       const time3 = getTime(strictTimeZone);
       return function date_time(str) {
         const dateTime = str.split(DATE_TIME_SEPARATOR);
-        return dateTime.length === 2 && date5(dateTime[0]) && time3(dateTime[1]);
+        return dateTime.length === 2 && date6(dateTime[0]) && time3(dateTime[1]);
       };
     }
     function compareDateTime(dt1, dt2) {
@@ -19908,8 +19908,8 @@ function ko_default() {
 }
 
 // node_modules/zod/v4/locales/lt.js
-var capitalizeFirstCharacter = (text2) => {
-  return text2.charAt(0).toUpperCase() + text2.slice(1);
+var capitalizeFirstCharacter = (text3) => {
+  return text3.charAt(0).toUpperCase() + text3.slice(1);
 };
 function getUnitTypeFromNumber(number4) {
   const abs = Math.abs(number4);
@@ -26878,8 +26878,8 @@ function rewriteKeyNames(ctx) {
       bySchema.set(entry.schema, entry);
   }
   const rewrites = /* @__PURE__ */ new Map();
-  for (const record3 of pendingRecords.get(ctx) ?? []) {
-    const seen = ctx.seen.get(record3);
+  for (const record4 of pendingRecords.get(ctx) ?? []) {
+    const seen = ctx.seen.get(record4);
     const names = (seen?.def ?? seen?.schema)?.propertyNames;
     if (!names || names === true || rewrites.has(names))
       continue;
@@ -35667,12 +35667,33 @@ var StdioServerTransport = class {
 // server/src/bitrix-client.ts
 var ALLOWED_METHODS = [
   "profile",
+  "scope",
+  "department.get",
+  "disk.attachedObject.get",
+  "im.dialog.messages.get",
+  "sonet_group.get",
+  "task.checklistitem.getlist",
+  "task.commentitem.getlist",
   "tasks.task.get",
   "tasks.task.list",
   "tasks.task.getFields",
-  "tasks.task.history.list"
+  "tasks.task.history.list",
+  "user.get"
 ];
 var allowed = new Set(ALLOWED_METHODS);
+var REQUIRED_SCOPES = {
+  "department.get": "department",
+  "disk.attachedObject.get": "disk",
+  "im.dialog.messages.get": "im",
+  "sonet_group.get": "sonet_group",
+  "task.checklistitem.getlist": "task",
+  "task.commentitem.getlist": "task",
+  "tasks.task.get": "task",
+  "tasks.task.list": "task",
+  "tasks.task.getFields": "task",
+  "tasks.task.history.list": "task",
+  "user.get": "user_brief"
+};
 var RETRYABLE_CODES = /* @__PURE__ */ new Set([
   "QUERY_LIMIT_EXCEEDED",
   "OPERATION_TIME_LIMIT",
@@ -35682,11 +35703,13 @@ var MAX_RESPONSE_BYTES = 1e6;
 var BitrixRequestError = class extends Error {
   code;
   retryable;
-  constructor(code, retryable = false) {
+  requiredScope;
+  constructor(code, retryable = false, requiredScope = null) {
     super(`Bitrix24 request failed (${code})`);
     this.name = "BitrixRequestError";
     this.code = code;
     this.retryable = retryable;
+    this.requiredScope = requiredScope;
   }
 };
 var defaults = {
@@ -35710,7 +35733,7 @@ async function boundedText(response) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let total = 0;
-  let text2 = "";
+  let text3 = "";
   for (; ; ) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -35719,9 +35742,9 @@ async function boundedText(response) {
       await reader.cancel();
       throw new BitrixRequestError("RESPONSE_TOO_LARGE");
     }
-    text2 += decoder.decode(value, { stream: true });
+    text3 += decoder.decode(value, { stream: true });
   }
-  return text2 + decoder.decode();
+  return text3 + decoder.decode();
 }
 function retryDelay(attempt, random) {
   const base = 250 * 2 ** attempt;
@@ -35807,7 +35830,8 @@ var BitrixClient = class {
       const code = safeUpstreamCode(envelope.error, response.status, method);
       throw new BitrixRequestError(
         code,
-        retryableStatus || RETRYABLE_CODES.has(code)
+        retryableStatus || RETRYABLE_CODES.has(code),
+        code === "INSUFFICIENT_SCOPE" ? REQUIRED_SCOPES[method] ?? null : null
       );
     }
     return envelope;
@@ -36085,7 +36109,7 @@ var TaskReader = class {
       connected: true,
       taskScope: true,
       taskContentChecked: false,
-      contractVersion: "0.3",
+      contractVersion: "0.4",
       apiFamily: "tasks-rest",
       user: {
         id: profileId,
@@ -36248,7 +36272,12 @@ function failure(error61) {
     content: [
       {
         type: "text",
-        text: JSON.stringify({ ok: false, error: code, ...details })
+        text: JSON.stringify({
+          ok: false,
+          error: code,
+          ...details,
+          ...error61 instanceof BitrixRequestError && error61.requiredScope ? { requiredScope: error61.requiredScope } : {}
+        })
       }
     ]
   };
@@ -36277,6 +36306,18 @@ function errorDetails(code, retryable) {
       category: "access",
       retryable: false,
       action: "check_task_id_or_access"
+    };
+  if (code === "INVALID_CURSOR")
+    return {
+      category: "input",
+      retryable: false,
+      action: "use_returned_cursor"
+    };
+  if (code === "TASK_CHAT_UNAVAILABLE")
+    return {
+      category: "compatibility",
+      retryable: false,
+      action: "use_auto_mode"
     };
   if (["INVALID_PROFILE", "TASK_ID_MISMATCH"].includes(code))
     return {
@@ -36353,7 +36394,7 @@ function registerUpdaterTools(server2, updater) {
   );
 }
 function createMcpServer(reader, updater = null) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.4.0-rc.1" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",
@@ -36363,6 +36404,118 @@ function createMcpServer(reader, updater = null) {
       annotations: readOnly
     },
     () => safe(() => reader.connectionCheck())
+  );
+  server2.registerTool(
+    "bitrix24_capabilities",
+    {
+      description: "Report which iva-bitrix24 read capability blocks are enabled by the webhook scopes and how to add only a missing permission.",
+      inputSchema: external_exports.object({}).strict(),
+      annotations: readOnly
+    },
+    () => safe(() => reader.capabilities())
+  );
+  server2.registerTool(
+    "bitrix24_task_comments",
+    {
+      description: "Read a bounded page of discussion messages for one accessible task, using task chat on new Bitrix24 cards and legacy comments on old cards.",
+      inputSchema: external_exports.object({
+        taskId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        mode: external_exports.enum(["auto", "task_chat", "legacy_comments"]).default("auto"),
+        limit: external_exports.number().int().min(1).max(50).default(20),
+        cursor: external_exports.string().regex(/^(chat|legacy):[1-9]\d{0,15}$/u).optional()
+      }).strict(),
+      annotations: readOnly
+    },
+    (options) => safe(() => reader.taskComments(options))
+  );
+  server2.registerTool(
+    "bitrix24_search_projects",
+    {
+      description: "Find an accessible Bitrix24 project or workgroup by exact ID or a bounded name search.",
+      inputSchema: external_exports.object({
+        projectId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+        query: external_exports.string().trim().min(2).max(200).optional(),
+        limit: external_exports.number().int().min(1).max(20).default(10),
+        start: external_exports.number().int().min(0).max(1e4).default(0)
+      }).strict().refine((value) => value.projectId === void 0 !== (value.query === void 0), {
+        message: "provide exactly one of projectId or query"
+      }),
+      annotations: readOnly
+    },
+    (options) => safe(() => reader.searchProjects(options))
+  );
+  server2.registerTool(
+    "bitrix24_search_people",
+    {
+      description: "Find a Bitrix24 employee by exact ID or bounded name search, returning no contact details.",
+      inputSchema: external_exports.object({
+        userId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+        query: external_exports.string().trim().min(2).max(200).optional(),
+        limit: external_exports.number().int().min(1).max(20).default(10),
+        start: external_exports.number().int().min(0).max(1e4).default(0)
+      }).strict().refine((value) => value.userId === void 0 !== (value.query === void 0), {
+        message: "provide exactly one of userId or query"
+      }),
+      annotations: readOnly
+    },
+    (options) => safe(() => reader.searchPeople(options))
+  );
+  server2.registerTool(
+    "bitrix24_list_departments",
+    {
+      description: "Read one Bitrix24 department or a bounded page of direct child departments without listing employees.",
+      inputSchema: external_exports.object({
+        departmentId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+        parentId: external_exports.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+        limit: external_exports.number().int().min(1).max(20).default(10),
+        start: external_exports.number().int().min(0).max(1e4).default(0)
+      }).strict().refine(
+        (value) => value.departmentId === void 0 !== (value.parentId === void 0),
+        { message: "provide exactly one of departmentId or parentId" }
+      ),
+      annotations: readOnly
+    },
+    (options) => safe(() => reader.listDepartments(options))
+  );
+  server2.registerTool(
+    "bitrix24_task_files",
+    {
+      description: "Read bounded safe metadata for files attached to one accessible task; never downloads files or returns download URLs.",
+      inputSchema: external_exports.object({
+        taskId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        limit: external_exports.number().int().min(1).max(20).default(10),
+        start: external_exports.number().int().min(0).max(1e4).default(0)
+      }).strict(),
+      annotations: readOnly
+    },
+    (options) => safe(() => reader.taskFiles(options))
+  );
+  server2.registerTool(
+    "bitrix24_task_checklist",
+    {
+      description: "Read a bounded normalized checklist for one accessible Bitrix24 task.",
+      inputSchema: external_exports.object({
+        taskId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        limit: external_exports.number().int().min(1).max(50).default(20),
+        start: external_exports.number().int().min(0).max(1e4).default(0),
+        sortBy: external_exports.enum(["ID", "SORT_INDEX", "IS_COMPLETE", "IS_IMPORTANT"]).default("SORT_INDEX"),
+        sortDirection: external_exports.enum(["asc", "desc"]).default("asc")
+      }).strict(),
+      annotations: readOnly
+    },
+    (options) => safe(() => reader.taskChecklist(options))
+  );
+  server2.registerTool(
+    "bitrix24_task_relations",
+    {
+      description: "Read the parent, direct subtasks and dependency summaries for one accessible Bitrix24 task without recursive traversal.",
+      inputSchema: external_exports.object({
+        taskId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        subtaskLimit: external_exports.number().int().min(1).max(20).default(10)
+      }).strict(),
+      annotations: readOnly
+    },
+    (options) => safe(() => reader.taskRelations(options))
   );
   server2.registerTool(
     "bitrix24_list_tasks",
@@ -36807,9 +36960,547 @@ var PluginUpdater = class {
   }
 };
 
+// server/src/read-capabilities.ts
+function isRecord2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function record3(value) {
+  return isRecord2(value) ? value : {};
+}
+function pick3(source, ...names) {
+  for (const name of names) if (source[name] !== void 0) return source[name];
+  return void 0;
+}
+function identifier2(value) {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value > 0)
+    return String(value);
+  if (typeof value !== "string" || !/^[1-9]\d{0,15}$/u.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? value : null;
+}
+function integer3(value) {
+  if (typeof value === "number" && Number.isSafeInteger(value)) return value;
+  if (typeof value === "string" && /^-?\d+$/u.test(value)) {
+    const parsed = Number(value);
+    if (Number.isSafeInteger(parsed)) return parsed;
+  }
+  return null;
+}
+function text2(value, maxLength) {
+  return typeof value === "string" ? value.slice(0, maxLength) : null;
+}
+function date5(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(value) && Number.isFinite(Date.parse(value)) ? value : null;
+}
+function yes(value) {
+  if (value === "Y" || value === true) return true;
+  if (value === "N" || value === false) return false;
+  return null;
+}
+function positiveIds(value, max = 100) {
+  const input2 = Array.isArray(value) ? value : value === void 0 ? [] : [value];
+  const result = [];
+  for (const item of input2) {
+    const id = identifier2(
+      isRecord2(item) ? pick3(item, "ATTACHMENT_ID", "attachmentId", "ID", "id") : item
+    );
+    if (id !== null && !result.includes(id)) result.push(id);
+    if (result.length >= max) break;
+  }
+  return result;
+}
+function collection(value) {
+  return Array.isArray(value) ? value : Object.values(record3(value));
+}
+function pageCursor(start, selected, upstream, hadMore) {
+  return hadMore ? start + selected : upstream;
+}
+var PERMISSIONS = {
+  task: { nameRu: "\u0417\u0430\u0434\u0430\u0447\u0438", purpose: "\u0437\u0430\u0434\u0430\u0447\u0438, legacy-\u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0438, \u0447\u0435\u043A-\u043B\u0438\u0441\u0442\u044B \u0438 \u0441\u0432\u044F\u0437\u0438" },
+  im: { nameRu: "\u0427\u0430\u0442 \u0438 \u0443\u0432\u0435\u0434\u043E\u043C\u043B\u0435\u043D\u0438\u044F", purpose: "\u043E\u0431\u0441\u0443\u0436\u0434\u0435\u043D\u0438\u0435 \u0432 \u043D\u043E\u0432\u043E\u0439 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0435 \u0437\u0430\u0434\u0430\u0447\u0438" },
+  sonet_group: {
+    nameRu: "\u0420\u0430\u0431\u043E\u0447\u0438\u0435 \u0433\u0440\u0443\u043F\u043F\u044B \u0441\u043E\u0446\u0438\u0430\u043B\u044C\u043D\u043E\u0439 \u0441\u0435\u0442\u0438",
+    purpose: "\u043F\u043E\u0438\u0441\u043A \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B\u0445 \u043F\u0440\u043E\u0435\u043A\u0442\u043E\u0432 \u0438 \u0440\u0430\u0431\u043E\u0447\u0438\u0445 \u0433\u0440\u0443\u043F\u043F"
+  },
+  user_brief: {
+    nameRu: "\u041F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u0438 (\u043C\u0438\u043D\u0438\u043C\u0430\u043B\u044C\u043D\u044B\u0435)",
+    purpose: "\u0438\u043C\u0435\u043D\u0430 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432 \u0431\u0435\u0437 \u043A\u043E\u043D\u0442\u0430\u043A\u0442\u043D\u044B\u0445 \u0434\u0430\u043D\u043D\u044B\u0445"
+  },
+  department: { nameRu: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0430 \u043A\u043E\u043C\u043F\u0430\u043D\u0438\u0438", purpose: "\u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044F \u043F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0435\u043D\u0438\u0439" },
+  disk: { nameRu: "\u0414\u0438\u0441\u043A", purpose: "\u043C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0435 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B\u0445 \u0432\u043B\u043E\u0436\u0435\u043D\u0438\u0439" }
+};
+var ReadCapabilityReader = class {
+  #client;
+  constructor(client) {
+    this.#client = client;
+  }
+  async capabilities() {
+    const raw = await this.#client.call("scope");
+    if (!Array.isArray(raw)) throw new BitrixRequestError("INVALID_RESPONSE");
+    const granted = new Set(
+      raw.filter((value) => typeof value === "string").map((value) => value.toLowerCase())
+    );
+    const effectiveUserScope = ["user_brief", "user_basic", "user"].find(
+      (scope) => granted.has(scope)
+    );
+    const hasUsers = effectiveUserScope !== void 0;
+    const recognized = /* @__PURE__ */ new Set([
+      "task",
+      "im",
+      "sonet_group",
+      "user_brief",
+      "user_basic",
+      "user",
+      "department",
+      "disk"
+    ]);
+    const knownGranted = [...granted].filter((scope) => recognized.has(scope)).sort();
+    const block = (requiredScopes, available, note) => ({
+      available,
+      status: available ? "available" : "unavailable",
+      requiredScopes,
+      ...note ? { note } : {}
+    });
+    return {
+      contractVersion: "0.4",
+      grantedScopes: knownGranted,
+      blocks: {
+        taskDiscussion: granted.has("task") ? {
+          available: true,
+          status: granted.has("im") ? "available" : "limited",
+          requiredScopes: ["task", "im"],
+          note: granted.has("im") ? "New task chat and legacy comments are available." : "Legacy comments may work; new task cards require im."
+        } : block(["task", "im"], false),
+        projects: block(["sonet_group"], granted.has("sonet_group")),
+        people: {
+          ...block(["user_brief"], hasUsers),
+          effectiveScope: effectiveUserScope ?? null
+        },
+        departments: block(["department"], granted.has("department")),
+        taskFiles: block(["task", "disk"], granted.has("task") && granted.has("disk")),
+        checklistAndRelations: block(["task"], granted.has("task"))
+      },
+      permissionGuide: {
+        path: ["\u041F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u044F", "\u0420\u0435\u0441\u0443\u0440\u0441\u044B \u0434\u043B\u044F \u0440\u0430\u0437\u0440\u0430\u0431\u043E\u0442\u0447\u0438\u043A\u043E\u0432", "\u0418\u043D\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u0438", "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430 \u043F\u0440\u0430\u0432"],
+        permissions: PERMISSIONS,
+        warning: "Scope webhook and the employee's access are independent. Save the webhook and rerun the installer if its secret changes; never paste it into chat."
+      }
+    };
+  }
+  async taskComments(options) {
+    const parsedCursor = this.#commentCursor(options.cursor);
+    let mode = options.mode;
+    let chatId = null;
+    if (mode !== "legacy_comments") {
+      const task = record3(
+        await this.#client.call("tasks.task.get", {
+          taskId: options.taskId,
+          select: ["ID", "CHAT_ID"]
+        })
+      );
+      const taskRecord = record3(task.task);
+      if (identifier2(pick3(taskRecord, "ID", "id")) !== String(options.taskId))
+        throw new BitrixRequestError("TASK_NOT_FOUND_OR_DENIED");
+      chatId = identifier2(pick3(taskRecord, "CHAT_ID", "chatId"));
+      if (mode === "task_chat" && chatId === null)
+        throw new BitrixRequestError("TASK_CHAT_UNAVAILABLE");
+      if (mode === "auto") mode = chatId === null ? "legacy_comments" : "task_chat";
+    }
+    if (parsedCursor && parsedCursor.mode !== mode)
+      throw new BitrixRequestError("INVALID_CURSOR");
+    return mode === "task_chat" ? this.#taskChat(options, chatId, parsedCursor?.value) : this.#legacyComments(options, parsedCursor?.value);
+  }
+  async #taskChat(options, chatId, before) {
+    if (chatId === null) throw new BitrixRequestError("TASK_CHAT_UNAVAILABLE");
+    const raw = record3(
+      await this.#client.call("im.dialog.messages.get", {
+        DIALOG_ID: `chat${chatId}`,
+        ...before === void 0 ? {} : { LAST_ID: before },
+        LIMIT: options.limit
+      })
+    );
+    if (!Array.isArray(raw.messages)) throw new BitrixRequestError("INVALID_RESPONSE");
+    const users = /* @__PURE__ */ new Map();
+    if (Array.isArray(raw.users)) {
+      for (const value of raw.users) {
+        const user = record3(value);
+        const id = identifier2(user.id);
+        if (id !== null) users.set(id, user);
+      }
+    }
+    const files = /* @__PURE__ */ new Map();
+    if (Array.isArray(raw.files)) {
+      for (const value of raw.files) {
+        const file2 = record3(value);
+        const id = identifier2(file2.id);
+        if (id !== null) files.set(id, file2);
+      }
+    }
+    const normalized = raw.messages.filter(isRecord2).map((message) => {
+      const id = identifier2(message.id);
+      const authorId = identifier2(message.author_id);
+      const author = authorId === null ? {} : record3(users.get(authorId));
+      const params = record3(message.params);
+      return {
+        id,
+        author: {
+          id: authorId,
+          name: text2(author.first_name, 200) ?? text2(author.name, 300),
+          lastName: text2(author.last_name, 200)
+        },
+        createdDate: date5(message.date),
+        text: text2(message.text, 8e3),
+        kind: authorId === null ? "system" : "message",
+        attachments: positiveIds(params.FILE_ID, 20).map((fileId) => {
+          const file2 = record3(files.get(fileId));
+          return {
+            fileId,
+            name: text2(file2.name, 500),
+            size: integer3(file2.size),
+            type: text2(file2.type, 100)
+          };
+        }),
+        untrustedContent: true
+      };
+    }).filter((message) => message.id !== null).sort((left, right) => Number(right.id) - Number(left.id));
+    const selected = normalized.slice(0, options.limit);
+    const nextId = selected.length === 0 ? null : Math.min(...selected.map(({ id }) => Number(id)));
+    return {
+      source: "task_chat",
+      messages: selected,
+      returned: selected.length,
+      partial: normalized.length !== raw.messages.length,
+      skippedMalformed: raw.messages.length - normalized.length,
+      nextCursor: nextId !== null && raw.messages.length >= options.limit ? `chat:${nextId}` : null,
+      truncated: nextId !== null && raw.messages.length >= options.limit
+    };
+  }
+  async #legacyComments(options, start = 0) {
+    const page = await this.#client.callPage("task.commentitem.getlist", {
+      TASKID: options.taskId,
+      ORDER: { ID: "DESC" },
+      FILTER: {},
+      start
+    });
+    if (!Array.isArray(page.result)) throw new BitrixRequestError("INVALID_RESPONSE");
+    const hasMoreInFetchedPage = page.result.length > options.limit;
+    const selectedRaw = page.result.slice(0, options.limit);
+    const normalized = selectedRaw.filter(isRecord2).map((comment) => ({
+      id: identifier2(comment.ID),
+      author: {
+        id: identifier2(comment.AUTHOR_ID),
+        name: text2(comment.AUTHOR_NAME, 300),
+        lastName: null
+      },
+      createdDate: date5(comment.POST_DATE),
+      text: text2(comment.POST_MESSAGE, 8e3),
+      kind: "message",
+      attachments: collection(comment.ATTACHED_OBJECTS).slice(0, 20).map((value) => {
+        const file2 = record3(value);
+        return {
+          attachmentId: identifier2(file2.ATTACHMENT_ID),
+          fileId: identifier2(file2.FILE_ID),
+          name: text2(file2.NAME, 500),
+          size: integer3(file2.SIZE)
+        };
+      }),
+      untrustedContent: true
+    })).filter((comment) => comment.id !== null);
+    const next = pageCursor(start, selectedRaw.length, page.next, hasMoreInFetchedPage);
+    return {
+      source: "legacy_comments",
+      messages: normalized,
+      returned: normalized.length,
+      partial: normalized.length !== selectedRaw.length,
+      skippedMalformed: selectedRaw.length - normalized.length,
+      nextCursor: next === null ? null : `legacy:${next}`,
+      truncated: next !== null
+    };
+  }
+  #commentCursor(cursor) {
+    if (cursor === void 0) return null;
+    const match = /^(chat|legacy):([1-9]\d{0,15})$/u.exec(cursor);
+    if (!match) throw new BitrixRequestError("INVALID_CURSOR");
+    const value = Number(match[2]);
+    if (!Number.isSafeInteger(value)) throw new BitrixRequestError("INVALID_CURSOR");
+    return {
+      mode: match[1] === "chat" ? "task_chat" : "legacy_comments",
+      value
+    };
+  }
+  async searchProjects(options) {
+    const page = await this.#client.callPage("sonet_group.get", {
+      ORDER: { NAME: "ASC" },
+      FILTER: options.query === void 0 ? {} : { "%NAME": options.query },
+      ...options.projectId === void 0 ? {} : { GROUP_ID: options.projectId },
+      start: options.start
+    });
+    if (!Array.isArray(page.result)) throw new BitrixRequestError("INVALID_RESPONSE");
+    const hasMoreInFetchedPage = page.result.length > options.limit;
+    const selectedRaw = page.result.slice(0, options.limit);
+    const normalized = selectedRaw.filter(isRecord2).map((group) => ({
+      id: identifier2(group.ID),
+      name: text2(group.NAME, 500),
+      project: yes(group.PROJECT),
+      ownerId: identifier2(group.OWNER_ID),
+      active: yes(group.ACTIVE),
+      visible: yes(group.VISIBLE),
+      opened: yes(group.OPENED),
+      archived: yes(group.CLOSED)
+    })).filter((group) => group.id !== null);
+    const nextStart = pageCursor(
+      options.start,
+      selectedRaw.length,
+      page.next,
+      hasMoreInFetchedPage
+    );
+    return {
+      projects: normalized,
+      returned: normalized.length,
+      partial: normalized.length !== selectedRaw.length,
+      skippedMalformed: selectedRaw.length - normalized.length,
+      start: options.start,
+      nextStart,
+      total: page.total,
+      truncated: nextStart !== null
+    };
+  }
+  async searchPeople(options) {
+    const page = await this.#client.callPage("user.get", {
+      filter: options.userId === void 0 ? { NAME_SEARCH: options.query } : { ID: options.userId },
+      sort: "ID",
+      order: "ASC",
+      select: ["ID", "NAME", "LAST_NAME", "ACTIVE", "WORK_POSITION", "UF_DEPARTMENT"],
+      start: options.start
+    });
+    if (!Array.isArray(page.result)) throw new BitrixRequestError("INVALID_RESPONSE");
+    const hasMoreInFetchedPage = page.result.length > options.limit;
+    const selectedRaw = page.result.slice(0, options.limit);
+    const normalized = selectedRaw.filter(isRecord2).map((user) => ({
+      id: identifier2(user.ID),
+      name: text2(user.NAME, 200),
+      lastName: text2(user.LAST_NAME, 200),
+      active: yes(user.ACTIVE),
+      workPosition: text2(user.WORK_POSITION, 300),
+      departmentIds: positiveIds(user.UF_DEPARTMENT, 20)
+    })).filter((user) => user.id !== null);
+    const nextStart = pageCursor(
+      options.start,
+      selectedRaw.length,
+      page.next,
+      hasMoreInFetchedPage
+    );
+    return {
+      people: normalized,
+      returned: normalized.length,
+      partial: normalized.length !== selectedRaw.length,
+      skippedMalformed: selectedRaw.length - normalized.length,
+      start: options.start,
+      nextStart,
+      total: page.total,
+      truncated: nextStart !== null
+    };
+  }
+  async listDepartments(options) {
+    const page = await this.#client.callPage("department.get", {
+      sort: "NAME",
+      order: "ASC",
+      ...options.departmentId === void 0 ? {} : { ID: options.departmentId },
+      ...options.parentId === void 0 ? {} : { PARENT: options.parentId },
+      start: options.start
+    });
+    if (!Array.isArray(page.result)) throw new BitrixRequestError("INVALID_RESPONSE");
+    const hasMoreInFetchedPage = page.result.length > options.limit;
+    const selectedRaw = page.result.slice(0, options.limit);
+    const normalized = selectedRaw.filter(isRecord2).map((department) => ({
+      id: identifier2(department.ID),
+      name: text2(department.NAME, 500),
+      parentId: identifier2(department.PARENT),
+      headUserId: identifier2(department.UF_HEAD)
+    })).filter((department) => department.id !== null);
+    const nextStart = pageCursor(
+      options.start,
+      selectedRaw.length,
+      page.next,
+      hasMoreInFetchedPage
+    );
+    return {
+      departments: normalized,
+      returned: normalized.length,
+      partial: normalized.length !== selectedRaw.length,
+      skippedMalformed: selectedRaw.length - normalized.length,
+      start: options.start,
+      nextStart,
+      total: page.total,
+      truncated: nextStart !== null
+    };
+  }
+  async taskFiles(options) {
+    const raw = record3(
+      await this.#client.call("tasks.task.get", {
+        taskId: options.taskId,
+        select: ["ID", "UF_TASK_WEBDAV_FILES"]
+      })
+    );
+    const task = record3(raw.task);
+    if (identifier2(pick3(task, "ID", "id")) !== String(options.taskId))
+      throw new BitrixRequestError("TASK_NOT_FOUND_OR_DENIED");
+    const attachmentIds = positiveIds(
+      pick3(task, "UF_TASK_WEBDAV_FILES", "ufTaskWebdavFiles"),
+      1e3
+    );
+    const selectedIds = attachmentIds.slice(options.start, options.start + options.limit);
+    const files = [];
+    let skippedUnavailable = 0;
+    for (const attachmentId of selectedIds) {
+      try {
+        const file2 = record3(
+          await this.#client.call("disk.attachedObject.get", { id: Number(attachmentId) })
+        );
+        if (identifier2(file2.ID) !== attachmentId || file2.MODULE_ID !== "tasks" || file2.ENTITY_TYPE !== "tasks_task" || identifier2(file2.ENTITY_ID) !== String(options.taskId)) {
+          skippedUnavailable += 1;
+          continue;
+        }
+        files.push({
+          attachmentId,
+          fileId: identifier2(file2.OBJECT_ID),
+          name: text2(file2.NAME, 500),
+          size: integer3(file2.SIZE),
+          createdDate: date5(file2.CREATE_TIME),
+          createdBy: identifier2(file2.CREATED_BY),
+          entityType: text2(file2.ENTITY_TYPE, 100),
+          entityId: identifier2(file2.ENTITY_ID)
+        });
+      } catch (error61) {
+        if (error61 instanceof BitrixRequestError && ["ACCESS_DENIED", "ERROR_NOT_FOUND"].includes(error61.code)) {
+          skippedUnavailable += 1;
+          continue;
+        }
+        throw error61;
+      }
+    }
+    const nextStart = options.start + selectedIds.length < attachmentIds.length ? options.start + selectedIds.length : null;
+    return {
+      files,
+      returned: files.length,
+      partial: skippedUnavailable > 0,
+      skippedUnavailable,
+      start: options.start,
+      nextStart,
+      total: attachmentIds.length,
+      truncated: nextStart !== null
+    };
+  }
+  async taskChecklist(options) {
+    const page = await this.#client.callPage("task.checklistitem.getlist", {
+      TASKID: options.taskId,
+      ORDER: { [options.sortBy]: options.sortDirection.toUpperCase() },
+      start: options.start
+    });
+    if (!Array.isArray(page.result)) throw new BitrixRequestError("INVALID_RESPONSE");
+    const hasMoreInFetchedPage = page.result.length > options.limit;
+    const selectedRaw = page.result.slice(0, options.limit);
+    const normalized = selectedRaw.filter(isRecord2).map((item) => ({
+      id: identifier2(item.ID),
+      taskId: identifier2(item.TASK_ID),
+      parentId: identifier2(item.PARENT_ID),
+      createdBy: identifier2(item.CREATED_BY),
+      title: text2(item.TITLE, 2e3),
+      sortIndex: integer3(item.SORT_INDEX),
+      completed: yes(item.IS_COMPLETE),
+      important: yes(item.IS_IMPORTANT),
+      toggledBy: identifier2(item.TOGGLED_BY),
+      toggledDate: date5(item.TOGGLED_DATE),
+      members: Array.isArray(item.MEMBERS) ? item.MEMBERS.slice(0, 20).map((value) => {
+        const member = record3(value);
+        return {
+          id: identifier2(member.ID),
+          type: text2(member.TYPE, 30),
+          name: text2(member.NAME, 300)
+        };
+      }) : [],
+      attachments: collection(item.ATTACHMENTS).slice(0, 20).map((value) => {
+        const file2 = record3(value);
+        return {
+          attachmentId: identifier2(file2.ATTACHMENT_ID),
+          fileId: identifier2(file2.FILE_ID),
+          name: text2(file2.NAME, 500),
+          size: integer3(file2.SIZE)
+        };
+      }),
+      untrustedContent: true
+    })).filter((item) => item.id !== null && item.taskId === String(options.taskId));
+    const nextStart = pageCursor(
+      options.start,
+      selectedRaw.length,
+      page.next,
+      hasMoreInFetchedPage
+    );
+    return {
+      items: normalized,
+      returned: normalized.length,
+      partial: normalized.length !== selectedRaw.length,
+      skippedMalformed: selectedRaw.length - normalized.length,
+      start: options.start,
+      nextStart,
+      total: page.total,
+      truncated: nextStart !== null
+    };
+  }
+  async taskRelations(options) {
+    const raw = record3(
+      await this.#client.call("tasks.task.get", {
+        taskId: options.taskId,
+        select: ["ID", "PARENT_ID", "DEPENDS_ON"]
+      })
+    );
+    const task = record3(raw.task);
+    if (identifier2(pick3(task, "ID", "id")) !== String(options.taskId))
+      throw new BitrixRequestError("TASK_NOT_FOUND_OR_DENIED");
+    const parentId = identifier2(pick3(task, "PARENT_ID", "parentId"));
+    const dependencyIds = positiveIds(pick3(task, "DEPENDS_ON", "dependsOn"), 20);
+    const relatedIds = [...new Set([parentId, ...dependencyIds].filter((id) => id !== null))];
+    const relatedResult = relatedIds.length === 0 ? { tasks: [], truncated: false } : await this.#taskSummaries({ ID: relatedIds }, 20);
+    const subtaskResult = await this.#taskSummaries(
+      { PARENT_ID: options.taskId },
+      options.subtaskLimit
+    );
+    const byId = new Map(relatedResult.tasks.map((entry) => [entry.id, entry]));
+    return {
+      taskId: String(options.taskId),
+      parent: parentId === null ? null : byId.get(parentId) ?? { id: parentId, unavailable: true },
+      dependencies: dependencyIds.map((id) => byId.get(id) ?? { id, unavailable: true }),
+      subtasks: subtaskResult.tasks,
+      subtaskLimit: options.subtaskLimit,
+      subtasksTruncated: subtaskResult.truncated
+    };
+  }
+  async #taskSummaries(filter, limit) {
+    const page = await this.#client.callPage("tasks.task.list", {
+      order: { ID: "ASC" },
+      filter,
+      select: ["ID", "TITLE", "STATUS", "DEADLINE"],
+      start: 0
+    });
+    const raw = record3(page.result);
+    if (!Array.isArray(raw.tasks)) throw new BitrixRequestError("INVALID_RESPONSE");
+    const tasks = raw.tasks.filter(isRecord2).map((task) => ({
+      id: identifier2(pick3(task, "ID", "id")),
+      title: text2(pick3(task, "TITLE", "title"), 1e3),
+      status: integer3(pick3(task, "STATUS", "status")),
+      deadline: date5(pick3(task, "DEADLINE", "deadline")),
+      untrustedContent: true
+    })).filter((task) => task.id !== null).slice(0, limit);
+    return {
+      tasks,
+      truncated: raw.tasks.length > limit || page.next !== null
+    };
+  }
+};
+
 // server/src/main.ts
 function unavailableServer(error61, updater) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.4.0-rc.1" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",
@@ -36837,7 +37528,26 @@ function serverFromEnvironment(env = process.env) {
   }
   try {
     const client = new BitrixClient(loadConfig(env));
-    return createMcpServer(new TaskReader(client), updater);
+    const tasks = new TaskReader(client);
+    const capabilities = new ReadCapabilityReader(client);
+    return createMcpServer(
+      {
+        connectionCheck: () => tasks.connectionCheck(),
+        listTasks: (options) => tasks.listTasks(options),
+        getTask: (taskId) => tasks.getTask(taskId),
+        taskHistory: (options) => tasks.taskHistory(options),
+        taskFields: () => tasks.taskFields(),
+        capabilities: () => capabilities.capabilities(),
+        taskComments: (options) => capabilities.taskComments(options),
+        searchProjects: (options) => capabilities.searchProjects(options),
+        searchPeople: (options) => capabilities.searchPeople(options),
+        listDepartments: (options) => capabilities.listDepartments(options),
+        taskFiles: (options) => capabilities.taskFiles(options),
+        taskChecklist: (options) => capabilities.taskChecklist(options),
+        taskRelations: (options) => capabilities.taskRelations(options)
+      },
+      updater
+    );
   } catch (error61) {
     if (error61 instanceof ConfigurationError) return unavailableServer(error61, updater);
     throw error61;

@@ -2,6 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import process from "node:process";
 import { BitrixClient } from "../server/src/bitrix-client.ts";
 import { loadConfig } from "../server/src/config.ts";
+import { ReadCapabilityReader } from "../server/src/read-capabilities.ts";
 import { TaskReader } from "../server/src/tasks.ts";
 
 const secretFile = process.argv[2];
@@ -36,12 +37,20 @@ for (const line of source.split("\n")) {
 const webhook =
   values.BITRIX24_WEBHOOK_BASE_URL ?? values.BITRIX24_WEBHOOK_URL;
 const config = loadConfig({ BITRIX24_WEBHOOK_BASE_URL: webhook });
-const reader = new TaskReader(new BitrixClient(config));
+const client = new BitrixClient(config);
+const reader = new TaskReader(client);
+const capabilityReader = new ReadCapabilityReader(client);
 
 const report = {};
 try {
   const connection = await reader.connectionCheck();
   report.profileRead = connection?.connected === true;
+
+  const capabilities = await capabilityReader.capabilities();
+  report.capabilitiesRead = typeof capabilities?.blocks === "object";
+  report.availableCapabilityBlocks = Object.values(capabilities?.blocks ?? {}).filter(
+    (block) => block?.available === true,
+  ).length;
 
   const listed = await reader.listTasks({
     scope: "mine",
@@ -84,6 +93,7 @@ try {
   report.fieldCount = Array.isArray(fields?.fields) ? fields.fields.length : null;
   report.ok =
     report.profileRead &&
+    report.capabilitiesRead &&
     report.taskListRead &&
     report.taskPayloadShapeValid &&
     report.taskHistoryRead !== false &&
