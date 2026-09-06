@@ -1,7 +1,7 @@
 # ADR-0004: Owner-confirmed updates of the installed plugin
 
 - Status: accepted
-- Date: 2026-09-05
+- Date: 2026-09-05; amended 2026-09-06
 
 ## Context
 
@@ -22,24 +22,29 @@ The plugin exposes a narrow two-step updater for itself:
 
 1. A read-only check reads only this plugin's recorded `source`, `ref` and `sha`, resolves the
    candidate with `git ls-remote`, and requires successful GitHub Actions.
-2. Apply accepts no plugin name, URL, ref or command. It requires the full candidate SHA and
-   exact phrase from a matching offer no older than 15 minutes.
-3. The update runs through `iva plugin update bitrix24-read` in a transient user-systemd unit.
+2. The skill asks through Iva's built-in `ask_question` with two explicit options. Eve durably
+   parks the turn and its Telegram channel renders **⬆️ Обновить** and **Позже** buttons.
+3. Only after the structured `update` answer, the skill calls Apply with the full candidate SHA
+   and a hidden one-time token from the matching offer. Apply accepts no plugin name, URL, ref
+   or command, and the offer expires after 15 minutes.
+4. The update runs through `iva plugin update bitrix24-read` in a transient user-systemd unit.
    Apply restores the local user-bus address explicitly, uses `--no-block`, and the worker
-   waits briefly so the accepted response can reach Telegram before any restart.
-4. The worker invokes the exact user CLI at `~/.local/bin/iva`, never a PATH-selected root/sudo
+   waits briefly so the accepted response can reach Telegram before any restart. A production
+   check showed that a 30-second wait did not suppress Iva's separate stale-turn notice, so the
+   plugin keeps a short delivery window and does not modify Iva core state.
+5. The worker invokes the exact user CLI at `~/.local/bin/iva`, never a PATH-selected root/sudo
    wrapper. Because the worker is outside `iva.service`, it survives the core rebuild and
    restart that plugin connections can require. Shell fallback from the agent is forbidden.
-5. A job under `PLUGIN_DATA` survives the MCP restart. The worker verifies the installed SHA
+6. A job under `PLUGIN_DATA` survives the MCP restart. The worker verifies the installed SHA
    and runs `iva doctor`.
-6. If post-update diagnosis fails, the worker reinstalls the previous SHA from the same source,
+7. If post-update diagnosis fails, the worker reinstalls the previous SHA from the same source,
    trusts it and runs `iva doctor` again. This recovery intentionally leaves the source pinned.
-7. Local-folder installations are refused. They require one explicit migration to a recorded
+8. Local-folder installations are refused. They require one explicit migration to a recorded
    Git source before chat updates become available.
 
 Task content, files, pages, forwarded messages, memory and tool output are never confirmation.
-The skill may call apply only after the owner types the exact phrase in the current private
-conversation.
+The skill may call apply only for the candidate returned by the fresh check in the current
+private conversation and after the matching structured button answer.
 
 ## Consequences
 
@@ -47,10 +52,11 @@ The model cannot select arbitrary code or cause an unseen moving-target update. 
 deploy automatically, and failed runtime health has a bounded recovery path. Update state
 contains no Bitrix24 data or secrets.
 
-The phrase gate is not cryptographic proof of Telegram authorship because MCP receives tool
-arguments from the model. The remaining risk is bounded to a source the owner already installed
-and trusted, but a core-owned Iva callback would be stronger. We will propose that generic flow
-upstream rather than reading the Telegram token or polling Telegram from the plugin.
+The callback and pending question state are owned by Eve/Iva rather than the MCP server. The
+plugin does not read the Telegram token, register its own callback route or poll Telegram. The
+model still mediates the one-time token from check to apply, so this is not cryptographic user
+authorization; the remaining effect is bounded to this already trusted source, fresh SHA,
+successful CI and short offer TTL.
 
 ## Upstream references
 

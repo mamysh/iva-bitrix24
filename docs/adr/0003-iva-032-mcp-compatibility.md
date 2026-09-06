@@ -29,5 +29,5 @@ extension-only and mixed plugins. Compatibility testing confirms that the plugin
 
 ## Removal condition
 
-Keep Iva 0.3.34 as the minimum supported release until a later compatibility decision
+Keep Iva 0.3.34 as the minimum supported release for the MCP-only line until a later compatibility decision
 supersedes it.

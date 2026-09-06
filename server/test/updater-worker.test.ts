@@ -12,11 +12,11 @@ import {
 const OLD = "1".repeat(40);
 const NEW = "2".repeat(40);
 
-test("worker leaves a 30-second turn-settlement window by default", () => {
-  assert.equal(UPDATE_START_DELAY_MS, 30_000);
-  assert.equal(updateStartDelay({}), 30_000);
+test("worker leaves a short response-delivery window by default", () => {
+  assert.equal(UPDATE_START_DELAY_MS, 5_000);
+  assert.equal(updateStartDelay({}), 5_000);
   assert.equal(updateStartDelay({ IVA_BITRIX24_WORKER_DELAY_MS: "0" }), 0);
-  assert.equal(updateStartDelay({ IVA_BITRIX24_WORKER_DELAY_MS: "1" }), 30_000);
+  assert.equal(updateStartDelay({ IVA_BITRIX24_WORKER_DELAY_MS: "1" }), 5_000);
 });
 
 async function fixture(

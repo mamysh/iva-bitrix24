@@ -50,7 +50,7 @@ function operations(
 ): Partial<UpdaterOperations> {
   return {
     now: () => new Date("2026-09-05T15:00:00.000Z"),
-    token: () => "ABC123",
+    token: () => "ABC123ABC123ABC123ABC123",
     exec: async (command, args, environment) => {
       calls.push({ command, args, ...(environment ? { environment } : {}) });
       return command === "git"
@@ -65,7 +65,7 @@ function operations(
   };
 }
 
-test("checks the recorded Git source and creates a bounded confirmed offer", async (t) => {
+test("checks the recorded Git source and creates a bounded button-approval offer", async (t) => {
   const paths = await world(t);
   const calls: TestCall[] = [];
   const updater = new PluginUpdater(
@@ -76,7 +76,22 @@ test("checks the recorded Git source and creates a bounded confirmed offer", asy
   assert.equal(result.state, "available");
   assert.equal(result.currentSha, OLD);
   assert.equal(result.candidateSha, NEW);
-  assert.equal(result.confirmation, `ОБНОВИТЬ ${NEW.slice(0, 12)}`);
+  assert.equal(result.approvalToken, "ABC123ABC123ABC123ABC123");
+  assert.deepEqual(result.approvalPrompt, {
+    prompt: [
+      "⬆️ Доступно обновление плагина Bitrix24",
+      "",
+      `${OLD.slice(0, 7)} → ${NEW.slice(0, 7)}`,
+      "Источник: mamysh/iva-bitrix24/plugin @HEAD",
+      "CI: success ✅",
+      "Настройки и локальные данные будут сохранены.",
+    ].join("\n"),
+    options: [
+      { id: "update", label: "⬆️ Обновить" },
+      { id: "later", label: "Позже" },
+    ],
+    allowFreeform: false,
+  });
   assert.deepEqual(calls[0], {
     command: "git",
     args: [
@@ -100,6 +115,43 @@ test("refuses chat updates for a local folder source", async (t) => {
   assert.equal(result.state, "local_source");
 });
 
+test("does not expose approval data or retain an offer when CI fails", async (t) => {
+  const paths = await world(t);
+  const successful = new PluginUpdater(
+    { PLUGIN_ROOT: paths.root, PLUGIN_DATA: paths.pluginData },
+    operations([]),
+  );
+  await successful.check();
+
+  const calls: TestCall[] = [];
+  const base = operations(calls);
+  const blocked = new PluginUpdater(
+    { PLUGIN_ROOT: paths.root, PLUGIN_DATA: paths.pluginData },
+    {
+      ...base,
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            workflow_runs: [{ status: "completed", conclusion: "failure" }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    },
+  );
+  const result = (await blocked.check()) as Record<string, unknown>;
+  assert.equal(result.state, "blocked");
+  assert.equal(result.ci, "failure");
+  assert.equal("approvalToken" in result, false);
+  assert.equal("approvalPrompt" in result, false);
+  await assert.rejects(
+    blocked.apply({
+      candidateSha: NEW,
+      approvalToken: "ABC123ABC123ABC123ABC123",
+    }),
+    /UPDATE_CHECK_REQUIRED/u,
+  );
+});
+
 test("starts only the exact fresh offer in a transient systemd unit", async (t) => {
   const paths = await world(t);
   const calls: TestCall[] = [];
@@ -109,12 +161,12 @@ test("starts only the exact fresh offer in a transient systemd unit", async (t) 
   );
   await updater.check();
   await assert.rejects(
-    updater.apply({ candidateSha: NEW, confirmation: "да" }),
-    /UPDATE_CONFIRMATION_MISMATCH/u,
+    updater.apply({ candidateSha: NEW, approvalToken: "0".repeat(24) }),
+    /UPDATE_APPROVAL_MISMATCH/u,
   );
   const started = (await updater.apply({
     candidateSha: NEW,
-    confirmation: `ОБНОВИТЬ ${NEW.slice(0, 12)}`,
+    approvalToken: "ABC123ABC123ABC123ABC123",
   })) as Record<string, unknown>;
   assert.equal(started.state, "started");
   const launch = calls.find(({ command }) => command === "systemd-run");
@@ -134,7 +186,7 @@ test("starts only the exact fresh offer in a transient systemd unit", async (t) 
   await assert.rejects(
     updater.apply({
       candidateSha: NEW,
-      confirmation: `ОБНОВИТЬ ${NEW.slice(0, 12)}`,
+      approvalToken: "ABC123ABC123ABC123ABC123",
     }),
     /UPDATE_ALREADY_RUNNING/u,
   );
@@ -159,7 +211,7 @@ test("normalizes a user-systemd launch failure and releases its lock", async (t)
   await assert.rejects(
     updater.apply({
       candidateSha: NEW,
-      confirmation: `ОБНОВИТЬ ${NEW.slice(0, 12)}`,
+      approvalToken: "ABC123ABC123ABC123ABC123",
     }),
     /UPDATE_WORKER_LAUNCH_FAILED/u,
   );
@@ -250,7 +302,7 @@ test("rechecks a moving remote ref immediately before apply", async (t) => {
   await assert.rejects(
     updater.apply({
       candidateSha: NEW,
-      confirmation: `ОБНОВИТЬ ${NEW.slice(0, 12)}`,
+      approvalToken: "ABC123ABC123ABC123ABC123",
     }),
     /REMOTE_CHANGED_SINCE_CHECK/u,
   );

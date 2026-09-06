@@ -30,11 +30,11 @@ type GitSource = {
 };
 
 type Offer = {
-  readonly schema: "iva-bitrix24-update-offer/v1";
+  readonly schema: "iva-bitrix24-update-offer/v2";
   readonly createdAt: string;
   readonly currentSha: string;
   readonly candidateSha: string;
-  readonly confirmation: string;
+  readonly approvalToken: string;
   readonly source: string;
   readonly sourceBase: string;
   readonly ref: string;
@@ -58,7 +58,7 @@ export type UpdaterOperations = {
 
 export type ApplyUpdateInput = {
   readonly candidateSha: string;
-  readonly confirmation: string;
+  readonly approvalToken: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -143,7 +143,7 @@ export class PluginUpdater {
       },
       fetch: globalThis.fetch,
       now: () => new Date(),
-      token: () => randomBytes(3).toString("hex").toUpperCase(),
+      token: () => randomBytes(12).toString("hex").toUpperCase(),
       ...operations,
     };
   }
@@ -242,13 +242,15 @@ export class PluginUpdater {
       };
     }
     const ci = await this.#ci(source, candidateSha);
-    const confirmation = `ОБНОВИТЬ ${candidateSha.slice(0, 12)}`;
+    const approvalToken = this.#operations.token();
+    if (!/^[A-F0-9]{24}$/u.test(approvalToken))
+      throw new Error("UPDATE_APPROVAL_TOKEN_INVALID");
     const offer: Offer = {
-      schema: "iva-bitrix24-update-offer/v1",
+      schema: "iva-bitrix24-update-offer/v2",
       createdAt: this.#operations.now().toISOString(),
       currentSha,
       candidateSha,
-      confirmation,
+      approvalToken,
       source: entry.source as string,
       sourceBase: source.base,
       ref: source.ref,
@@ -264,7 +266,26 @@ export class PluginUpdater {
       currentSha,
       candidateSha,
       ci,
-      ...(ci === "success" ? { confirmation } : {}),
+      ...(ci === "success"
+        ? {
+            approvalToken,
+            approvalPrompt: {
+              prompt: [
+                "⬆️ Доступно обновление плагина Bitrix24",
+                "",
+                `${currentSha.slice(0, 7)} → ${candidateSha.slice(0, 7)}`,
+                `Источник: ${source.label} @${source.ref}`,
+                "CI: success ✅",
+                "Настройки и локальные данные будут сохранены.",
+              ].join("\n"),
+              options: [
+                { id: "update", label: "⬆️ Обновить" },
+                { id: "later", label: "Позже" },
+              ],
+              allowFreeform: false,
+            },
+          }
+        : {}),
     };
   }
 
@@ -286,14 +307,17 @@ export class PluginUpdater {
         throw new Error("UPDATE_CHECK_REQUIRED");
       throw new Error("UPDATE_OFFER_INVALID");
     }
-    if (!isRecord(parsed) || parsed.schema !== "iva-bitrix24-update-offer/v1")
+    if (!isRecord(parsed) || parsed.schema !== "iva-bitrix24-update-offer/v2")
       throw new Error("UPDATE_OFFER_INVALID");
     const offer = parsed as Offer;
     const age = this.#operations.now().getTime() - Date.parse(offer.createdAt);
     if (!Number.isFinite(age) || age < 0 || age > OFFER_TTL_MS)
       throw new Error("UPDATE_OFFER_EXPIRED");
-    if (input.candidateSha !== offer.candidateSha || input.confirmation !== offer.confirmation)
-      throw new Error("UPDATE_CONFIRMATION_MISMATCH");
+    if (
+      input.candidateSha !== offer.candidateSha ||
+      input.approvalToken !== offer.approvalToken
+    )
+      throw new Error("UPDATE_APPROVAL_MISMATCH");
     const entry = await this.#entry();
     if (safeSha(entry.sha) !== offer.currentSha)
       throw new Error("PLUGIN_CHANGED_SINCE_CHECK");

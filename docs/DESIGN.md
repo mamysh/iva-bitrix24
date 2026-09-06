@@ -31,9 +31,10 @@ Iva
         -> allowlisted HTTPS POST
           -> Bitrix24 incoming webhook
 
-owner confirmation in Telegram
-  -> bounded MCP update tool
-    -> transient user-systemd worker
+native ask_question buttons in Telegram
+  -> structured update/later callback
+    -> bounded MCP update tool with one-time offer token
+      -> transient user-systemd worker
       -> iva plugin update bitrix24-read
         -> SHA verification -> iva doctor -> success or previous-SHA rollback
 ```
@@ -81,14 +82,16 @@ MCP-tools и их read-only семантика составляют совмес
 ## Контур обновлений
 
 Check читает безопасные поля `source/ref/sha` текущей записи `bitrix24-read`, разрешает remote
-SHA через `git ls-remote` и проверяет GitHub Actions. Он не меняет сервер. Apply принимает
-только SHA и точную фразу из свежего локального offer; имя, URL, ref и CLI-аргументы в MCP-
-схеме отсутствуют.
+SHA через `git ls-remote` и проверяет GitHub Actions. Он не меняет сервер. Skill вызывает
+встроенный `ask_question` с двумя кнопками. Eve паркует ход и возвращает структурированный выбор.
+После «Обновить» apply принимает только SHA и одноразовый token свежего локального offer; имя, URL,
+ref и CLI-аргументы отсутствуют.
 
 Worker запускается через `systemd-run --user --no-block` с явно восстановленным адресом
 user-systemd bus, потому что MCP-процесс намеренно получает урезанное окружение. Перед первым
-изменением worker оставляет 30-секундное окно для завершения и доставки ответа tool в
-Telegram. Затем он
+изменением worker оставляет короткое окно для доставки ответа tool в Telegram. Увеличение
+окна до 30 секунд не устранило отдельное сообщение reaper Iva, поэтому задержка не используется
+как попытка управлять состоянием ядра. Затем worker
 вызывает точный пользовательский `~/.local/bin/iva`, а не ищет CLI через `PATH`: так процесс
 остаётся вне cgroup основной `iva.service` и переживает её штатную пересборку и рестарт.
 Worker всегда берётся из текущего установленного snapshot. Поэтому изменение самого updater
@@ -101,3 +104,6 @@ Worker всегда берётся из текущего установленн�
 Сборочный rollback обеспечивает Iva. Если переключение
 состоялось, но `iva doctor` завершился ошибкой, worker переустанавливает прежний SHA того же
 источника. После такого возврата источник остаётся pinned до отдельного решения владельца.
+
+Кнопки и их callback обрабатывает сама Iva. MCP-процесс по-прежнему получает только свой env,
+`PLUGIN_ROOT` и `PLUGIN_DATA`, без Telegram credentials и остального окружения агента.

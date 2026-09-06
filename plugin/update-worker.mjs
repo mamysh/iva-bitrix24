@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 // server/src/updater-policy.ts
-var UPDATE_START_DELAY_MS = 3e4;
+var UPDATE_START_DELAY_MS = 5e3;
 function updateStartDelay(environment = process.env) {
   return environment.IVA_BITRIX24_WORKER_DELAY_MS === "0" ? 0 : UPDATE_START_DELAY_MS;
 }

@@ -143,11 +143,11 @@ export function registerUpdaterTools(
     "iva_bitrix24_update_apply",
     {
       description:
-        "Start a previously checked iva-bitrix24 update. Call only when the owner explicitly typed the exact confirmation phrase returned by iva_bitrix24_update_check in the current direct conversation.",
+        "Start the fresh iva-bitrix24 update only after the owner chose the Update option in Iva's structured ask_question prompt in this private conversation.",
       inputSchema: z
         .object({
           candidateSha: z.string().regex(/^[a-f0-9]{40}$/u),
-          confirmation: z.string().min(1).max(64),
+          approvalToken: z.string().regex(/^[A-F0-9]{24}$/u),
         })
         .strict(),
       annotations: {
@@ -174,7 +174,7 @@ export function createMcpServer(
   reader: TaskReaderPort,
   updater: PluginUpdaterPort | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.5" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.6" });
   registerUpdaterTools(server, updater);
 
   server.registerTool(

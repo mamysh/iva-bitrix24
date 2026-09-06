@@ -36328,10 +36328,10 @@ function registerUpdaterTools(server2, updater) {
   server2.registerTool(
     "iva_bitrix24_update_apply",
     {
-      description: "Start a previously checked iva-bitrix24 update. Call only when the owner explicitly typed the exact confirmation phrase returned by iva_bitrix24_update_check in the current direct conversation.",
+      description: "Start the fresh iva-bitrix24 update only after the owner chose the Update option in Iva's structured ask_question prompt in this private conversation.",
       inputSchema: external_exports.object({
         candidateSha: external_exports.string().regex(/^[a-f0-9]{40}$/u),
-        confirmation: external_exports.string().min(1).max(64)
+        approvalToken: external_exports.string().regex(/^[A-F0-9]{24}$/u)
       }).strict(),
       annotations: {
         readOnlyHint: false,
@@ -36353,7 +36353,7 @@ function registerUpdaterTools(server2, updater) {
   );
 }
 function createMcpServer(reader, updater = null) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.5" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.6" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",
@@ -36525,7 +36525,7 @@ var PluginUpdater = class {
       },
       fetch: globalThis.fetch,
       now: () => /* @__PURE__ */ new Date(),
-      token: () => randomBytes(3).toString("hex").toUpperCase(),
+      token: () => randomBytes(12).toString("hex").toUpperCase(),
       ...operations
     };
   }
@@ -36614,13 +36614,15 @@ var PluginUpdater = class {
       };
     }
     const ci = await this.#ci(source, candidateSha);
-    const confirmation = `\u041E\u0411\u041D\u041E\u0412\u0418\u0422\u042C ${candidateSha.slice(0, 12)}`;
+    const approvalToken = this.#operations.token();
+    if (!/^[A-F0-9]{24}$/u.test(approvalToken))
+      throw new Error("UPDATE_APPROVAL_TOKEN_INVALID");
     const offer = {
-      schema: "iva-bitrix24-update-offer/v1",
+      schema: "iva-bitrix24-update-offer/v2",
       createdAt: this.#operations.now().toISOString(),
       currentSha,
       candidateSha,
-      confirmation,
+      approvalToken,
       source: entry.source,
       sourceBase: source.base,
       ref: source.ref
@@ -36636,7 +36638,24 @@ var PluginUpdater = class {
       currentSha,
       candidateSha,
       ci,
-      ...ci === "success" ? { confirmation } : {}
+      ...ci === "success" ? {
+        approvalToken,
+        approvalPrompt: {
+          prompt: [
+            "\u2B06\uFE0F \u0414\u043E\u0441\u0442\u0443\u043F\u043D\u043E \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u043F\u043B\u0430\u0433\u0438\u043D\u0430 Bitrix24",
+            "",
+            `${currentSha.slice(0, 7)} \u2192 ${candidateSha.slice(0, 7)}`,
+            `\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A: ${source.label} @${source.ref}`,
+            "CI: success \u2705",
+            "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0438 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 \u0431\u0443\u0434\u0443\u0442 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u044B."
+          ].join("\n"),
+          options: [
+            { id: "update", label: "\u2B06\uFE0F \u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C" },
+            { id: "later", label: "\u041F\u043E\u0437\u0436\u0435" }
+          ],
+          allowFreeform: false
+        }
+      } : {}
     };
   }
   async apply(input2) {
@@ -36657,14 +36676,14 @@ var PluginUpdater = class {
         throw new Error("UPDATE_CHECK_REQUIRED");
       throw new Error("UPDATE_OFFER_INVALID");
     }
-    if (!isRecord(parsed) || parsed.schema !== "iva-bitrix24-update-offer/v1")
+    if (!isRecord(parsed) || parsed.schema !== "iva-bitrix24-update-offer/v2")
       throw new Error("UPDATE_OFFER_INVALID");
     const offer = parsed;
     const age = this.#operations.now().getTime() - Date.parse(offer.createdAt);
     if (!Number.isFinite(age) || age < 0 || age > OFFER_TTL_MS)
       throw new Error("UPDATE_OFFER_EXPIRED");
-    if (input2.candidateSha !== offer.candidateSha || input2.confirmation !== offer.confirmation)
-      throw new Error("UPDATE_CONFIRMATION_MISMATCH");
+    if (input2.candidateSha !== offer.candidateSha || input2.approvalToken !== offer.approvalToken)
+      throw new Error("UPDATE_APPROVAL_MISMATCH");
     const entry = await this.#entry();
     if (safeSha(entry.sha) !== offer.currentSha)
       throw new Error("PLUGIN_CHANGED_SINCE_CHECK");
@@ -36790,7 +36809,7 @@ var PluginUpdater = class {
 
 // server/src/main.ts
 function unavailableServer(error61, updater) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.5" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.6" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",

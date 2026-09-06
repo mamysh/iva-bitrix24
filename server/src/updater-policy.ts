@@ -1,4 +1,4 @@
-export const UPDATE_START_DELAY_MS = 30_000;
+export const UPDATE_START_DELAY_MS = 5_000;
 
 export function updateStartDelay(
   environment: Readonly<Record<string, string | undefined>> = process.env,

@@ -30,7 +30,7 @@ async function connectedClient(taskReader: TaskReaderPort = reader()) {
   return { client, server };
 }
 
-test("publishes five Bitrix read tools and three guarded update tools", async (t) => {
+test("publishes five Bitrix read tools and three bounded update tools", async (t) => {
   const { client, server } = await connectedClient();
   t.after(async () => {
     await client.close();
@@ -83,6 +83,15 @@ test("validates task identifiers and list limits at the MCP boundary", async (t)
     arguments: { limit: 51 },
   });
   assert.equal(invalidLimit.isError, true);
+
+  const obsoleteTextConfirmation = await client.callTool({
+    name: "iva_bitrix24_update_apply",
+    arguments: {
+      candidateSha: "a".repeat(40),
+      confirmation: "ОБНОВИТЬ aaaaaaaaaaaa",
+    },
+  });
+  assert.equal(obsoleteTextConfirmation.isError, true);
 
   const invalidLegacyStatus = await client.callTool({
     name: "bitrix24_list_tasks",
