@@ -8,7 +8,7 @@ explicit live smoke test.
 | Iva | 0.3.34 | historical MCP lifecycle without the current native button flow | legacy; current button flow not supported |
 | Iva | 0.4.0 | native Telegram HITL, plugin lifecycle, `iva doctor` and MCP proxy | supported |
 | Node.js | 24 | CI typecheck, tests, build and stdio MCP smoke test | supported for development |
-| Bitrix24 Tasks REST | current `tasks.task.*` API | official contract review and synthetic contract tests | release candidate; live task-output check pending |
+| Bitrix24 Tasks REST | current `tasks.task.*` API | official contract review, contract tests and production smoke checks | supported for the documented read-only tools |
 | Bitrix24 REST 3.0 | `/rest/api/...` | no runtime adapter in this version | not supported |
 
 The plugin uses the established `tasks.task.list`, `tasks.task.get`,

@@ -1,6 +1,6 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "bitrix24-read",
-  "version": "0.3.0-rc.7",
+  "version": "0.3.0",
   "description": "Bounded Bitrix24 task reading and button-confirmed managed updates for Iva."
 }
