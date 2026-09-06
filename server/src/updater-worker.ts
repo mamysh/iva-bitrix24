@@ -4,10 +4,9 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { updateStartDelay } from "./updater-policy.ts";
 
 const IVA_CLI = join(homedir(), ".local", "bin", "iva");
-const START_DELAY_MS =
-  process.env.IVA_BITRIX24_WORKER_DELAY_MS === "0" ? 0 : 5_000;
 
 type Job = Record<string, unknown> & {
   schema: "iva-bitrix24-update-job/v1";
@@ -71,7 +70,7 @@ const job = JSON.parse(await readFile(jobPath, "utf8")) as Job;
 try {
   // The MCP tool must return its accepted job before this worker restarts the
   // plugin proxy or rebuilds Iva. A detached unit survives that restart.
-  await delay(START_DELAY_MS);
+  await delay(updateStartDelay());
   job.status = "running";
   job.startedAt = new Date().toISOString();
   await save(jobPath, job);

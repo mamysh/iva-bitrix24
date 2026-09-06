@@ -23,6 +23,7 @@ test("connection check verifies both identity and Tasks scope", async () => {
   const result = await new TaskReader(client).connectionCheck();
   assert.deepEqual(methods, ["profile", "tasks.task.getFields"]);
   assert.equal(result.taskScope, true);
+  assert.equal(result.taskContentChecked, false);
   assert.equal(result.contractVersion, "0.3");
   assert.equal(result.apiFamily, "tasks-rest");
 });

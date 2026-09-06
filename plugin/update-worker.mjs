@@ -8,8 +8,15 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+
+// server/src/updater-policy.ts
+var UPDATE_START_DELAY_MS = 3e4;
+function updateStartDelay(environment = process.env) {
+  return environment.IVA_BITRIX24_WORKER_DELAY_MS === "0" ? 0 : UPDATE_START_DELAY_MS;
+}
+
+// server/src/updater-worker.ts
 var IVA_CLI = join(homedir(), ".local", "bin", "iva");
-var START_DELAY_MS = process.env.IVA_BITRIX24_WORKER_DELAY_MS === "0" ? 0 : 5e3;
 function run(args) {
   try {
     execFileSync(IVA_CLI, args, {
@@ -57,7 +64,7 @@ var jobPath = process.argv[2];
 if (!jobPath) process.exit(2);
 var job = JSON.parse(await readFile(jobPath, "utf8"));
 try {
-  await delay(START_DELAY_MS);
+  await delay(updateStartDelay());
   job.status = "running";
   job.startedAt = (/* @__PURE__ */ new Date()).toISOString();
   await save(jobPath, job);

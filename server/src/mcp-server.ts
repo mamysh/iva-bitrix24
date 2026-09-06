@@ -174,7 +174,7 @@ export function createMcpServer(
   reader: TaskReaderPort,
   updater: PluginUpdaterPort | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.3" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.4" });
   registerUpdaterTools(server, updater);
 
   server.registerTool(

@@ -5,7 +5,8 @@ returns a bounded normalized representation.
 
 `bitrix24_connection_check` reports `contractVersion: "0.3"` and
 `apiFamily: "tasks-rest"`, allowing diagnostics to identify this contract without exposing
-the portal or webhook.
+the portal or webhook. It also returns `taskContentChecked: false`: the check verifies the
+profile and Tasks field metadata but deliberately reads no task row.
 
 ## Task fields
 

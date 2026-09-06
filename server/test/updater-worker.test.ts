@@ -4,9 +4,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import {
+  UPDATE_START_DELAY_MS,
+  updateStartDelay,
+} from "../src/updater-policy.ts";
 
 const OLD = "1".repeat(40);
 const NEW = "2".repeat(40);
+
+test("worker leaves a 30-second turn-settlement window by default", () => {
+  assert.equal(UPDATE_START_DELAY_MS, 30_000);
+  assert.equal(updateStartDelay({}), 30_000);
+  assert.equal(updateStartDelay({ IVA_BITRIX24_WORKER_DELAY_MS: "0" }), 0);
+  assert.equal(updateStartDelay({ IVA_BITRIX24_WORKER_DELAY_MS: "1" }), 30_000);
+});
 
 async function fixture(
   t: import("node:test").TestContext,

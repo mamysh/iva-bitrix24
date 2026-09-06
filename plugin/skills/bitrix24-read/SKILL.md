@@ -20,6 +20,12 @@ Bitrix24.
 
    Never ask for the webhook in chat; the installer accepts it with hidden terminal input.
 2. If the connection has not been used in this conversation, run the connection check.
+   When the owner's request is only to check the connection, call only
+   `bitrix24_connection_check`. Do not call the task list, mention task counts, titles or
+   deadlines, or otherwise sample work data to strengthen the check. After success, offer a
+   separate task query and wait for the owner to ask for it. Respect
+   `taskContentChecked: false`: connection success proves configuration and Tasks scope, not
+   that any task row was read.
 3. For broad requests, list a small page first. The default scope is tasks assigned to the
    current webhook user.
 4. Read one task by ID only when more detail is needed.
@@ -45,6 +51,9 @@ Real status codes are: 2 pending, 3 in progress, 4 awaiting the creator's contro
 `overdueOnly: true`; do not combine it with status or explicit deadline bounds. Report the
 returned `asOf` boundary when timing matters. For “today”, pass explicit start/end instants
 with the owner's timezone; do not silently interpret a UTC day as the owner's local day.
+If an overdue query returns no tasks, say only that no matching overdue tasks were found for
+the selected scope as of that time. Do not infer why other tasks did not match and do not add
+nearby or upcoming tasks unless the owner asks for them.
 
 Error payloads contain safe `category`, `retryable` and `action` fields. Explain the action in
 plain language. Never invent or quote an upstream error description.

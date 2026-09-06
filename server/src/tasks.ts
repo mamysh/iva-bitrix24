@@ -304,6 +304,7 @@ export type TaskHistoryOptions = {
 export type ConnectionResult = {
   readonly connected: true;
   readonly taskScope: true;
+  readonly taskContentChecked: false;
   readonly contractVersion: "0.3";
   readonly apiFamily: "tasks-rest";
   readonly user: {
@@ -382,6 +383,7 @@ export class TaskReader {
     return {
       connected: true,
       taskScope: true,
+      taskContentChecked: false,
       contractVersion: "0.3",
       apiFamily: "tasks-rest",
       user: {
