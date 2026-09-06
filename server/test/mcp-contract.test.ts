@@ -72,6 +72,12 @@ test("validates task identifiers and list limits at the MCP boundary", async (t)
   });
   assert.equal(invalidId.isError, true);
 
+  const unsafeId = await client.callTool({
+    name: "bitrix24_get_task",
+    arguments: { taskId: Number.MAX_SAFE_INTEGER + 1 },
+  });
+  assert.equal(unsafeId.isError, true);
+
   const invalidLimit = await client.callTool({
     name: "bitrix24_list_tasks",
     arguments: { limit: 51 },
@@ -92,6 +98,15 @@ test("validates task identifiers and list limits at the MCP boundary", async (t)
     },
   });
   assert.equal(invalidDeadlineRange.isError, true);
+
+  const ambiguousOverdue = await client.callTool({
+    name: "bitrix24_list_tasks",
+    arguments: {
+      overdueOnly: true,
+      status: 3,
+    },
+  });
+  assert.equal(ambiguousOverdue.isError, true);
 
   const invalidHistoryLimit = await client.callTool({
     name: "bitrix24_task_history",
@@ -132,5 +147,33 @@ test("returns bounded actionable error metadata without upstream details", async
     category: "permission",
     retryable: false,
     action: "add_required_scope",
+  });
+});
+
+test("keeps an ambiguous task error actionable without guessing its cause", async (t) => {
+  const taskReader = reader();
+  const { client, server } = await connectedClient({
+    ...taskReader,
+    getTask: async () => {
+      throw new BitrixRequestError("TASK_NOT_FOUND_OR_DENIED");
+    },
+  });
+  t.after(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  const result = await client.callTool({
+    name: "bitrix24_get_task",
+    arguments: { taskId: 1 },
+  });
+  const content = result.content as Array<{ type: string; text?: string }>;
+  const payload = JSON.parse(content[0]?.text ?? "{}") as Record<string, unknown>;
+  assert.deepEqual(payload, {
+    ok: false,
+    error: "TASK_NOT_FOUND_OR_DENIED",
+    category: "access",
+    retryable: false,
+    action: "check_task_id_or_access",
   });
 });

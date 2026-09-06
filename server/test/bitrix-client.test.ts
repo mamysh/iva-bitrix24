@@ -163,6 +163,26 @@ test("does not expose a malformed upstream error code", async () => {
   });
 });
 
+test("normalizes ambiguous task error zero without reading its description", async () => {
+  const client = new BitrixClient(config, {
+    fetch: async () =>
+      Response.json(
+        {
+          error: "0",
+          error_description: "secret task context must not be reflected",
+        },
+        { status: 400 },
+      ),
+  });
+
+  await assert.rejects(client.call("tasks.task.get", { taskId: 1 }), (error: unknown) => {
+    assert.ok(error instanceof BitrixRequestError);
+    assert.equal(error.code, "TASK_NOT_FOUND_OR_DENIED");
+    assert.equal(error.message.includes("secret task context"), false);
+    return true;
+  });
+});
+
 test("bounds the upstream response body", async () => {
   const client = new BitrixClient(config, {
     fetch: async () =>

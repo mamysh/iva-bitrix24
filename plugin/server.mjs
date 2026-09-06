@@ -35694,7 +35694,9 @@ var defaults = {
   sleep: (milliseconds) => new Promise((resolve2) => setTimeout(resolve2, milliseconds)),
   random: Math.random
 };
-function safeUpstreamCode(value, status) {
+function safeUpstreamCode(value, status, method) {
+  if (value === "0" && (method === "tasks.task.get" || method === "tasks.task.history.list"))
+    return "TASK_NOT_FOUND_OR_DENIED";
   if (typeof value !== "string") return `HTTP_${status}`;
   const normalized = value.trim().toUpperCase();
   if (normalized === "") return `HTTP_${status}`;
@@ -35802,7 +35804,7 @@ var BitrixClient = class {
     }
     const hasUpstreamError = typeof envelope.error === "string" ? envelope.error.trim() !== "" : envelope.error !== void 0 && envelope.error !== null;
     if (!response.ok || hasUpstreamError) {
-      const code = safeUpstreamCode(envelope.error, response.status);
+      const code = safeUpstreamCode(envelope.error, response.status, method);
       throw new BitrixRequestError(
         code,
         retryableStatus || RETRYABLE_CODES.has(code)
@@ -35942,7 +35944,15 @@ function historyValue(value) {
 function identifier(value) {
   if (typeof value === "number" && Number.isSafeInteger(value) && value > 0)
     return String(value);
-  return typeof value === "string" && /^[1-9]\d*$/u.test(value) ? value : null;
+  if (typeof value !== "string" || !/^[1-9]\d{0,15}$/u.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? value : null;
+}
+function requestIdentifier(value) {
+  const normalized = identifier(value);
+  if (normalized === null) return null;
+  const parsed = Number(normalized);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 function integer2(value) {
   if (typeof value === "number" && Number.isSafeInteger(value)) return value;
@@ -36061,11 +36071,15 @@ function normalizeTask(value, taskWebUrl, includeDescription = false) {
 }
 var TaskReader = class {
   #client;
-  constructor(client) {
+  #now;
+  constructor(client, now = () => /* @__PURE__ */ new Date()) {
     this.#client = client;
+    this.#now = now;
   }
   async connectionCheck() {
     const profile = record2(await this.#client.call("profile"));
+    const profileId = identifier(pick2(profile, "ID", "id"));
+    if (profileId === null) throw new BitrixRequestError("INVALID_PROFILE");
     await this.#client.call("tasks.task.getFields");
     return {
       connected: true,
@@ -36073,7 +36087,7 @@ var TaskReader = class {
       contractVersion: "0.3",
       apiFamily: "tasks-rest",
       user: {
-        id: identifier(pick2(profile, "ID", "id")),
+        id: profileId,
         name: text(pick2(profile, "NAME", "name"), 200),
         lastName: text(pick2(profile, "LAST_NAME", "lastName"), 200),
         admin: pick2(profile, "ADMIN", "admin") === true || pick2(profile, "ADMIN", "admin") === "Y"
@@ -36084,16 +36098,22 @@ var TaskReader = class {
     const filter = {};
     if (options.scope === "mine") {
       const profile = record2(await this.#client.call("profile"));
-      const id = pick2(profile, "ID", "id");
-      if (typeof id !== "string" && typeof id !== "number")
-        throw new BitrixRequestError("PROFILE_HAS_NO_ID");
+      const id = requestIdentifier(pick2(profile, "ID", "id"));
+      if (id === null) throw new BitrixRequestError("INVALID_PROFILE");
       filter.RESPONSIBLE_ID = id;
     } else if (options.responsibleId !== void 0) {
       filter.RESPONSIBLE_ID = options.responsibleId;
     }
-    if (options.status !== void 0) filter.REAL_STATUS = options.status;
-    if (options.deadlineFrom) filter[">=DEADLINE"] = options.deadlineFrom;
-    if (options.deadlineTo) filter["<=DEADLINE"] = options.deadlineTo;
+    let asOf = null;
+    if (options.overdueOnly) {
+      asOf = this.#now().toISOString();
+      filter["<DEADLINE"] = asOf;
+      filter["!REAL_STATUS"] = [4, 5];
+    } else {
+      if (options.status !== void 0) filter.REAL_STATUS = options.status;
+      if (options.deadlineFrom) filter[">=DEADLINE"] = options.deadlineFrom;
+      if (options.deadlineTo) filter["<=DEADLINE"] = options.deadlineTo;
+    }
     const page = await this.#client.callPage("tasks.task.list", {
       order: { [options.sortBy]: options.sortDirection },
       filter,
@@ -36106,7 +36126,7 @@ var TaskReader = class {
     const hasMoreInFetchedPage = tasks.length > options.limit;
     const nextStart = hasMoreInFetchedPage ? options.start + options.limit : page.next;
     const selected = tasks.slice(0, options.limit);
-    const normalized = selected.filter(isRecordLike).map((task) => normalizeTask(task, (id) => this.#client.taskWebUrl(id)));
+    const normalized = selected.filter(isRecordLike).map((task) => normalizeTask(task, (id) => this.#client.taskWebUrl(id))).filter((task) => task.id !== null);
     const skippedMalformed = selected.length - normalized.length;
     return {
       tasks: normalized,
@@ -36116,7 +36136,8 @@ var TaskReader = class {
       start: options.start,
       nextStart,
       total: page.total,
-      truncated: nextStart !== null
+      truncated: nextStart !== null,
+      asOf
     };
   }
   async getTask(taskId) {
@@ -36127,13 +36148,13 @@ var TaskReader = class {
       })
     );
     if (!isRecordLike(raw.task)) throw new BitrixRequestError("INVALID_RESPONSE");
-    return {
-      task: normalizeTask(
-        raw.task,
-        (id) => this.#client.taskWebUrl(id),
-        true
-      )
-    };
+    const task = normalizeTask(
+      raw.task,
+      (id) => this.#client.taskWebUrl(id),
+      true
+    );
+    if (task.id !== String(taskId)) throw new BitrixRequestError("TASK_ID_MISMATCH");
+    return { task };
   }
   async taskHistory(options) {
     const page = await this.#client.callPage("tasks.task.history.list", {
@@ -36153,21 +36174,23 @@ var TaskReader = class {
       const change = record2(source.value);
       const user = record2(source.user);
       const warnings = [];
+      const id = identifier(source.id);
+      const field = typeof source.field === "string" && TASK_HISTORY_FIELDS.includes(source.field) ? source.field : null;
+      if (hasValue(source.field) && field === null) warnings.push("unknown_field");
       return {
-        id: identifier(source.id),
+        id,
         createdDate: isoDate(source.createdDate, "created_date", warnings),
-        field: text(source.field, 100),
+        field,
         from: historyValue(change.from),
         to: historyValue(change.to),
         actor: {
           id: identifier(user.id),
           name: text(user.name, 200),
-          lastName: text(user.lastName, 200),
-          secondName: text(user.secondName, 200)
+          lastName: text(user.lastName, 200)
         },
         ...warnings.length > 0 ? { dataWarnings: warnings } : {}
       };
-    });
+    }).filter((event) => event.id !== null);
     const skippedMalformed = selected.length - normalized.length;
     return {
       events: normalized,
@@ -36248,6 +36271,18 @@ function errorDetails(code, retryable) {
       retryable: false,
       action: "check_user_access"
     };
+  if (code === "TASK_NOT_FOUND_OR_DENIED")
+    return {
+      category: "access",
+      retryable: false,
+      action: "check_task_id_or_access"
+    };
+  if (["INVALID_PROFILE", "TASK_ID_MISMATCH"].includes(code))
+    return {
+      category: "upstream",
+      retryable: false,
+      action: "inspect_integration"
+    };
   if ([
     "QUERY_LIMIT_EXCEEDED",
     "OPERATION_TIME_LIMIT",
@@ -36317,7 +36352,7 @@ function registerUpdaterTools(server2, updater) {
   );
 }
 function createMcpServer(reader, updater = null) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.2" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.3" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",
@@ -36334,10 +36369,13 @@ function createMcpServer(reader, updater = null) {
       description: "List a bounded normalized page of Bitrix24 tasks. Defaults to tasks assigned to the webhook user and filters by real status.",
       inputSchema: external_exports.object({
         scope: external_exports.enum(["mine", "accessible"]).default("mine"),
-        responsibleId: external_exports.number().int().positive().optional(),
+        responsibleId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
         status: external_exports.number().int().min(2).max(6).describe(
           "Real task status: 2 pending, 3 in progress, 4 awaiting control, 5 completed, 6 deferred."
         ).optional(),
+        overdueOnly: external_exports.boolean().default(false).describe(
+          "Return overdue tasks using Bitrix24's documented filter: deadline before server time and real status not 4 or 5."
+        ),
         deadlineFrom: external_exports.iso.datetime({ offset: true }).optional(),
         deadlineTo: external_exports.iso.datetime({ offset: true }).optional(),
         limit: external_exports.number().int().min(1).max(50).default(20),
@@ -36349,6 +36387,12 @@ function createMcpServer(reader, updater = null) {
         {
           message: "responsibleId is only valid with scope=accessible",
           path: ["responsibleId"]
+        }
+      ).refine(
+        (value) => !value.overdueOnly || value.status === void 0 && value.deadlineFrom === void 0 && value.deadlineTo === void 0,
+        {
+          message: "overdueOnly cannot be combined with status or explicit deadline bounds",
+          path: ["overdueOnly"]
         }
       ).refine(
         (value) => value.deadlineFrom === void 0 || value.deadlineTo === void 0 || Date.parse(value.deadlineFrom) <= Date.parse(value.deadlineTo),
@@ -36365,7 +36409,9 @@ function createMcpServer(reader, updater = null) {
     "bitrix24_get_task",
     {
       description: "Read one Bitrix24 task by its positive numeric identifier.",
-      inputSchema: external_exports.object({ taskId: external_exports.number().int().positive() }).strict(),
+      inputSchema: external_exports.object({
+        taskId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER)
+      }).strict(),
       annotations: readOnly
     },
     ({ taskId }) => safe(() => reader.getTask(taskId))
@@ -36375,7 +36421,7 @@ function createMcpServer(reader, updater = null) {
     {
       description: "Read a bounded page of normalized change-history events for one accessible Bitrix24 task.",
       inputSchema: external_exports.object({
-        taskId: external_exports.number().int().positive(),
+        taskId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
         event: external_exports.enum(TASK_HISTORY_FIELDS).optional(),
         limit: external_exports.number().int().min(1).max(50).default(20),
         start: external_exports.number().int().min(0).max(1e4).default(0),
@@ -36743,7 +36789,7 @@ var PluginUpdater = class {
 
 // server/src/main.ts
 function unavailableServer(error61, updater) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.2" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.3" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",

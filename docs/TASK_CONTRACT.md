@@ -11,7 +11,7 @@ the portal or webhook.
 
 `bitrix24_list_tasks` and `bitrix24_get_task` return:
 
-- positive identifiers as decimal strings, or `null` when upstream data is invalid;
+- positive safe-integer identifiers as decimal strings;
 - `title` up to 1,000 characters;
 - `description` only for the single-task tool, up to 20,000 characters;
 - ISO 8601 dates with an explicit UTC offset, or `null`;
@@ -25,6 +25,10 @@ The display names come only from the `creator`, `responsible` and `group` object
 the same `tasks.task.*` request. The plugin does not call `user.get` or `sonet_group.get`, so
 this enrichment does not require broader `user` or `sonet` webhook scopes. A missing embedded
 object produces a `null` name, not an additional lookup.
+
+A list task without a valid ID is skipped as malformed. The single-task tool additionally
+requires the returned ID to equal the requested ID; a mismatched response is never presented
+as the requested task.
 
 ## Status and priority semantics
 
@@ -41,6 +45,12 @@ The stable task statuses are:
 Task list filtering uses `REAL_STATUS`. Bitrix24 documents `STATUS` as a substatus filter that
 also has negative meta-values for almost-overdue, unviewed and overdue tasks, so it is not
 used for the public status argument.
+
+`overdueOnly: true` uses Bitrix24's documented overdue filter: `DEADLINE` is earlier than the
+server's current instant and `REAL_STATUS` is neither 4 nor 5. It cannot be combined with an
+explicit status or deadline range. The result contains that instant as `asOf`; other list
+queries return `asOf: null`. The filter follows Bitrix24's official
+[overdue-task example](https://apidocs.bitrix24.com/tutorials/chat-bots/index.html#reply-with-a-list-of-overdue-tasks).
 
 Priorities are `0/low`, `1/medium` and `2/high`. Marks are `N/negative`, `P/positive` or
 `null/unrated`. Unknown upstream values remain visible as a numeric code where possible and
@@ -69,3 +79,11 @@ MCP errors contain only a normalized code, category, retry flag and action ident
 Bitrix24 descriptions are never returned. Untrusted or malformed upstream error codes become
 `UPSTREAM_ERROR`, preventing portal URLs or other response data from being reflected through
 the error channel.
+
+History event types are restricted to the documented allowlist. Unknown types become `null`
+with a bounded warning, and the raw event name is not reflected. History actors expose only
+their bounded ID, first name and last name; login and middle name are discarded.
+
+Bitrix24 may use error code `0` for either an unavailable task or denied access. For task get
+and history calls the plugin reports `TASK_NOT_FOUND_OR_DENIED` and never inspects or reflects
+the raw description to guess which case occurred.

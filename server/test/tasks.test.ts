@@ -27,6 +27,17 @@ test("connection check verifies both identity and Tasks scope", async () => {
   assert.equal(result.apiFamily, "tasks-rest");
 });
 
+test("connection check rejects a profile without a bounded positive identifier", async () => {
+  const client = new BitrixClient(config, {
+    fetch: async () => Response.json({ result: { ID: "0", NAME: "Broken" } }),
+  });
+  await assert.rejects(
+    new TaskReader(client).connectionCheck(),
+    (error: unknown) =>
+      error instanceof Error && error.message.includes("INVALID_PROFILE"),
+  );
+});
+
 test("list defaults can be constrained to the webhook user's tasks", async () => {
   const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
   const client = new BitrixClient(config, {
@@ -52,6 +63,7 @@ test("list defaults can be constrained to the webhook user's tasks", async () =>
 
   const result = await new TaskReader(client).listTasks({
     scope: "mine",
+    overdueOnly: false,
     limit: 20,
     start: 0,
     sortBy: "DEADLINE",
@@ -69,7 +81,7 @@ test("list defaults can be constrained to the webhook user's tasks", async () =>
   ]);
   assert.deepEqual(
     (requests[1]?.body.filter as Record<string, unknown>).RESPONSIBLE_ID,
-    "42",
+    42,
   );
 });
 
@@ -112,6 +124,7 @@ test("normalizes task semantics and embedded display names without extra scopes"
 
   const result = (await new TaskReader(client).listTasks({
     scope: "accessible",
+    overdueOnly: false,
     status: 3,
     limit: 20,
     start: 0,
@@ -150,6 +163,32 @@ test("normalizes task semantics and embedded display names without extra scopes"
   assert.equal(JSON.stringify(result).includes("hidden"), false);
 });
 
+test("uses the documented Bitrix24 overdue filter and reports its time boundary", async () => {
+  let requestBody: Record<string, unknown> = {};
+  const now = new Date("2026-09-06T12:34:56.000Z");
+  const client = new BitrixClient(config, {
+    fetch: async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return Response.json({ result: { tasks: [] } });
+    },
+  });
+
+  const result = await new TaskReader(client, () => now).listTasks({
+    scope: "accessible",
+    overdueOnly: true,
+    limit: 20,
+    start: 0,
+    sortBy: "DEADLINE",
+    sortDirection: "asc",
+  });
+
+  assert.deepEqual(requestBody.filter, {
+    "<DEADLINE": now.toISOString(),
+    "!REAL_STATUS": [4, 5],
+  });
+  assert.equal(result.asOf, now.toISOString());
+});
+
 test("get returns only the normalized allowlisted fields", async () => {
   const client = new BitrixClient(config, {
     fetch: async () =>
@@ -173,6 +212,18 @@ test("get returns only the normalized allowlisted fields", async () => {
   );
 });
 
+test("get rejects a task whose returned identifier differs from the request", async () => {
+  const client = new BitrixClient(config, {
+    fetch: async () =>
+      Response.json({ result: { task: { id: "9", title: "Wrong task" } } }),
+  });
+  await assert.rejects(
+    new TaskReader(client).getTask(8),
+    (error: unknown) =>
+      error instanceof Error && error.message.includes("TASK_ID_MISMATCH"),
+  );
+});
+
 test("list exposes a cursor without skipping locally trimmed tasks", async () => {
   const client = new BitrixClient(config, {
     fetch: async (input) => {
@@ -193,6 +244,7 @@ test("list exposes a cursor without skipping locally trimmed tasks", async () =>
 
   const result = (await new TaskReader(client).listTasks({
     scope: "mine",
+    overdueOnly: false,
     limit: 5,
     start: 0,
     sortBy: "ID",
@@ -216,13 +268,20 @@ test("marks a list partial instead of treating malformed items as tasks", async 
       const method = /\/([^/]+(?:\.[^/]+)*)\.json$/u.exec(String(input))?.[1];
       if (method === "profile") return Response.json({ result: { ID: "42" } });
       return Response.json({
-        result: { tasks: [{ id: "1", title: "Valid" }, "malformed"] },
+        result: {
+          tasks: [
+            { id: "1", title: "Valid" },
+            { id: "0", title: "Invalid identifier" },
+            "malformed",
+          ],
+        },
       });
     },
   });
 
   const result = (await new TaskReader(client).listTasks({
     scope: "mine",
+    overdueOnly: false,
     limit: 20,
     start: 0,
     sortBy: "ID",
@@ -236,7 +295,7 @@ test("marks a list partial instead of treating malformed items as tasks", async 
   assert.equal(result.tasks.length, 1);
   assert.equal(result.returned, 1);
   assert.equal(result.partial, true);
-  assert.equal(result.skippedMalformed, 1);
+  assert.equal(result.skippedMalformed, 2);
 });
 
 test("rejects a malformed single-task envelope", async () => {
@@ -291,6 +350,7 @@ test("history is bounded, paginated and omits the actor login", async () => {
 
   assert.equal(result.events.length, 2);
   assert.equal(Object.hasOwn(result.events[0]?.actor ?? {}, "login"), false);
+  assert.equal(Object.hasOwn(result.events[0]?.actor ?? {}, "secondName"), false);
   assert.equal(JSON.stringify(result).includes("private@example.test"), false);
   assert.equal(result.nextStart, 2);
   assert.equal(result.total, 72);
@@ -301,6 +361,39 @@ test("history is bounded, paginated and omits the actor login", async () => {
     order: { createdDate: "desc" },
     start: 0,
   });
+});
+
+test("history skips entries without an ID and bounds unknown event types", async () => {
+  const client = new BitrixClient(config, {
+    fetch: async () =>
+      Response.json({
+        result: {
+          list: [
+            {
+              id: "1",
+              createdDate: "2026-09-05T12:00:00+03:00",
+              field: "UNEXPECTED_PRIVATE_EVENT",
+              value: { from: "old", to: "new" },
+              user: { id: "42", name: "Synthetic" },
+            },
+            { id: "0", field: "TITLE", value: {} },
+          ],
+        },
+      }),
+  });
+
+  const result = await new TaskReader(client).taskHistory({
+    taskId: 8,
+    limit: 20,
+    start: 0,
+    sortDirection: "desc",
+  });
+  assert.equal(result.returned, 1);
+  assert.equal(result.partial, true);
+  assert.equal(result.skippedMalformed, 1);
+  assert.equal(result.events[0]?.field, null);
+  assert.deepEqual(result.events[0]?.dataWarnings, ["unknown_field"]);
+  assert.equal(JSON.stringify(result).includes("UNEXPECTED_PRIVATE_EVENT"), false);
 });
 
 test("field metadata is restricted to fields used by the public task contract", async () => {

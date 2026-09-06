@@ -76,6 +76,18 @@ function errorDetails(code: string, retryable: boolean) {
       retryable: false,
       action: "check_user_access",
     };
+  if (code === "TASK_NOT_FOUND_OR_DENIED")
+    return {
+      category: "access",
+      retryable: false,
+      action: "check_task_id_or_access",
+    };
+  if (["INVALID_PROFILE", "TASK_ID_MISMATCH"].includes(code))
+    return {
+      category: "upstream",
+      retryable: false,
+      action: "inspect_integration",
+    };
   if (
     [
       "QUERY_LIMIT_EXCEEDED",
@@ -162,7 +174,7 @@ export function createMcpServer(
   reader: TaskReaderPort,
   updater: PluginUpdaterPort | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.2" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.3.0-rc.3" });
   registerUpdaterTools(server, updater);
 
   server.registerTool(
@@ -184,7 +196,7 @@ export function createMcpServer(
       inputSchema: z
         .object({
           scope: z.enum(["mine", "accessible"]).default("mine"),
-          responsibleId: z.number().int().positive().optional(),
+          responsibleId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
           status: z
             .number()
             .int()
@@ -194,6 +206,12 @@ export function createMcpServer(
               "Real task status: 2 pending, 3 in progress, 4 awaiting control, 5 completed, 6 deferred.",
             )
             .optional(),
+          overdueOnly: z
+            .boolean()
+            .default(false)
+            .describe(
+              "Return overdue tasks using Bitrix24's documented filter: deadline before server time and real status not 4 or 5.",
+            ),
           deadlineFrom: z.iso.datetime({ offset: true }).optional(),
           deadlineTo: z.iso.datetime({ offset: true }).optional(),
           limit: z.number().int().min(1).max(50).default(20),
@@ -210,6 +228,18 @@ export function createMcpServer(
           {
             message: "responsibleId is only valid with scope=accessible",
             path: ["responsibleId"],
+          },
+        )
+        .refine(
+          (value) =>
+            !value.overdueOnly ||
+            (value.status === undefined &&
+              value.deadlineFrom === undefined &&
+              value.deadlineTo === undefined),
+          {
+            message:
+              "overdueOnly cannot be combined with status or explicit deadline bounds",
+            path: ["overdueOnly"],
           },
         )
         .refine(
@@ -231,7 +261,11 @@ export function createMcpServer(
     "bitrix24_get_task",
     {
       description: "Read one Bitrix24 task by its positive numeric identifier.",
-      inputSchema: z.object({ taskId: z.number().int().positive() }).strict(),
+      inputSchema: z
+        .object({
+          taskId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        })
+        .strict(),
       annotations: readOnly,
     },
     ({ taskId }) => safe(() => reader.getTask(taskId)),
@@ -244,7 +278,7 @@ export function createMcpServer(
         "Read a bounded page of normalized change-history events for one accessible Bitrix24 task.",
       inputSchema: z
         .object({
-          taskId: z.number().int().positive(),
+          taskId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
           event: z.enum(TASK_HISTORY_FIELDS).optional(),
           limit: z.number().int().min(1).max(50).default(20),
           start: z.number().int().min(0).max(10_000).default(0),

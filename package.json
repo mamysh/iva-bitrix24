@@ -1,6 +1,6 @@
 {
   "name": "iva-bitrix24",
-  "version": "0.3.0-rc.2",
+  "version": "0.3.0-rc.3",
   "private": true,
   "description": "Bitrix24 integration plugin for Iva with bounded task reading and managed updates.",
   "license": "MIT",

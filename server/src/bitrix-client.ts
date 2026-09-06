@@ -56,7 +56,16 @@ export type BitrixPage = {
   readonly total: number | null;
 };
 
-function safeUpstreamCode(value: unknown, status: number): string {
+function safeUpstreamCode(
+  value: unknown,
+  status: number,
+  method: AllowedMethod,
+): string {
+  if (
+    value === "0" &&
+    (method === "tasks.task.get" || method === "tasks.task.history.list")
+  )
+    return "TASK_NOT_FOUND_OR_DENIED";
   if (typeof value !== "string") return `HTTP_${status}`;
   const normalized = value.trim().toUpperCase();
   if (normalized === "") return `HTTP_${status}`;
@@ -209,7 +218,7 @@ export class BitrixClient {
         ? envelope.error.trim() !== ""
         : envelope.error !== undefined && envelope.error !== null;
     if (!response.ok || hasUpstreamError) {
-      const code = safeUpstreamCode(envelope.error, response.status);
+      const code = safeUpstreamCode(envelope.error, response.status, method);
       throw new BitrixRequestError(
         code,
         retryableStatus || RETRYABLE_CODES.has(code),
