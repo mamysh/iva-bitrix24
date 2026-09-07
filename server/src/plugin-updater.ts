@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 const execFile = promisify(execFileCallback);
 const PLUGIN_NAME = "bitrix24-read";
 const SHA = /^[a-f0-9]{40}$/u;
+const SEMVER = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
+const MANIFEST_LIMIT_BYTES = 64 * 1024;
 const OFFER_TTL_MS = 15 * 60 * 1000;
 const LOCK_STALE_MS = 2 * 60 * 60 * 1000;
 const JOB_START_TIMEOUT_MS = 2 * 60 * 1000;
@@ -27,13 +29,16 @@ type GitSource = {
   readonly ref: string;
   readonly owner: string;
   readonly repo: string;
+  readonly pluginPath: string;
 };
 
 type Offer = {
-  readonly schema: "iva-bitrix24-update-offer/v2";
+  readonly schema: "iva-bitrix24-update-offer/v3";
   readonly createdAt: string;
   readonly currentSha: string;
   readonly candidateSha: string;
+  readonly currentVersion: string;
+  readonly candidateVersion: string;
   readonly approvalToken: string;
   readonly source: string;
   readonly sourceBase: string;
@@ -69,6 +74,12 @@ function safeSha(value: unknown): string {
   return typeof value === "string" && SHA.test(value) ? value : "";
 }
 
+function safeVersion(value: unknown): string {
+  return typeof value === "string" && value.length <= 100 && SEMVER.test(value)
+    ? value
+    : "";
+}
+
 function sourceFromEntry(entry: PluginEntry): GitSource | null {
   if (typeof entry.source !== "string" || !entry.source) return null;
   const raw = entry.source;
@@ -84,6 +95,9 @@ function sourceFromEntry(entry: PluginEntry): GitSource | null {
   const stateRef = typeof entry.ref === "string" && entry.ref ? entry.ref : "HEAD";
   const at = raw.indexOf("@");
   const base = at === -1 ? raw : raw.slice(0, at);
+  const parts = base.split("/");
+  const pathParts = parts.slice(2);
+  if (pathParts.some((part) => part === "." || part === "..")) return null;
   return {
     label: base,
     url: `https://github.com/${owner}/${repo}.git`,
@@ -91,6 +105,7 @@ function sourceFromEntry(entry: PluginEntry): GitSource | null {
     ref: sourceRef || stateRef,
     owner,
     repo,
+    pluginPath: pathParts.join("/"),
   };
 }
 
@@ -196,6 +211,51 @@ export class PluginUpdater {
     return candidate;
   }
 
+  async #installedVersion(): Promise<string> {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await readFile(join(this.#root, "plugin.json"), "utf8"));
+    } catch {
+      throw new Error("CURRENT_VERSION_UNAVAILABLE");
+    }
+    if (!isRecord(parsed) || parsed.name !== PLUGIN_NAME) {
+      throw new Error("CURRENT_VERSION_UNAVAILABLE");
+    }
+    const version = safeVersion(parsed.version);
+    if (!version) throw new Error("CURRENT_VERSION_UNAVAILABLE");
+    return version;
+  }
+
+  async #candidateVersion(source: GitSource, sha: string): Promise<string> {
+    const manifestPath = [...(source.pluginPath ? source.pluginPath.split("/") : []), "plugin.json"]
+      .map(encodeURIComponent)
+      .join("/");
+    const url = `https://raw.githubusercontent.com/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}/${sha}/${manifestPath}`;
+    const response = await this.#operations.fetch(url, {
+      headers: { accept: "application/json", "user-agent": "iva-bitrix24-updater" },
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error("CANDIDATE_VERSION_UNAVAILABLE");
+    const declaredLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declaredLength) && declaredLength > MANIFEST_LIMIT_BYTES)
+      throw new Error("CANDIDATE_VERSION_UNAVAILABLE");
+    const body = await response.text();
+    if (Buffer.byteLength(body, "utf8") > MANIFEST_LIMIT_BYTES)
+      throw new Error("CANDIDATE_VERSION_UNAVAILABLE");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      throw new Error("CANDIDATE_VERSION_UNAVAILABLE");
+    }
+    if (!isRecord(parsed) || parsed.name !== PLUGIN_NAME)
+      throw new Error("CANDIDATE_VERSION_UNAVAILABLE");
+    const version = safeVersion(parsed.version);
+    if (!version) throw new Error("CANDIDATE_VERSION_UNAVAILABLE");
+    return version;
+  }
+
   async #ci(source: GitSource, sha: string): Promise<"success" | "pending" | "failure"> {
     const url = `https://api.github.com/repos/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}/actions/runs?head_sha=${sha}&per_page=20`;
     const response = await this.#operations.fetch(url, {
@@ -228,6 +288,7 @@ export class PluginUpdater {
     }
     const currentSha = safeSha(entry.sha);
     if (!currentSha) throw new Error("CURRENT_SHA_UNAVAILABLE");
+    const currentVersion = await this.#installedVersion();
     const candidateSha = await this.#remoteSha(source);
     if (candidateSha === currentSha) {
       await rm(this.#offer, { force: true });
@@ -237,19 +298,23 @@ export class PluginUpdater {
         source: source.label,
         ref: source.ref,
         currentSha,
+        currentVersion,
         enabled: entry.enabled === true,
         trusted: entry.trusted === true,
       };
     }
+    const candidateVersion = await this.#candidateVersion(source, candidateSha);
     const ci = await this.#ci(source, candidateSha);
     const approvalToken = this.#operations.token();
     if (!/^[A-F0-9]{24}$/u.test(approvalToken))
       throw new Error("UPDATE_APPROVAL_TOKEN_INVALID");
     const offer: Offer = {
-      schema: "iva-bitrix24-update-offer/v2",
+      schema: "iva-bitrix24-update-offer/v3",
       createdAt: this.#operations.now().toISOString(),
       currentSha,
       candidateSha,
+      currentVersion,
+      candidateVersion,
       approvalToken,
       source: entry.source as string,
       sourceBase: source.base,
@@ -265,6 +330,8 @@ export class PluginUpdater {
       ref: source.ref,
       currentSha,
       candidateSha,
+      currentVersion,
+      candidateVersion,
       ci,
       ...(ci === "success"
         ? {
@@ -273,7 +340,7 @@ export class PluginUpdater {
               prompt: [
                 "⬆️ Доступно обновление плагина Bitrix24",
                 "",
-                `${currentSha.slice(0, 7)} → ${candidateSha.slice(0, 7)}`,
+                `v${currentVersion} → v${candidateVersion}`,
                 `Источник: ${source.label} @${source.ref}`,
                 "CI: success ✅",
                 "Настройки и локальные данные будут сохранены.",
@@ -307,9 +374,14 @@ export class PluginUpdater {
         throw new Error("UPDATE_CHECK_REQUIRED");
       throw new Error("UPDATE_OFFER_INVALID");
     }
-    if (!isRecord(parsed) || parsed.schema !== "iva-bitrix24-update-offer/v2")
+    if (!isRecord(parsed) || parsed.schema !== "iva-bitrix24-update-offer/v3")
       throw new Error("UPDATE_OFFER_INVALID");
     const offer = parsed as Offer;
+    if (
+      safeVersion(offer.currentVersion) !== offer.currentVersion ||
+      safeVersion(offer.candidateVersion) !== offer.candidateVersion
+    )
+      throw new Error("UPDATE_OFFER_INVALID");
     const age = this.#operations.now().getTime() - Date.parse(offer.createdAt);
     if (!Number.isFinite(age) || age < 0 || age > OFFER_TTL_MS)
       throw new Error("UPDATE_OFFER_EXPIRED");
@@ -341,6 +413,8 @@ export class PluginUpdater {
       statePath: this.#state,
       previousSha: offer.currentSha,
       expectedSha: offer.candidateSha,
+      previousVersion: offer.currentVersion,
+      expectedVersion: offer.candidateVersion,
       source: offer.source,
       sourceBase: offer.sourceBase,
       ref: offer.ref,
@@ -384,6 +458,8 @@ export class PluginUpdater {
       jobId,
       from: offer.currentSha,
       to: offer.candidateSha,
+      fromVersion: offer.currentVersion,
+      toVersion: offer.candidateVersion,
       message: "Обновление запущено отдельно и переживёт перезапуск MCP. Спросите Иву о статусе через минуту.",
     };
   }
@@ -417,23 +493,36 @@ export class PluginUpdater {
     const safe = Object.fromEntries(
       allowed.flatMap((key) => (key in parsed ? [[key, parsed[key]]] : [])),
     );
+    for (const key of ["previousVersion", "expectedVersion", "installedVersion"] as const) {
+      const version = safeVersion(parsed[key]);
+      if (version) safe[key] = version;
+    }
     const currentSha = safeSha((await this.#entry()).sha);
+    const currentVersion = await this.#installedVersion();
     const recordedSha = safeSha(parsed.installedSha);
+    const withCurrentVersion = {
+      ...safe,
+      currentVersion,
+      ...("installedVersion" in safe || !recordedSha || recordedSha !== currentSha
+        ? {}
+        : { installedVersion: currentVersion }),
+    };
     if (currentSha && recordedSha && currentSha !== recordedSha) {
       return {
-        ...safe,
+        ...withCurrentVersion,
         status: "superseded",
         previousStatus: parsed.status,
         currentSha,
+        currentVersion,
         message:
-          "Состояние плагина изменилось после этой job; показан текущий установленный SHA.",
+          "Состояние плагина изменилось после этой job; показана текущая установленная версия.",
       };
     }
     if (parsed.status === "queued" && typeof parsed.createdAt === "string") {
       const queuedFor = this.#operations.now().getTime() - Date.parse(parsed.createdAt);
       if (Number.isFinite(queuedFor) && queuedFor > JOB_START_TIMEOUT_MS) {
         return {
-          ...safe,
+          ...withCurrentVersion,
           status: "stalled",
           previousStatus: "queued",
           message:
@@ -441,6 +530,6 @@ export class PluginUpdater {
         };
       }
     }
-    return safe;
+    return withCurrentVersion;
   }
 }

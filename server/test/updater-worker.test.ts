@@ -11,6 +11,8 @@ import {
 
 const OLD = "1".repeat(40);
 const NEW = "2".repeat(40);
+const OLD_VERSION = "0.4.0-rc.2";
+const NEW_VERSION = "0.4.0-rc.3";
 
 test("worker leaves a short response-delivery window by default", () => {
   assert.equal(UPDATE_START_DELAY_MS, 5_000);
@@ -69,6 +71,8 @@ process.exit(2);
       statePath,
       previousSha: OLD,
       expectedSha: NEW,
+      previousVersion: OLD_VERSION,
+      expectedVersion: NEW_VERSION,
       sourceBase: "mamysh/iva-bitrix24/plugin",
       lockPath,
     }),
@@ -95,6 +99,7 @@ test("worker verifies the installed SHA and doctor", async (t) => {
   assert.equal(done.result.status, 0, done.result.stderr);
   assert.equal(done.job.status, "succeeded");
   assert.equal(done.job.installedSha, NEW);
+  assert.equal(done.job.installedVersion, NEW_VERSION);
   await assert.rejects(readFile(done.lockPath), /ENOENT/u);
 });
 
@@ -104,6 +109,7 @@ test("worker restores the previous SHA when doctor fails", async (t) => {
   assert.equal(done.job.status, "rolled_back");
   assert.equal(done.job.rollbackStatus, "succeeded");
   assert.equal(done.job.installedSha, OLD);
+  assert.equal(done.job.installedVersion, OLD_VERSION);
   assert.equal(done.job.failureStage, "iva_doctor");
   assert.equal(done.job.failureCode, "IVA_CLI_FAILED");
   await assert.rejects(readFile(done.lockPath), /ENOENT/u);
@@ -115,6 +121,7 @@ test("worker leaves the previous version installed when update fails before movi
   assert.equal(done.job.status, "failed");
   assert.equal(done.job.rollbackStatus, "not_needed");
   assert.equal(done.job.installedSha, OLD);
+  assert.equal(done.job.installedVersion, OLD_VERSION);
   assert.equal(done.job.failureStage, "plugin_update");
   assert.equal(done.job.failureCode, "IVA_CLI_FAILED");
   await assert.rejects(readFile(done.lockPath), /ENOENT/u);

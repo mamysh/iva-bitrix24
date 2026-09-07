@@ -174,7 +174,7 @@ export function registerUpdaterTools(
     "iva_bitrix24_update_check",
     {
       description:
-        "Check the installed iva-bitrix24 Git source and GitHub Actions for an update. This does not change the server.",
+        "Check the installed and candidate iva-bitrix24 semantic versions, exact Git source and GitHub Actions. This does not change the server.",
       inputSchema: z.object({}).strict(),
       annotations: readOnly,
     },
@@ -203,7 +203,8 @@ export function registerUpdaterTools(
   server.registerTool(
     "iva_bitrix24_update_status",
     {
-      description: "Read the latest background iva-bitrix24 update or rollback status.",
+      description:
+        "Read the latest background iva-bitrix24 update or rollback status, including semantic versions when available.",
       inputSchema: z.object({}).strict(),
       annotations: readOnly,
     },
@@ -215,7 +216,7 @@ export function createMcpServer(
   reader: BitrixReaderPort,
   updater: PluginUpdaterPort | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.4.0-rc.2" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.4.0-rc.3" });
   registerUpdaterTools(server, updater);
 
   server.registerTool(

@@ -1,7 +1,7 @@
 # ADR-0004: Owner-confirmed updates of the installed plugin
 
 - Status: accepted
-- Date: 2026-09-05; amended 2026-09-06
+- Date: 2026-09-05; amended 2026-09-06 and 2026-09-08
 
 ## Context
 
@@ -41,6 +41,10 @@ The plugin exposes a narrow two-step updater for itself:
    trusts it and runs `iva doctor` again. This recovery intentionally leaves the source pinned.
 8. Local-folder installations are refused. They require one explicit migration to a recorded
    Git source before chat updates become available.
+9. User-facing cards and status prefer semantic versions. The current version comes from the
+   installed manifest and the candidate version from the manifest at the exact candidate SHA.
+   Both are validated before an offer is created; full SHA remains the approval and integrity
+   boundary.
 
 Task content, files, pages, forwarded messages, memory and tool output are never confirmation.
 The skill may call apply only for the candidate returned by the fresh check in the current

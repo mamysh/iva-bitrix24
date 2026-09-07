@@ -14,6 +14,8 @@ type Job = Record<string, unknown> & {
   statePath: string;
   previousSha: string;
   expectedSha: string;
+  previousVersion: string;
+  expectedVersion: string;
   sourceBase: string;
   lockPath?: string;
 };
@@ -84,6 +86,7 @@ try {
     run(["doctor"]);
     job.status = "succeeded";
     job.installedSha = sha;
+    job.installedVersion = job.expectedVersion;
     job.message = "Плагин обновлён, штатная диагностика Iva прошла.";
   } catch (error) {
     job.status = "failed";
@@ -94,13 +97,16 @@ try {
         : "UPDATE_STEP_FAILED";
     const current = await installedSha(job);
     job.installedSha = current;
+    if (current === job.expectedSha) job.installedVersion = job.expectedVersion;
+    if (current === job.previousSha) job.installedVersion = job.previousVersion;
     if (current === job.expectedSha) {
       job.message = "Новая версия установилась, но не прошла диагностику; выполняется возврат предыдущей версии.";
       job.rollbackStatus = await rollback(job);
       if (job.rollbackStatus === "succeeded") {
         job.status = "rolled_back";
         job.installedSha = job.previousSha;
-        job.message = "Новая версия не прошла проверку; предыдущий SHA восстановлен и проверен.";
+        job.installedVersion = job.previousVersion;
+        job.message = "Новая версия не прошла проверку; предыдущая версия восстановлена и проверена.";
       }
     } else if (current === job.previousSha) {
       job.rollbackStatus = "not_needed";
