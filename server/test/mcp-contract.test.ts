@@ -151,6 +151,18 @@ test("validates task identifiers and list limits at the MCP boundary", async (t)
   });
   assert.equal(ambiguousPeopleSearch.isError, true);
 
+  const ambiguousDepartmentPeopleSearch = await client.callTool({
+    name: "bitrix24_search_people",
+    arguments: { query: "Sy", departmentId: 4 },
+  });
+  assert.equal(ambiguousDepartmentPeopleSearch.isError, true);
+
+  const selectedDepartmentPeopleSearch = await client.callTool({
+    name: "bitrix24_search_people",
+    arguments: { departmentId: 4 },
+  });
+  assert.equal(selectedDepartmentPeopleSearch.isError, undefined);
+
   const broadDepartmentList = await client.callTool({
     name: "bitrix24_list_departments",
     arguments: {},

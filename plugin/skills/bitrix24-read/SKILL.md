@@ -75,9 +75,13 @@ every ordinary task request. Report only the relevant missing capability and per
 - For a project by ID or name call `bitrix24_search_projects`. It only returns projects and
   groups visible to the webhook employee. Do not broaden a name search or enumerate every
   project when a task already contains the needed group name.
-- For an employee by ID or name call `bitrix24_search_people`; for a known department or its
-  direct children call `bitrix24_list_departments`. Never use these tools to dump the company
-  directory or infer missing personal details. Contact fields are intentionally unavailable.
+- For an employee by ID/name or for the bounded direct members of one known department call
+  `bitrix24_search_people`. It may return first/last name, position, department IDs and email.
+  Email needs `user_basic` or `user`; with `user_brief` it is `null`. For a department name or
+  direct child departments call `bitrix24_list_departments`. Use returned employee IDs as
+  `responsibleId` in `bitrix24_list_tasks` when the owner asks who in a department owns which
+  tasks. Never dump the whole company directory or infer missing personal details. Phones,
+  photos, addresses and other profile fields are intentionally unavailable.
 - For files attached to a task call `bitrix24_task_files`. It returns metadata only. It cannot
   download a file, read its contents or provide a download URL; say so plainly.
 - For checklist items call `bitrix24_task_checklist`. For parent, direct subtasks and task
@@ -131,7 +135,9 @@ When Bitrix24 returns `INSUFFICIENT_SCOPE` or `insufficient_scope`, explain this
    - **Tasks** (`task`) for tasks, legacy comments, checklists and relations;
    - **Chat and Notifications** (`im`) for discussions in the new task card;
    - **Social Network Workgroups** (`sonet_group`) for projects and groups;
-   - **Users (minimal)** (`user_brief`) for employee names without contact details;
+   - **Users (minimal)** (`user_brief`) for employee names, positions and department IDs;
+   - **Users (basic)** (`user_basic`) instead of `user_brief` when employee profile email is
+     required; phones and photos remain unavailable through this plugin;
    - **Company Structure** (`department`) for departments;
    - **Drive** (`disk`) for task attachment metadata.
 4. Run the installer again in the server terminal because editing a webhook may change its

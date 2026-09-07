@@ -215,7 +215,7 @@ export function createMcpServer(
   reader: BitrixReaderPort,
   updater: PluginUpdaterPort | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.4.0-rc.1" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.4.0-rc.2" });
   registerUpdaterTools(server, updater);
 
   server.registerTool(
@@ -283,18 +283,23 @@ export function createMcpServer(
     "bitrix24_search_people",
     {
       description:
-        "Find a Bitrix24 employee by exact ID or bounded name search, returning no contact details.",
+        "Find Bitrix24 employees by exact ID, bounded name search or direct department membership. Returns a bounded work profile; email is available only with user_basic or user scope, while phones and photos are never requested.",
       inputSchema: z
         .object({
           userId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
           query: z.string().trim().min(2).max(200).optional(),
+          departmentId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
           limit: z.number().int().min(1).max(20).default(10),
           start: z.number().int().min(0).max(10_000).default(0),
         })
         .strict()
-        .refine((value) => (value.userId === undefined) !== (value.query === undefined), {
-          message: "provide exactly one of userId or query",
-        }),
+        .refine(
+          (value) =>
+            [value.userId, value.query, value.departmentId].filter(
+              (selector) => selector !== undefined,
+            ).length === 1,
+          { message: "provide exactly one of userId, query or departmentId" },
+        ),
       annotations: readOnly,
     },
     (options) => safe(() => reader.searchPeople(options)),

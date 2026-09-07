@@ -36394,7 +36394,7 @@ function registerUpdaterTools(server2, updater) {
   );
 }
 function createMcpServer(reader, updater = null) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.4.0-rc.1" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.4.0-rc.2" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",
@@ -36447,15 +36447,19 @@ function createMcpServer(reader, updater = null) {
   server2.registerTool(
     "bitrix24_search_people",
     {
-      description: "Find a Bitrix24 employee by exact ID or bounded name search, returning no contact details.",
+      description: "Find Bitrix24 employees by exact ID, bounded name search or direct department membership. Returns a bounded work profile; email is available only with user_basic or user scope, while phones and photos are never requested.",
       inputSchema: external_exports.object({
         userId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
         query: external_exports.string().trim().min(2).max(200).optional(),
+        departmentId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
         limit: external_exports.number().int().min(1).max(20).default(10),
         start: external_exports.number().int().min(0).max(1e4).default(0)
-      }).strict().refine((value) => value.userId === void 0 !== (value.query === void 0), {
-        message: "provide exactly one of userId or query"
-      }),
+      }).strict().refine(
+        (value) => [value.userId, value.query, value.departmentId].filter(
+          (selector) => selector !== void 0
+        ).length === 1,
+        { message: "provide exactly one of userId, query or departmentId" }
+      ),
       annotations: readOnly
     },
     (options) => safe(() => reader.searchPeople(options))
@@ -37024,7 +37028,11 @@ var PERMISSIONS = {
   },
   user_brief: {
     nameRu: "\u041F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u0438 (\u043C\u0438\u043D\u0438\u043C\u0430\u043B\u044C\u043D\u044B\u0435)",
-    purpose: "\u0438\u043C\u0435\u043D\u0430 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432 \u0431\u0435\u0437 \u043A\u043E\u043D\u0442\u0430\u043A\u0442\u043D\u044B\u0445 \u0434\u0430\u043D\u043D\u044B\u0445"
+    purpose: "\u0438\u043C\u0435\u043D\u0430, \u0434\u043E\u043B\u0436\u043D\u043E\u0441\u0442\u0438 \u0438 \u043F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0435\u043D\u0438\u044F \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432 \u0431\u0435\u0437 \u043A\u043E\u043D\u0442\u0430\u043A\u0442\u043D\u044B\u0445 \u0434\u0430\u043D\u043D\u044B\u0445"
+  },
+  user_basic: {
+    nameRu: "\u041F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u0438 (\u0431\u0430\u0437\u043E\u0432\u044B\u0435)",
+    purpose: "\u0440\u0430\u0431\u043E\u0447\u0438\u0439 \u043F\u0440\u043E\u0444\u0438\u043B\u044C \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430, \u0432\u043A\u043B\u044E\u0447\u0430\u044F email; \u0442\u0435\u043B\u0435\u0444\u043E\u043D\u044B \u043F\u043B\u0430\u0433\u0438\u043D \u043D\u0435 \u0437\u0430\u043F\u0440\u0430\u0448\u0438\u0432\u0430\u0435\u0442"
   },
   department: { nameRu: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0430 \u043A\u043E\u043C\u043F\u0430\u043D\u0438\u0438", purpose: "\u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044F \u043F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0435\u043D\u0438\u0439" },
   disk: { nameRu: "\u0414\u0438\u0441\u043A", purpose: "\u043C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0435 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B\u0445 \u0432\u043B\u043E\u0436\u0435\u043D\u0438\u0439" }
@@ -37044,6 +37052,7 @@ var ReadCapabilityReader = class {
       (scope) => granted.has(scope)
     );
     const hasUsers = effectiveUserScope !== void 0;
+    const hasUserEmail = granted.has("user_basic") || granted.has("user");
     const recognized = /* @__PURE__ */ new Set([
       "task",
       "im",
@@ -37074,7 +37083,10 @@ var ReadCapabilityReader = class {
         projects: block(["sonet_group"], granted.has("sonet_group")),
         people: {
           ...block(["user_brief"], hasUsers),
-          effectiveScope: effectiveUserScope ?? null
+          effectiveScope: effectiveUserScope ?? null,
+          emailAvailable: hasUserEmail,
+          emailRequiredScope: hasUserEmail ? null : "user_basic",
+          note: hasUserEmail ? "Names, positions, departments and email are available; phone and photo fields are not requested." : "Names, positions and departments are available; email requires user_basic."
         },
         departments: block(["department"], granted.has("department")),
         taskFiles: block(["task", "disk"], granted.has("task") && granted.has("disk")),
@@ -37266,11 +37278,20 @@ var ReadCapabilityReader = class {
     };
   }
   async searchPeople(options) {
+    const filter = options.userId !== void 0 ? { ID: options.userId } : options.departmentId !== void 0 ? { UF_DEPARTMENT: options.departmentId } : { NAME_SEARCH: options.query };
     const page = await this.#client.callPage("user.get", {
-      filter: options.userId === void 0 ? { NAME_SEARCH: options.query } : { ID: options.userId },
+      filter,
       sort: "ID",
       order: "ASC",
-      select: ["ID", "NAME", "LAST_NAME", "ACTIVE", "WORK_POSITION", "UF_DEPARTMENT"],
+      select: [
+        "ID",
+        "NAME",
+        "LAST_NAME",
+        "ACTIVE",
+        "WORK_POSITION",
+        "UF_DEPARTMENT",
+        "EMAIL"
+      ],
       start: options.start
     });
     if (!Array.isArray(page.result)) throw new BitrixRequestError("INVALID_RESPONSE");
@@ -37282,7 +37303,8 @@ var ReadCapabilityReader = class {
       lastName: text2(user.LAST_NAME, 200),
       active: yes(user.ACTIVE),
       workPosition: text2(user.WORK_POSITION, 300),
-      departmentIds: positiveIds(user.UF_DEPARTMENT, 20)
+      departmentIds: positiveIds(user.UF_DEPARTMENT, 20),
+      email: text2(user.EMAIL, 320)
     })).filter((user) => user.id !== null);
     const nextStart = pageCursor(
       options.start,
@@ -37292,6 +37314,7 @@ var ReadCapabilityReader = class {
     );
     return {
       people: normalized,
+      untrustedContent: true,
       returned: normalized.length,
       partial: normalized.length !== selectedRaw.length,
       skippedMalformed: selectedRaw.length - normalized.length,
@@ -37500,7 +37523,7 @@ var ReadCapabilityReader = class {
 
 // server/src/main.ts
 function unavailableServer(error61, updater) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.4.0-rc.1" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.4.0-rc.2" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",

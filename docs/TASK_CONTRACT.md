@@ -94,7 +94,9 @@ the raw description to guess which case occurred.
 `bitrix24_capabilities` calls only the official `scope` method. It returns the known scopes
 used by this plugin, the availability of each read block and a fixed permission guide. Unknown
 or unrelated webhook scopes are not echoed. `user_brief`, `user_basic` and `user` all satisfy
-the people-search block, but the least-privilege recommendation is `user_brief`.
+the people-search block. `user_brief` is enough for names, positions and department IDs;
+profile email is returned only when Bitrix24 grants `user_basic` or `user`. The capability
+response reports that distinction explicitly.
 
 An `INSUFFICIENT_SCOPE` error may include only the allowlisted `requiredScope` associated with
 the called method. It does not contain the upstream description. Scope availability and the
@@ -115,15 +117,18 @@ opaque typed `nextCursor`; cursors from one adapter cannot be used with the othe
 
 ## Projects, people and departments
 
-Project and people search require exactly one bounded selector: a positive exact ID or a name
-query of at least two characters. Limits are at most 20 and offset is capped at 10,000.
+Project search requires exactly one bounded selector: a positive exact ID or a name query of
+at least two characters. People search requires exactly one of employee ID, name query or a
+direct department ID. Limits are at most 20 and offset is capped at 10,000.
 Department reading requires exactly one department ID or parent ID, preventing an unfiltered
 company-structure dump.
 
-Projects expose only ID, bounded name, project/group flag, owner ID and activity/visibility flags. People expose
-ID, first/last name, active flag, position and at most 20 department IDs. Departments expose
-ID, name, parent and head user ID. Contact details, biographies, avatars, descriptions and
-membership lists are not returned.
+Projects expose only ID, bounded name, project/group flag, owner ID and activity/visibility
+flags. People expose ID, first/last name, active flag, position, at most 20 department IDs and
+an optional profile email. Email is `null` with `user_brief` or when it is not set. Departments
+expose ID, name, parent and head user ID. Phones, addresses, biographies, avatars,
+descriptions and membership lists are not returned. Employee text fields are marked as
+untrusted content and never act as instructions.
 
 ## File metadata
 

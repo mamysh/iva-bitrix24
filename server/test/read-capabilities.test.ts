@@ -32,6 +32,7 @@ test("reports only plugin-relevant webhook scopes and actionable capability bloc
   assert.equal(result.blocks.taskDiscussion.status, "available");
   assert.equal(result.blocks.people.available, true);
   assert.equal(result.blocks.people.effectiveScope, "user_basic");
+  assert.equal(result.blocks.people.emailAvailable, true);
   assert.equal(result.blocks.projects.available, false);
   assert.equal(JSON.stringify(result).includes("crm"), false);
   assert.equal(result.permissionGuide.permissions.im.nameRu, "Чат и уведомления");
@@ -42,6 +43,15 @@ test("reports task-only discussion support as limited instead of unavailable", a
   assert.equal(result.blocks.taskDiscussion.available, true);
   assert.equal(result.blocks.taskDiscussion.status, "limited");
   assert.equal(result.blocks.taskFiles.available, false);
+});
+
+test("distinguishes minimal employee profiles from email-enabled profiles", async () => {
+  const result = await reader(() => ({ result: ["task", "user_brief"] })).capabilities();
+  assert.equal(result.blocks.people.available, true);
+  assert.equal(result.blocks.people.effectiveScope, "user_brief");
+  assert.equal(result.blocks.people.emailAvailable, false);
+  assert.equal(result.blocks.people.emailRequiredScope, "user_basic");
+  assert.equal(result.permissionGuide.permissions.user_basic.nameRu, "Пользователи (базовые)");
 });
 
 test("reads new-card task chat, bounds it locally and removes contact and download data", async () => {
@@ -148,7 +158,7 @@ test("does not hide a missing chat scope behind legacy fallback", async () => {
   );
 });
 
-test("searches accessible projects and employees with bounded normalized fields", async () => {
+test("searches accessible projects and employees with bounded work profiles", async () => {
   const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
   const capabilityReader = reader((method, body) => {
     requests.push({ method, body });
@@ -177,8 +187,9 @@ test("searches accessible projects and employees with bounded normalized fields"
           ACTIVE: true,
           WORK_POSITION: "Manager",
           UF_DEPARTMENT: [4],
-          EMAIL: "hidden@example.test",
+          EMAIL: "synthetic.person@example.test",
           PERSONAL_PHONE: "hidden",
+          PERSONAL_PHOTO: "https://example.test/photo",
         },
       ],
     };
@@ -197,11 +208,46 @@ test("searches accessible projects and employees with bounded normalized fields"
 
   assert.deepEqual((requests[0]?.body.FILTER as Record<string, unknown>)["%NAME"], "Syn");
   assert.deepEqual((requests[1]?.body.filter as Record<string, unknown>).ID, 42);
+  assert.deepEqual(requests[1]?.body.select, [
+    "ID",
+    "NAME",
+    "LAST_NAME",
+    "ACTIVE",
+    "WORK_POSITION",
+    "UF_DEPARTMENT",
+    "EMAIL",
+  ]);
   assert.equal(projects.projects[0]?.name, "Synthetic Project");
   assert.equal(projects.projects[0]?.project, true);
   assert.deepEqual(people.people[0]?.departmentIds, ["4"]);
-  assert.equal(JSON.stringify({ projects, people }).includes("hidden@example.test"), false);
+  assert.equal(people.people[0]?.email, "synthetic.person@example.test");
+  assert.equal(people.untrustedContent, true);
+  assert.equal(JSON.stringify({ projects, people }).includes("hidden"), false);
+  assert.equal(JSON.stringify({ projects, people }).includes("/photo"), false);
   assert.equal(JSON.stringify({ projects, people }).includes("must not appear"), false);
+});
+
+test("lists bounded employees of one selected department", async () => {
+  let request: Record<string, unknown> = {};
+  const result = await reader((_method, body) => {
+    request = body;
+    return {
+      result: [
+        {
+          ID: "42",
+          NAME: "Synthetic",
+          LAST_NAME: "Person",
+          ACTIVE: true,
+          WORK_POSITION: "Manager",
+          UF_DEPARTMENT: [4],
+        },
+      ],
+    };
+  }).searchPeople({ departmentId: 4, limit: 10, start: 0 });
+
+  assert.deepEqual(request.filter, { UF_DEPARTMENT: 4 });
+  assert.equal(result.people[0]?.id, "42");
+  assert.equal(result.people[0]?.email, null);
 });
 
 test("advances project pagination by consumed upstream rows when one row is malformed", async () => {

@@ -82,7 +82,11 @@ const PERMISSIONS = {
   },
   user_brief: {
     nameRu: "Пользователи (минимальные)",
-    purpose: "имена сотрудников без контактных данных",
+    purpose: "имена, должности и подразделения сотрудников без контактных данных",
+  },
+  user_basic: {
+    nameRu: "Пользователи (базовые)",
+    purpose: "рабочий профиль сотрудника, включая email; телефоны плагин не запрашивает",
   },
   department: { nameRu: "Структура компании", purpose: "названия подразделений" },
   disk: { nameRu: "Диск", purpose: "метаданные доступных вложений" },
@@ -105,6 +109,7 @@ export type ProjectSearchOptions = {
 export type PeopleSearchOptions = {
   readonly userId?: number | undefined;
   readonly query?: string | undefined;
+  readonly departmentId?: number | undefined;
   readonly limit: number;
   readonly start: number;
 };
@@ -152,6 +157,7 @@ export class ReadCapabilityReader {
       granted.has(scope),
     );
     const hasUsers = effectiveUserScope !== undefined;
+    const hasUserEmail = granted.has("user_basic") || granted.has("user");
     const recognized = new Set([
       "task",
       "im",
@@ -187,6 +193,11 @@ export class ReadCapabilityReader {
         people: {
           ...block(["user_brief"], hasUsers),
           effectiveScope: effectiveUserScope ?? null,
+          emailAvailable: hasUserEmail,
+          emailRequiredScope: hasUserEmail ? null : "user_basic",
+          note: hasUserEmail
+            ? "Names, positions, departments and email are available; phone and photo fields are not requested."
+            : "Names, positions and departments are available; email requires user_basic.",
         },
         departments: block(["department"], granted.has("department")),
         taskFiles: block(["task", "disk"], granted.has("task") && granted.has("disk")),
@@ -400,14 +411,24 @@ export class ReadCapabilityReader {
   }
 
   async searchPeople(options: PeopleSearchOptions) {
+    const filter = options.userId !== undefined
+      ? { ID: options.userId }
+      : options.departmentId !== undefined
+        ? { UF_DEPARTMENT: options.departmentId }
+        : { NAME_SEARCH: options.query };
     const page = await this.#client.callPage("user.get", {
-      filter:
-        options.userId === undefined
-          ? { NAME_SEARCH: options.query }
-          : { ID: options.userId },
+      filter,
       sort: "ID",
       order: "ASC",
-      select: ["ID", "NAME", "LAST_NAME", "ACTIVE", "WORK_POSITION", "UF_DEPARTMENT"],
+      select: [
+        "ID",
+        "NAME",
+        "LAST_NAME",
+        "ACTIVE",
+        "WORK_POSITION",
+        "UF_DEPARTMENT",
+        "EMAIL",
+      ],
       start: options.start,
     });
     if (!Array.isArray(page.result)) throw new BitrixRequestError("INVALID_RESPONSE");
@@ -422,6 +443,7 @@ export class ReadCapabilityReader {
         active: yes(user.ACTIVE),
         workPosition: text(user.WORK_POSITION, 300),
         departmentIds: positiveIds(user.UF_DEPARTMENT, 20),
+        email: text(user.EMAIL, 320),
       }))
       .filter((user) => user.id !== null);
     const nextStart = pageCursor(
@@ -432,6 +454,7 @@ export class ReadCapabilityReader {
     );
     return {
       people: normalized,
+      untrustedContent: true,
       returned: normalized.length,
       partial: normalized.length !== selectedRaw.length,
       skippedMalformed: selectedRaw.length - normalized.length,
