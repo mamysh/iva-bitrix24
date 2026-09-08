@@ -1,6 +1,6 @@
 {
   "name": "iva-bitrix24",
-  "version": "0.4.0",
+  "version": "0.4.1-rc.1",
   "private": true,
   "description": "Bitrix24 integration plugin for Iva with bounded task, discussion, project, people and attachment reading.",
   "license": "MIT",
@@ -23,11 +23,12 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "check:bundle": "node scripts/check-bundle.mjs",
+    "check:distribution": "node scripts/check-distribution.mjs",
     "check:secrets": "node scripts/check-secrets.mjs",
     "smoke:live": "node scripts/smoke-live.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test server/test/*.test.ts",
-    "check": "npm run check:secrets && npm run typecheck && npm test && npm run build && npm run check:bundle"
+    "check": "npm run check:secrets && npm run check:distribution && npm run typecheck && npm test && npm run build && npm run check:bundle"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

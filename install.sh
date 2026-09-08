@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 PLUGIN_NAME="bitrix24-read"
-PLUGIN_SOURCE="${IVA_BITRIX24_SOURCE:-mamysh/iva-bitrix24/plugin}"
+PLUGIN_SOURCE="${IVA_BITRIX24_SOURCE:-mamysh/iva-bitrix24/plugin@stable}"
 TTY_DEVICE=/dev/tty
 ROLLBACK_PENDING=0
 HAD_ENV=0

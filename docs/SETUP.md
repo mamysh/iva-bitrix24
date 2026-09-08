@@ -38,9 +38,21 @@ Scope разрешает группе методов работать, но не
 curl -fsSL https://raw.githubusercontent.com/mamysh/iva-bitrix24/main/install.sh | bash
 ```
 
+Репозиторий можно подключить как собственный Marketplace Iva и установить плагин по имени:
+
+```bash
+iva plugin marketplace add mamysh/iva-bitrix24
+iva plugin add bitrix24-read@iva-bitrix24
+```
+
+Этот путь использует штатные рельсы Iva, но оставляет настройку webhook пользователю; для
+первой установки рекомендуется мастер выше. Marketplace-запись отслеживает ветку `stable`,
+поэтому установленный источник совместим с последующим `iva plugin update` и кнопочным
+обновлением из Telegram, но не предлагает release candidates из `main`.
+
 Мастер использует `/dev/tty`, поэтому остаётся интерактивным внутри pipe. Он:
 
-1. добавляет `mamysh/iva-bitrix24/plugin` через штатный `iva plugin add` без trust;
+1. добавляет `mamysh/iva-bitrix24/plugin@stable` через штатный `iva plugin add` без trust;
 2. объясняет, какой входящий webhook создать;
 3. принимает URL скрыто, проверяет `profile` и `tasks.task.getFields`;
 4. атомарно сохраняет `data/custom/plugins/bitrix24-read.env` с правами `0600`;
@@ -56,7 +68,7 @@ curl -fsSL https://raw.githubusercontent.com/mamysh/iva-bitrix24/main/install.sh
 Если bootstrap недоступен, установите подпапку плагина напрямую без клонирования репозитория:
 
 ```bash
-iva plugin add mamysh/iva-bitrix24/plugin
+iva plugin add mamysh/iva-bitrix24/plugin@stable
 ```
 
 После добавления ожидается состояние `enabled · untrusted`. Не включайте trust до создания
@@ -122,7 +134,7 @@ npm run smoke:live -- /absolute/path/to/secrets.env
 ## 6. Обновление из Telegram
 
 Этот сценарий работает, только если экземпляр установлен из GitHub, например командой из
-раздела 2 или `iva plugin add mamysh/iva-bitrix24/plugin`. Напишите Иве в личном чате:
+раздела 2 или `iva plugin add mamysh/iva-bitrix24/plugin@stable`. Напишите Иве в личном чате:
 «Проверь обновление Bitrix24-плагина».
 
 Ива покажет текущую и кандидатную SemVer-версии и статус GitHub Actions. Если CI успешен,

@@ -22,6 +22,6 @@ jobs:
       - run: npm run check
       - run: npm audit --audit-level=high
       - name: Verify committed bundle
-        run: git diff --exit-code -- plugin/server.mjs plugin/setup.mjs
+        run: git diff --exit-code -- plugin/server.mjs plugin/setup.mjs plugin/update-worker.mjs
       - name: Verify installer syntax
         run: bash -n install.sh

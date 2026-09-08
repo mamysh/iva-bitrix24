@@ -80,6 +80,42 @@ function safeVersion(value: unknown): string {
     : "";
 }
 
+function compareVersions(left: string, right: string): number {
+  const parts = (version: string) => {
+    const withoutBuild = version.split("+", 1)[0]!;
+    const [core, prerelease] = withoutBuild.split("-", 2);
+    return {
+      core: core!.split(".").map((part) => BigInt(part)),
+      prerelease: prerelease?.split(".") ?? null,
+    };
+  };
+  const a = parts(left);
+  const b = parts(right);
+  for (let index = 0; index < 3; index += 1) {
+    if (a.core[index]! > b.core[index]!) return 1;
+    if (a.core[index]! < b.core[index]!) return -1;
+  }
+  if (a.prerelease === null && b.prerelease === null) return 0;
+  if (a.prerelease === null) return 1;
+  if (b.prerelease === null) return -1;
+  const length = Math.max(a.prerelease.length, b.prerelease.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = a.prerelease[index];
+    const rightPart = b.prerelease[index];
+    if (leftPart === undefined) return -1;
+    if (rightPart === undefined) return 1;
+    if (leftPart === rightPart) continue;
+    const leftNumeric = /^\d+$/u.test(leftPart);
+    const rightNumeric = /^\d+$/u.test(rightPart);
+    if (leftNumeric && rightNumeric)
+      return BigInt(leftPart) > BigInt(rightPart) ? 1 : -1;
+    if (leftNumeric) return -1;
+    if (rightNumeric) return 1;
+    return leftPart > rightPart ? 1 : -1;
+  }
+  return 0;
+}
+
 function sourceFromEntry(entry: PluginEntry): GitSource | null {
   if (typeof entry.source !== "string" || !entry.source) return null;
   const raw = entry.source;
@@ -304,6 +340,19 @@ export class PluginUpdater {
       };
     }
     const candidateVersion = await this.#candidateVersion(source, candidateSha);
+    if (compareVersions(candidateVersion, currentVersion) <= 0) {
+      await rm(this.#offer, { force: true });
+      return {
+        ok: true,
+        state: "current",
+        source: source.label,
+        ref: source.ref,
+        currentSha,
+        currentVersion,
+        enabled: entry.enabled === true,
+        trusted: entry.trusted === true,
+      };
+    }
     const ci = await this.#ci(source, candidateSha);
     const approvalToken = this.#operations.token();
     if (!/^[A-F0-9]{24}$/u.test(approvalToken))

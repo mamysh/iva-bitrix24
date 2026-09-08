@@ -314,6 +314,47 @@ test("reports current without creating an update offer", async (t) => {
   assert.equal(result.currentVersion, OLD_VERSION);
 });
 
+test("does not offer a new repository commit with the same semantic version", async (t) => {
+  const paths = await world(t);
+  const fetches: string[] = [];
+  const base = operations([], NEW, fetches);
+  const updater = new PluginUpdater(
+    { PLUGIN_ROOT: paths.root, PLUGIN_DATA: paths.pluginData },
+    {
+      ...base,
+      fetch: async (input, init) =>
+        String(input).startsWith("https://raw.githubusercontent.com/")
+          ? new Response(
+              JSON.stringify({ name: "bitrix24-read", version: OLD_VERSION }),
+            )
+          : base.fetch!(input, init),
+    },
+  );
+  const result = (await updater.check()) as Record<string, unknown>;
+  assert.equal(result.state, "current");
+  assert.equal(result.currentVersion, OLD_VERSION);
+  assert.deepEqual(fetches, []);
+  await assert.rejects(
+    updater.apply({ candidateSha: NEW, approvalToken: "0".repeat(24) }),
+    /UPDATE_CHECK_REQUIRED/u,
+  );
+});
+
+test("does not offer an older semantic version from a moved ref", async (t) => {
+  const paths = await world(t);
+  await writeFile(
+    join(paths.root, "plugin.json"),
+    JSON.stringify({ name: "bitrix24-read", version: NEW_VERSION }),
+  );
+  const updater = new PluginUpdater(
+    { PLUGIN_ROOT: paths.root, PLUGIN_DATA: paths.pluginData },
+    operations([]),
+  );
+  const result = (await updater.check()) as Record<string, unknown>;
+  assert.equal(result.state, "current");
+  assert.equal(result.currentVersion, NEW_VERSION);
+});
+
 test("reports a stale terminal job as superseded by current plugin state", async (t) => {
   const paths = await world(t);
   const jobs = join(paths.pluginData, "update-jobs");
