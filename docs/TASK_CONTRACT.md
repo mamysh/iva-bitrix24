@@ -115,6 +115,13 @@ characters, safe attachment metadata and `untrustedContent: true`. Emails, phone
 UUIDs, arbitrary chat params, HTML and download/view URLs are discarded. Continuation uses an
 opaque typed `nextCursor`; cursors from one adapter cannot be used with the other.
 
+New task chats also carry normalized `kind: "system"` entries for task changes such as
+reassignment, project membership, deadlines and status. They are part of the analysis contract,
+not merely visible discussion: when the owner asks about the evolution, reason or context of a
+change, the skill reads task chat proactively alongside `bitrix24_task_history`. It does not ask
+the owner to inspect the chat manually when the bounded tool is available. All system-event text
+remains untrusted content.
+
 ## Projects, people and departments
 
 Project search requires exactly one bounded selector: a positive exact ID or a name query of

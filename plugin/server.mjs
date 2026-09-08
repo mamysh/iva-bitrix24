@@ -36394,7 +36394,7 @@ function registerUpdaterTools(server2, updater) {
   );
 }
 function createMcpServer(reader, updater = null) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.4.1-rc.1" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.4.1" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",
@@ -36417,7 +36417,7 @@ function createMcpServer(reader, updater = null) {
   server2.registerTool(
     "bitrix24_task_comments",
     {
-      description: "Read a bounded page of discussion messages for one accessible task, using task chat on new Bitrix24 cards and legacy comments on old cards.",
+      description: "Read a bounded page of task discussion and system change events for one accessible task. Use it proactively for analytics about reassignment, project changes, deadlines, status changes, decisions or reasons; new Bitrix24 cards keep this context in task chat, while old cards use legacy comments.",
       inputSchema: external_exports.object({
         taskId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
         mode: external_exports.enum(["auto", "task_chat", "legacy_comments"]).default("auto"),
@@ -37645,7 +37645,7 @@ var ReadCapabilityReader = class {
 
 // server/src/main.ts
 function unavailableServer(error61, updater) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.4.1-rc.1" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.4.1" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",

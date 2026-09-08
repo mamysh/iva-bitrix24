@@ -9,8 +9,8 @@ explicit live smoke test.
 | Iva | 0.4.0 | native Telegram HITL, plugin lifecycle, `iva doctor` and MCP proxy | supported |
 | Node.js | 24 | CI typecheck, tests, build and stdio MCP smoke test | supported for development |
 | Bitrix24 Tasks REST | current task, comment, checklist and attachment APIs | official contract review and synthetic contract tests | supported for documented read-only tools |
-| Bitrix24 new task card | module `tasks 25.700.0+` discussion model | `CHAT_ID` discovery, official `im.dialog.messages.get` contract and owner live canary | supported for bounded discussion reading |
-| Bitrix24 REST 3.0 | `/rest/api/...` | official docs review at `b24restdocs@df9b246`; task list filtering is documented only for `id` | evaluated and deliberately not selected for the current read contract |
+| Bitrix24 new task card | module `tasks 25.700.0+` discussion model | `CHAT_ID` discovery, official `im.dialog.messages.get` contract, synthetic system-event test and owner live canary | supported for bounded discussion and change-event reading |
+| Bitrix24 REST 3.0 | `/rest/api/...` | official docs review at `b24restdocs@de91707`; task list filtering is documented only for `id` | evaluated and deliberately not selected for the current read contract |
 
 The plugin uses an explicit allowlist across Tasks, IM, workgroups, users, departments and
 Drive. The new-card discussion adapter uses the `CHAT_ID` exposed by established

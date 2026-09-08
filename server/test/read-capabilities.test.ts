@@ -54,7 +54,7 @@ test("distinguishes minimal employee profiles from email-enabled profiles", asyn
   assert.equal(result.permissionGuide.permissions.user_basic.nameRu, "Пользователи (базовые)");
 });
 
-test("reads new-card task chat, bounds it locally and removes contact and download data", async () => {
+test("reads task-chat messages and system change events without contact or download data", async () => {
   const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
   const result = await reader((method, body) => {
     requests.push({ method, body });
@@ -92,21 +92,30 @@ test("reads new-card task chat, bounds it locally and removes contact and downlo
         ],
       },
     };
-  }).taskComments({ taskId: 7, mode: "auto", limit: 1 });
+  }).taskComments({ taskId: 7, mode: "auto", limit: 2 });
 
   assert.deepEqual(requests.map(({ method }) => method), [
     "tasks.task.get",
     "im.dialog.messages.get",
   ]);
-  assert.deepEqual(requests[1]?.body, { DIALOG_ID: "chat99", LIMIT: 1 });
+  assert.deepEqual(requests[1]?.body, { DIALOG_ID: "chat99", LIMIT: 2 });
   assert.equal(result.source, "task_chat");
-  assert.equal(result.messages.length, 1);
-  assert.equal(result.nextCursor, "chat:12");
+  assert.equal(result.messages.length, 2);
+  assert.equal(result.nextCursor, "chat:11");
   assert.equal(JSON.stringify(result).includes("hidden@example.test"), false);
   assert.equal(JSON.stringify(result).includes("secret-download"), false);
   assert.deepEqual(result.messages[0]?.attachments, [
     { fileId: "5", name: "brief.pdf", size: 123, type: "file" },
   ]);
+  assert.deepEqual(result.messages[1], {
+    id: "11",
+    author: { id: null, name: null, lastName: null },
+    createdDate: "2026-09-06T11:00:00+03:00",
+    text: "System",
+    kind: "system",
+    attachments: [],
+    untrustedContent: true,
+  });
 });
 
 test("uses legacy comments only when requested and returns a typed continuation cursor", async () => {

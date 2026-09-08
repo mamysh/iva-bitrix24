@@ -67,6 +67,9 @@ test("publishes thirteen Bitrix read tools and three bounded update tools", asyn
     ],
   );
   const apply = tools.find(({ name }) => name === "iva_bitrix24_update_apply");
+  const comments = tools.find(({ name }) => name === "bitrix24_task_comments");
+  assert.match(comments?.description ?? "", /system change events/u);
+  assert.match(comments?.description ?? "", /Use it proactively for analytics/u);
   assert.equal(apply?.annotations?.readOnlyHint, false);
   assert.equal(apply?.annotations?.destructiveHint, true);
   for (const tool of tools.filter(({ name }) => name !== "iva_bitrix24_update_apply")) {
