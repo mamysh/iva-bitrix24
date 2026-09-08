@@ -11,8 +11,8 @@ import {
 
 const OLD = "1".repeat(40);
 const NEW = "2".repeat(40);
-const OLD_VERSION = "0.4.0-rc.2";
-const NEW_VERSION = "0.4.0-rc.3";
+const OLD_VERSION = "0.4.0-rc.3";
+const NEW_VERSION = "0.4.0";
 
 test("worker leaves a short response-delivery window by default", () => {
   assert.equal(UPDATE_START_DELAY_MS, 5_000);

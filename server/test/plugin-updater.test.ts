@@ -7,8 +7,8 @@ import { PluginUpdater, type UpdaterOperations } from "../src/plugin-updater.ts"
 
 const OLD = "1".repeat(40);
 const NEW = "2".repeat(40);
-const OLD_VERSION = "0.4.0-rc.2";
-const NEW_VERSION = "0.4.0-rc.3";
+const OLD_VERSION = "0.4.0-rc.3";
+const NEW_VERSION = "0.4.0";
 
 type TestCall = {
   readonly command: string;
