@@ -216,7 +216,7 @@ test("searches accessible projects and employees with bounded work profiles", as
   });
 
   assert.deepEqual((requests[0]?.body.FILTER as Record<string, unknown>)["%NAME"], "Syn");
-  assert.deepEqual((requests[1]?.body.filter as Record<string, unknown>).ID, 42);
+  assert.equal(requests[1]?.body.ID, 42);
   assert.deepEqual(requests[1]?.body.select, [
     "ID",
     "NAME",
@@ -254,7 +254,7 @@ test("lists bounded employees of one selected department", async () => {
     };
   }).searchPeople({ departmentId: 4, limit: 10, start: 0 });
 
-  assert.deepEqual(request.filter, { UF_DEPARTMENT: 4 });
+  assert.equal(request.UF_DEPARTMENT, 4);
   assert.equal(result.people[0]?.id, "42");
   assert.equal(result.people[0]?.email, null);
 });
@@ -288,7 +288,7 @@ test("lists only a selected department branch", async () => {
 test("returns task attachment metadata without download URLs and marks inaccessible files", async () => {
   const result = await reader((method, body) => {
     if (method === "tasks.task.get")
-      return { result: { task: { id: "7", ufTaskWebdavFiles: [10, 11] } } };
+      return { result: { task: { id: "7", ufTaskWebdavFiles: ["n10", 11] } } };
     if (body.id === 10)
       return {
         result: {

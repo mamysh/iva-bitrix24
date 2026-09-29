@@ -14,6 +14,7 @@ async function readStdin(): Promise<string> {
 
 async function main(): Promise<void> {
   const envPath = process.argv[2];
+  const attachmentsRoot = process.argv[3];
   if (!envPath) throw new Error("Не указан путь конфигурации плагина.");
 
   const entered = await readStdin();
@@ -21,7 +22,7 @@ async function main(): Promise<void> {
   if (!raw) throw new Error("Webhook не введён, а сохранённой конфигурации нет.");
 
   const normalized = await probeWebhook(raw);
-  await writeWebhookAtomic(envPath, normalized);
+  await writeWebhookAtomic(envPath, normalized, attachmentsRoot);
   console.log("✓ Webhook принят, доступ к профилю и задачам проверен.");
   console.log("✓ Конфигурация сохранена с закрытыми правами.");
 }

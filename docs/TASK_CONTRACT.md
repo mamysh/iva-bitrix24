@@ -145,6 +145,32 @@ bounded name, byte size, date, creator and binding metadata. It never returns or
 `DOWNLOAD_URL`, and it never downloads file content. An inaccessible individual attachment
 produces a partial result; missing `disk` scope stops the call with `requiredScope: "disk"`.
 
+## Task documents
+
+`bitrix24_list_task_documents` returns bounded metadata from the task, current task chat
+or legacy comments, and checklist attachments. It reports source, format, size, separate
+upload and attachment dates and user IDs, nearby message or checklist text, and whether
+the scan was partial. The chat or comment history and checklist are each capped at four
+pages; the result never contains a signed download URL. The original task-only metadata
+tool above remains available.
+
+`bitrix24_search_task_documents` matches a filename or nearby message in at most five
+accessible tasks per call, with an explicit continuation cursor. The caller selects own or
+department staff tasks and open or last-30-days closed tasks. It does not index file bodies.
+For an explicit closed-task interval, the caller may pass `closedSince` and `closedBefore`.
+Department discovery includes the webhook owner's department and its descendants, with
+bounded enumeration. Missing rights or truncated scans must not be reported as exhaustive.
+
+`bitrix24_download_task_document` requires a key returned by a fresh list and rechecks
+task access before getting a signed Bitrix24 link. It streams at most 50 MiB to a private
+file under Iva's attachments directory, returning a relative path and opaque artifact ID.
+The URL is never returned. `bitrix24_release_task_document` removes that staged file.
+`bitrix24_view_task_document_page` returns an image block for JPG/PNG or a rendered
+PDF/Office page, up to page 200. PDF needs `pdftoppm`; Office rendering also needs
+LibreOffice. The visual view has a separate 10 MiB input limit for JPG/PNG and 5 MiB
+output image limit. Sending through Telegram requires the separate `iva-file-delivery`
+plugin; a failed send leaves the temporary copy available for a retry.
+
 ## Checklists and relations
 
 Checklist pages contain at most 50 normalized items. Titles and member names are bounded and

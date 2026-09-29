@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -112,4 +112,13 @@ test("writes the env atomically with mode 0600", async () => {
   await writeWebhookAtomic(envPath, secret);
   assert.equal(await readFile(envPath, "utf8"), `BITRIX24_WEBHOOK_BASE_URL=${secret}\n`);
   assert.equal((await stat(envPath)).mode & 0o777, 0o600);
+});
+
+test("stores the configured Iva attachments directory without exposing it through shell syntax", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "bitrix-installer-"));
+  try {
+    const envPath = join(directory, "bitrix24-read.env");
+    await writeWebhookAtomic(envPath, "https://example.test/rest/1/secret", "/srv/iva/vault/attachments");
+    assert.match(await readFile(envPath, "utf8"), /BITRIX24_ATTACHMENTS_ROOT="\/srv\/iva\/vault\/attachments"/u);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });

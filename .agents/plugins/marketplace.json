@@ -9,7 +9,7 @@
         "path": "plugin",
         "ref": "stable"
       },
-      "description": "Bounded Bitrix24 task, discussion, project, people and attachment reading for Iva."
+      "description": "Bounded Bitrix24 task and document discovery, download and analysis for Iva."
     }
   ]
 }

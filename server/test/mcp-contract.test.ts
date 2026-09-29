@@ -3,7 +3,17 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { BitrixRequestError } from "../src/bitrix-client.ts";
-import { createMcpServer, type BitrixReaderPort } from "../src/mcp-server.ts";
+import { createMcpServer, type BitrixReaderPort, type FileReaderPort } from "../src/mcp-server.ts";
+
+function files(): FileReaderPort {
+  return {
+    list: async () => ({ files: [], returned: 0, partial: false, skippedUnavailable: 0, missingScopes: [], scannedMessages: 0, scannedChecklist: 0, directTruncated: false, messagesTruncated: false, checklistTruncated: false, untrustedContent: true }),
+    search: async (options) => ({ matches: [], found: 0, scannedTasks: 0, scope: options.scope, phase: options.phase, nextCursor: null, partial: false, untrustedContent: true }),
+    download: async (taskId, key) => ({ artifactId: "00000000-0000-4000-8000-000000000001", path: "bitrix24-read/test.pdf", fileName: "test.pdf", bytes: 4, source: "task", taskId: String(taskId), key }),
+    release: async () => ({ released: true, artifactId: "00000000-0000-4000-8000-000000000001" }),
+    viewPage: async () => ({ data: Buffer.from("image").toString("base64"), mimeType: "image/png", page: 1 }),
+  };
+}
 
 function reader(): BitrixReaderPort {
   return {
@@ -28,7 +38,7 @@ async function connectedClient(taskReader: BitrixReaderPort = reader()) {
     check: async () => ({ state: "current" }),
     apply: async (input) => ({ state: "started", input }),
     status: async () => ({ state: "never_run" }),
-  });
+  }, files());
   const client = new Client({ name: "contract-test", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([
@@ -38,7 +48,7 @@ async function connectedClient(taskReader: BitrixReaderPort = reader()) {
   return { client, server };
 }
 
-test("publishes thirteen Bitrix read tools and three bounded update tools", async (t) => {
+test("publishes bounded task, document and update tools", async (t) => {
   const { client, server } = await connectedClient();
   t.after(async () => {
     await client.close();
@@ -50,17 +60,22 @@ test("publishes thirteen Bitrix read tools and three bounded update tools", asyn
     [
       "bitrix24_capabilities",
       "bitrix24_connection_check",
+      "bitrix24_download_task_document",
       "bitrix24_get_task",
       "bitrix24_list_departments",
+      "bitrix24_list_task_documents",
       "bitrix24_list_tasks",
+      "bitrix24_release_task_document",
       "bitrix24_search_people",
       "bitrix24_search_projects",
+      "bitrix24_search_task_documents",
       "bitrix24_task_checklist",
       "bitrix24_task_comments",
       "bitrix24_task_fields",
       "bitrix24_task_files",
       "bitrix24_task_history",
       "bitrix24_task_relations",
+      "bitrix24_view_task_document_page",
       "iva_bitrix24_update_apply",
       "iva_bitrix24_update_check",
       "iva_bitrix24_update_status",
@@ -72,10 +87,12 @@ test("publishes thirteen Bitrix read tools and three bounded update tools", asyn
   assert.match(comments?.description ?? "", /Use it proactively for analytics/u);
   assert.equal(apply?.annotations?.readOnlyHint, false);
   assert.equal(apply?.annotations?.destructiveHint, true);
-  for (const tool of tools.filter(({ name }) => name !== "iva_bitrix24_update_apply")) {
+  for (const tool of tools.filter(({ name }) => !["iva_bitrix24_update_apply", "bitrix24_download_task_document", "bitrix24_release_task_document"].includes(name))) {
     assert.equal(tool.annotations?.readOnlyHint, true);
     assert.equal(tool.annotations?.destructiveHint, false);
   }
+  assert.equal(tools.find(({ name }) => name === "bitrix24_download_task_document")?.annotations?.readOnlyHint, false);
+  assert.equal(tools.find(({ name }) => name === "bitrix24_release_task_document")?.annotations?.destructiveHint, true);
 });
 
 test("validates task identifiers and list limits at the MCP boundary", async (t) => {
@@ -184,11 +201,34 @@ test("validates task identifiers and list limits at the MCP boundary", async (t)
   });
   assert.equal(excessiveFileLimit.isError, true);
 
+  const arbitraryDownload = await client.callTool({
+    name: "bitrix24_download_task_document",
+    arguments: { taskId: 1, key: "../../secret" },
+  });
+  assert.equal(arbitraryDownload.isError, true);
+
+  const arbitraryRelease = await client.callTool({
+    name: "bitrix24_release_task_document",
+    arguments: { artifactId: "../../secret" },
+  });
+  assert.equal(arbitraryRelease.isError, true);
+
   const unknown = await client.callTool({
     name: "bitrix24_connection_check",
     arguments: { method: "tasks.task.delete" },
   });
   assert.equal(unknown.isError, true);
+});
+
+test("returns a visual document page as an MCP image block", async (t) => {
+  const { client, server } = await connectedClient();
+  t.after(async () => { await client.close(); await server.close(); });
+  const result = await client.callTool({
+    name: "bitrix24_view_task_document_page",
+    arguments: { artifactId: "00000000-0000-4000-8000-000000000001", page: 1 },
+  });
+  assert.equal(result.isError, undefined);
+  assert.equal((result.content as Array<{ type: string }>)[0]?.type, "image");
 });
 
 test("names the required optional scope without upstream details", async (t) => {

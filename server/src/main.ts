@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { BitrixClient } from "./bitrix-client.ts";
 import { ConfigurationError, loadConfig } from "./config.ts";
+import { TaskFileReader } from "./file-capabilities.ts";
 import {
   createMcpServer,
   registerUpdaterTools,
@@ -15,7 +16,7 @@ function unavailableServer(
   error: ConfigurationError,
   updater: PluginUpdaterPort | null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.4.1" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.5.0" });
   registerUpdaterTools(server, updater);
   server.registerTool(
     "bitrix24_connection_check",
@@ -49,6 +50,7 @@ export function serverFromEnvironment(
     const client = new BitrixClient(loadConfig(env));
     const tasks = new TaskReader(client);
     const capabilities = new ReadCapabilityReader(client);
+    const files = new TaskFileReader(client, env.BITRIX24_ATTACHMENTS_ROOT);
     return createMcpServer(
       {
         connectionCheck: () => tasks.connectionCheck(),
@@ -66,6 +68,7 @@ export function serverFromEnvironment(
         taskRelations: (options) => capabilities.taskRelations(options),
       },
       updater,
+      files,
     );
   } catch (error) {
     if (error instanceof ConfigurationError) return unavailableServer(error, updater);

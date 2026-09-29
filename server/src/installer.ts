@@ -1,5 +1,5 @@
 import { open, readFile, rename, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 const VARIABLE = "BITRIX24_WEBHOOK_BASE_URL";
@@ -188,11 +188,13 @@ export async function readConfiguredWebhook(envPath: string): Promise<string | n
   return null;
 }
 
-export async function writeWebhookAtomic(envPath: string, normalized: string): Promise<void> {
+export async function writeWebhookAtomic(envPath: string, normalized: string, attachmentsRoot?: string): Promise<void> {
+  if (attachmentsRoot !== undefined && (!isAbsolute(attachmentsRoot) || /[\r\n\0]/u.test(attachmentsRoot)))
+    throw new InstallerError("INVALID_ATTACHMENTS_ROOT", "Каталог вложений Ивы должен быть безопасным абсолютным путём.");
   const temporary = join(dirname(envPath), `.bitrix24-read.env-${randomUUID()}.tmp`);
   const file = await open(temporary, "wx", 0o600);
   try {
-    await file.writeFile(`${VARIABLE}=${normalized}\n`, "utf8");
+    await file.writeFile(`${VARIABLE}=${normalized}\n${attachmentsRoot ? `BITRIX24_ATTACHMENTS_ROOT=${JSON.stringify(attachmentsRoot)}\n` : ""}`, "utf8");
     await file.sync();
   } finally {
     await file.close();

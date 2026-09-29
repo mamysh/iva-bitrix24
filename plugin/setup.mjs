@@ -3,7 +3,7 @@
 
 // server/src/installer.ts
 import { open, readFile, rename, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 var VARIABLE = "BITRIX24_WEBHOOK_BASE_URL";
 var MAX_RESPONSE_BYTES = 1e6;
@@ -163,12 +163,15 @@ async function readConfiguredWebhook(envPath) {
   }
   return null;
 }
-async function writeWebhookAtomic(envPath, normalized) {
+async function writeWebhookAtomic(envPath, normalized, attachmentsRoot) {
+  if (attachmentsRoot !== void 0 && (!isAbsolute(attachmentsRoot) || /[\r\n\0]/u.test(attachmentsRoot)))
+    throw new InstallerError("INVALID_ATTACHMENTS_ROOT", "\u041A\u0430\u0442\u0430\u043B\u043E\u0433 \u0432\u043B\u043E\u0436\u0435\u043D\u0438\u0439 \u0418\u0432\u044B \u0434\u043E\u043B\u0436\u0435\u043D \u0431\u044B\u0442\u044C \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u044B\u043C \u0430\u0431\u0441\u043E\u043B\u044E\u0442\u043D\u044B\u043C \u043F\u0443\u0442\u0451\u043C.");
   const temporary = join(dirname(envPath), `.bitrix24-read.env-${randomUUID()}.tmp`);
   const file = await open(temporary, "wx", 384);
   try {
     await file.writeFile(`${VARIABLE}=${normalized}
-`, "utf8");
+${attachmentsRoot ? `BITRIX24_ATTACHMENTS_ROOT=${JSON.stringify(attachmentsRoot)}
+` : ""}`, "utf8");
     await file.sync();
   } finally {
     await file.close();
@@ -195,12 +198,13 @@ async function readStdin() {
 }
 async function main() {
   const envPath = process.argv[2];
+  const attachmentsRoot = process.argv[3];
   if (!envPath) throw new Error("\u041D\u0435 \u0443\u043A\u0430\u0437\u0430\u043D \u043F\u0443\u0442\u044C \u043A\u043E\u043D\u0444\u0438\u0433\u0443\u0440\u0430\u0446\u0438\u0438 \u043F\u043B\u0430\u0433\u0438\u043D\u0430.");
   const entered = await readStdin();
   const raw = entered || await readConfiguredWebhook(envPath);
   if (!raw) throw new Error("Webhook \u043D\u0435 \u0432\u0432\u0435\u0434\u0451\u043D, \u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u043E\u0439 \u043A\u043E\u043D\u0444\u0438\u0433\u0443\u0440\u0430\u0446\u0438\u0438 \u043D\u0435\u0442.");
   const normalized = await probeWebhook(raw);
-  await writeWebhookAtomic(envPath, normalized);
+  await writeWebhookAtomic(envPath, normalized, attachmentsRoot);
   console.log("\u2713 Webhook \u043F\u0440\u0438\u043D\u044F\u0442, \u0434\u043E\u0441\u0442\u0443\u043F \u043A \u043F\u0440\u043E\u0444\u0438\u043B\u044E \u0438 \u0437\u0430\u0434\u0430\u0447\u0430\u043C \u043F\u0440\u043E\u0432\u0435\u0440\u0435\u043D.");
   console.log("\u2713 \u041A\u043E\u043D\u0444\u0438\u0433\u0443\u0440\u0430\u0446\u0438\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0430 \u0441 \u0437\u0430\u043A\u0440\u044B\u0442\u044B\u043C\u0438 \u043F\u0440\u0430\u0432\u0430\u043C\u0438.");
 }

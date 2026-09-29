@@ -84,6 +84,32 @@ ENV_FILE="$IVA_DATA_DIR/custom/plugins/$PLUGIN_NAME.env"
 BACKUP_FILE="$IVA_DATA_DIR/custom/plugins/.$PLUGIN_NAME.env.backup-$$"
 [[ "$IVA_DATA_DIR" == /* && "$IVA_DATA_DIR" != *$'\n'* ]] || die "Каталог данных Iva должен быть абсолютным безопасным путём."
 
+IVA_ATTACHMENTS_ROOT="${IVA_BITRIX24_ATTACHMENTS_ROOT:-}"
+if [[ -z "$IVA_ATTACHMENTS_ROOT" ]]; then
+  IVA_ATTACHMENTS_ROOT="$("$NODE_COMMAND" --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { parseEnv } from "node:util";
+    import { isAbsolute, resolve } from "node:path";
+    const wrapper = readFileSync(process.argv[1], "utf8");
+    const match = /^IVA_ROOT="((?:\\.|[^"])*)"$/mu.exec(wrapper);
+    if (!match) process.exit(2);
+    const home = match[1].replace(/\\(["\\$`])/gu, "$1");
+    if (!isAbsolute(home) || /[\0\r\n]/u.test(home)) process.exit(3);
+    const settings = parseEnv(readFileSync(resolve(home, ".env"), "utf8"));
+    const configured = settings.ASSISTANT_VAULT_DIR || "vault";
+    const vault = isAbsolute(configured) ? configured : resolve(home, configured);
+    process.stdout.write(resolve(vault, "attachments"));
+  ' "$IVA_COMMAND")" || die "Не удалось определить каталог вложений Iva. Укажите IVA_BITRIX24_ATTACHMENTS_ROOT как абсолютный путь к vault/attachments и повторите установку."
+fi
+[[ "$IVA_ATTACHMENTS_ROOT" == /* && "$IVA_ATTACHMENTS_ROOT" != *$'\n'* ]] || die "Каталог вложений Iva должен быть абсолютным безопасным путём."
+mkdir -p -- "$IVA_ATTACHMENTS_ROOT" || die "Не удалось подготовить каталог вложений Iva."
+if ! command -v pdftoppm >/dev/null 2>&1; then
+  warn "pdftoppm не найден: просмотр страниц PDF и Office пока недоступен. Установите poppler-utils."
+fi
+if ! command -v libreoffice >/dev/null 2>&1; then
+  warn "LibreOffice не найден: разбор PPT/PPTX и визуальный просмотр Office пока недоступны."
+fi
+
 say "${bold}Шаг 1 из 4. Установка плагина${reset}"
 if "$NODE_COMMAND" --input-type=module -e '
   import { readFileSync } from "node:fs";
@@ -118,7 +144,7 @@ say "   Рабочие группы социальной сети (sonet_group) 
 say "   Пользователи (минимальные) (user_brief) — имена, должности и подразделения;"
 say "   Пользователи (базовые) (user_basic) — вместо user_brief, если нужен email сотрудника;"
 say "   Плагин не запрашивает телефоны и фотографии даже с user_basic."
-say "   Структура компании (department) — подразделения; Диск (disk) — метаданные файлов."
+say "   Структура компании (department) — подразделения; Диск (disk) — метаданные и загрузка файлов."
 say "   Эти права необязательны: без них базовое чтение задач продолжит работать."
 say "   Scope разрешает REST-методы, а видимые объекты определяются правами пользователя webhook."
 say "   Администраторские права не нужны и не рекомендуются."
@@ -141,7 +167,7 @@ say ""
 say "${bold}Шаг 3 из 4. Безопасная настройка${reset}"
 IFS= read -r -s -p "$prompt" WEBHOOK_VALUE <&3
 say ""
-if ! printf '%s\n' "$WEBHOOK_VALUE" | "$NODE_COMMAND" "$SETUP_PROGRAM" "$ENV_FILE"; then
+if ! printf '%s\n' "$WEBHOOK_VALUE" | "$NODE_COMMAND" "$SETUP_PROGRAM" "$ENV_FILE" "$IVA_ATTACHMENTS_ROOT"; then
   unset WEBHOOK_VALUE
   die "Конфигурация не изменена. Исправьте проблему и снова запустите эту же команду."
 fi

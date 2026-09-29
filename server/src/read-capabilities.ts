@@ -65,6 +65,18 @@ function positiveIds(value: unknown, max = 100): string[] {
   return result;
 }
 
+function taskAttachmentIds(value: unknown, max = 1_000): string[] {
+  const items = Array.isArray(value) ? value : value === undefined ? [] : [value];
+  const result: string[] = [];
+  for (const item of items) {
+    const raw = isRecord(item) ? pick(item, "ATTACHMENT_ID", "attachmentId", "ID", "id") : item;
+    const normalized = identifier(typeof raw === "string" && /^n[1-9]\d{0,15}$/u.test(raw) ? raw.slice(1) : raw);
+    if (normalized !== null && !result.includes(normalized)) result.push(normalized);
+    if (result.length >= max) break;
+  }
+  return result;
+}
+
 function collection(value: unknown): readonly unknown[] {
   return Array.isArray(value) ? value : Object.values(record(value));
 }
@@ -417,7 +429,7 @@ export class ReadCapabilityReader {
         ? { UF_DEPARTMENT: options.departmentId }
         : { NAME_SEARCH: options.query };
     const page = await this.#client.callPage("user.get", {
-      filter,
+      ...filter,
       sort: "ID",
       order: "ASC",
       select: [
@@ -513,7 +525,7 @@ export class ReadCapabilityReader {
     const task = record(raw.task);
     if (identifier(pick(task, "ID", "id")) !== String(options.taskId))
       throw new BitrixRequestError("TASK_NOT_FOUND_OR_DENIED");
-    const attachmentIds = positiveIds(
+    const attachmentIds = taskAttachmentIds(
       pick(task, "UF_TASK_WEBDAV_FILES", "ufTaskWebdavFiles"),
       1_000,
     );

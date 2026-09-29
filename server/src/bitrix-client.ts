@@ -5,7 +5,9 @@ export const ALLOWED_METHODS = [
   "scope",
   "department.get",
   "disk.attachedObject.get",
+  "disk.file.get",
   "im.dialog.messages.get",
+  "im.v2.File.download",
   "sonet_group.get",
   "task.checklistitem.getlist",
   "task.commentitem.getlist",
@@ -22,7 +24,9 @@ const allowed = new Set<string>(ALLOWED_METHODS);
 const REQUIRED_SCOPES: Partial<Record<AllowedMethod, string>> = {
   "department.get": "department",
   "disk.attachedObject.get": "disk",
+  "disk.file.get": "disk",
   "im.dialog.messages.get": "im",
+  "im.v2.File.download": "im",
   "sonet_group.get": "sonet_group",
   "task.checklistitem.getlist": "task",
   "task.commentitem.getlist": "task",
@@ -137,6 +141,61 @@ export class BitrixClient {
   taskWebUrl(taskId: string | number): string {
     const path = `/company/personal/user/${this.#config.webhookUserId}/tasks/task/view/${taskId}/`;
     return new URL(path, this.#config.portalOrigin).toString();
+  }
+
+  async downloadSignedFile(urlValue: string, destination: import("node:fs/promises").FileHandle, maxBytes: number): Promise<number> {
+    const resolveSigned = (value: string, base: string): URL => {
+      let candidate: URL;
+      try { candidate = new URL(value, base); }
+      catch { throw new BitrixRequestError("INVALID_DOWNLOAD_URL"); }
+      if (candidate.protocol !== "https:" || candidate.origin !== this.#config.portalOrigin || candidate.username || candidate.password)
+        throw new BitrixRequestError("INVALID_DOWNLOAD_URL");
+      return candidate;
+    };
+    let url = resolveSigned(urlValue, this.#config.portalOrigin);
+    let response: Response;
+    for (let hop = 0; ; hop += 1) {
+      try {
+        response = await this.#dependencies.fetch(url, {
+          method: "GET",
+          headers: { accept: "*/*", "user-agent": "iva-bitrix24/1.0", referer: `${this.#config.portalOrigin}/` },
+          redirect: "manual",
+          signal: AbortSignal.timeout(120_000),
+        });
+      } catch {
+        throw new BitrixRequestError("DOWNLOAD_NETWORK_ERROR");
+      }
+      if (response.status < 300 || response.status >= 400) break;
+      if (hop >= 2) throw new BitrixRequestError("DOWNLOAD_REDIRECT_REFUSED");
+      const location = response.headers.get("location");
+      if (!location) throw new BitrixRequestError("DOWNLOAD_REDIRECT_REFUSED");
+      url = resolveSigned(location, url.toString());
+    }
+    if (!response.ok || !response.body) throw new BitrixRequestError("DOWNLOAD_FAILED");
+    const announced = Number(response.headers.get("content-length") ?? "0");
+    if (announced > maxBytes) throw new BitrixRequestError("FILE_TOO_LARGE");
+    const type = response.headers.get("content-type")?.toLowerCase() ?? "";
+    if (type.includes("text/html") || type.includes("application/json"))
+      throw new BitrixRequestError("INVALID_FILE_RESPONSE");
+    const reader = response.body.getReader();
+    let total = 0;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new BitrixRequestError("FILE_TOO_LARGE");
+      }
+      let written = 0;
+      while (written < value.byteLength) {
+        const part = await destination.write(value, written, value.byteLength - written);
+        if (part.bytesWritten <= 0) throw new BitrixRequestError("DOWNLOAD_WRITE_FAILED");
+        written += part.bytesWritten;
+      }
+    }
+    if (total === 0) throw new BitrixRequestError("EMPTY_FILE");
+    return total;
   }
 
   async call(method: AllowedMethod, params: unknown = {}): Promise<unknown> {

@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod/v4";
 import { BitrixRequestError } from "./bitrix-client.ts";
+import type { TaskFileReader } from "./file-capabilities.ts";
 import {
   TASK_HISTORY_FIELDS,
   type ListTaskOptions,
@@ -37,6 +38,8 @@ export type ReadCapabilityReaderPort = {
 };
 
 export type BitrixReaderPort = TaskReaderPort & ReadCapabilityReaderPort;
+
+export type FileReaderPort = Pick<TaskFileReader, "list" | "search" | "download" | "viewPage" | "release">;
 
 export type PluginUpdaterPort = {
   readonly check: () => Promise<unknown>;
@@ -111,6 +114,16 @@ function errorDetails(code: string, retryable: boolean) {
       retryable: false,
       action: "check_task_id_or_access",
     };
+  if (code === "FILE_NOT_FOUND_OR_DENIED")
+    return { category: "access", retryable: false, action: "refresh_file_list_or_access" };
+  if (code === "ATTACHMENTS_NOT_CONFIGURED")
+    return { category: "configuration", retryable: false, action: "rerun_installer" };
+  if (["FILE_TOO_LARGE", "IMAGE_TOO_LARGE_FOR_VIEW"].includes(code))
+    return { category: "limit", retryable: false, action: "use_smaller_file" };
+  if (["DOCUMENT_RENDERER_UNAVAILABLE", "DOCUMENT_RENDER_FAILED"].includes(code))
+    return { category: "compatibility", retryable: false, action: "install_document_renderer" };
+  if (["INVALID_DOWNLOAD_URL", "INVALID_FILE_RESPONSE", "DOWNLOAD_REDIRECT_REFUSED", "DOWNLOAD_FAILED"].includes(code))
+    return { category: "upstream", retryable: false, action: "inspect_file_download" };
   if (code === "INVALID_CURSOR")
     return {
       category: "input",
@@ -215,9 +228,73 @@ export function registerUpdaterTools(
 export function createMcpServer(
   reader: BitrixReaderPort,
   updater: PluginUpdaterPort | null = null,
+  files: FileReaderPort | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.4.1" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.5.0" });
   registerUpdaterTools(server, updater);
+
+  if (files) {
+    server.registerTool(
+      "bitrix24_list_task_documents",
+      {
+        description: "List bounded file metadata from a task, its chat or legacy comments, and checklist. Returns keys for selected downloads; never returns signed URLs.",
+        inputSchema: z.object({ taskId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) }).strict(),
+        annotations: readOnly,
+      },
+      ({ taskId }) => safe(() => files.list(taskId)),
+    );
+    server.registerTool(
+      "bitrix24_search_task_documents",
+      {
+        description: "Search filenames and nearby message text in a bounded batch of accessible tasks. Search mine/open first, department/open second, then recent_closed phases only if not found. Follow nextCursor until null before changing phase.",
+        inputSchema: z.object({
+          query: z.string().trim().min(2).max(200),
+          scope: z.enum(["mine", "department"]),
+          phase: z.enum(["open", "recent_closed"]),
+          cursor: z.string().regex(/^\d{1,3}:\d{1,5}$/u).optional(),
+          closedSince: z.iso.datetime({ offset: true }).optional(),
+          closedBefore: z.iso.datetime({ offset: true }).optional(),
+        }).strict(),
+        annotations: readOnly,
+      },
+      (options) => safe(() => files.search(options)),
+    );
+    server.registerTool(
+      "bitrix24_download_task_document",
+      {
+        description: "Download one file selected from a fresh task document list into Iva vault/attachments for the current owner to read or send. Returns only an artifact ID and vault-relative path.",
+        inputSchema: z.object({
+          taskId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+          key: z.string().regex(/^(?:task:[1-9]\d{0,15}|(?:chat|legacy|checklist):[1-9]\d{0,15}:[1-9]\d{0,15})$/u),
+        }).strict(),
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      },
+      ({ taskId, key }) => safe(() => files.download(taskId, key)),
+    );
+    server.registerTool(
+      "bitrix24_release_task_document",
+      {
+        description: "Delete one temporary Bitrix24 download after successful delivery or analysis. Never call after a failed delivery when the owner may retry.",
+        inputSchema: z.object({ artifactId: z.uuid() }).strict(),
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+      },
+      ({ artifactId }) => safe(() => files.release(artifactId)),
+    );
+    server.registerTool(
+      "bitrix24_view_task_document_page",
+      {
+        description: "View a downloaded JPG/PNG image or one rendered PDF/Office page for visual analysis. PDF rendering needs pdftoppm; Office formats also need LibreOffice. Inspect only pages the owner requested.",
+        inputSchema: z.object({ artifactId: z.uuid(), page: z.number().int().min(1).max(200).default(1) }).strict(),
+        annotations: readOnly,
+      },
+      async ({ artifactId, page }) => {
+        try {
+          const view = await files.viewPage(artifactId, page);
+          return { content: [{ type: "image" as const, data: view.data, mimeType: view.mimeType }] };
+        } catch (error) { return failure(error); }
+      },
+    );
+  }
 
   server.registerTool(
     "bitrix24_connection_check",
