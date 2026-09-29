@@ -411,11 +411,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         if (!names[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants);
+          this.rhs = optimizeExpr(this.rhs, names, constants2);
         return this;
       }
       get names() {
@@ -432,10 +432,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants);
+        this.rhs = optimizeExpr(this.rhs, names, constants2);
         return this;
       }
       get names() {
@@ -496,8 +496,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants) {
-        this.code = optimizeExpr(this.code, names, constants);
+      optimizeNames(names, constants2) {
+        this.code = optimizeExpr(this.code, names, constants2);
         return this;
       }
       get names() {
@@ -526,12 +526,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         const { nodes } = this;
         let i = nodes.length;
         while (i--) {
           const n = nodes[i];
-          if (n.optimizeNames(names, constants))
+          if (n.optimizeNames(names, constants2))
             continue;
           subtractNames(names, n.names);
           nodes.splice(i, 1);
@@ -584,12 +584,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         var _a3;
-        this.else = (_a3 = this.else) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants);
-        if (!(super.optimizeNames(names, constants) || this.else))
+        this.else = (_a3 = this.else) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants2);
+        if (!(super.optimizeNames(names, constants2) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants);
+        this.condition = optimizeExpr(this.condition, names, constants2);
         return this;
       }
       get names() {
@@ -612,10 +612,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants) {
-        if (!super.optimizeNames(names, constants))
+      optimizeNames(names, constants2) {
+        if (!super.optimizeNames(names, constants2))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants);
+        this.iteration = optimizeExpr(this.iteration, names, constants2);
         return this;
       }
       get names() {
@@ -651,10 +651,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants) {
-        if (!super.optimizeNames(names, constants))
+      optimizeNames(names, constants2) {
+        if (!super.optimizeNames(names, constants2))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants);
+        this.iterable = optimizeExpr(this.iterable, names, constants2);
         return this;
       }
       get names() {
@@ -696,11 +696,11 @@ var require_codegen = __commonJS({
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         var _a3, _b;
-        super.optimizeNames(names, constants);
-        (_a3 = this.catch) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants);
-        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants);
+        super.optimizeNames(names, constants2);
+        (_a3 = this.catch) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants2);
+        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants2);
         return this;
       }
       get names() {
@@ -1001,7 +1001,7 @@ var require_codegen = __commonJS({
     function addExprNames(names, from) {
       return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
     }
-    function optimizeExpr(expr, names, constants) {
+    function optimizeExpr(expr, names, constants2) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -1016,14 +1016,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants[n.str];
+        const c = constants2[n.str];
         if (c === void 0 || names[n.str] !== 1)
           return n;
         delete names[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants2[c.str] !== void 0);
       }
     }
     function subtractNames(names, from) {
@@ -3110,6 +3110,7 @@ var require_utils = __commonJS({
     "use strict";
     var isUUID = RegExp.prototype.test.bind(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu);
     var isIPv4 = RegExp.prototype.test.bind(/^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)$/u);
+    var isPort = RegExp.prototype.test.bind(/^\d*$/u);
     var isHexPair = RegExp.prototype.test.bind(/^[\da-f]{2}$/iu);
     var isUnreserved = RegExp.prototype.test.bind(/^[\da-z\-._~]$/iu);
     var isPathCharacter = RegExp.prototype.test.bind(/^[A-Za-z0-9\-._~!$&'()*+,;=:@/]$/u);
@@ -3575,8 +3576,12 @@ var require_utils = __commonJS({
         uriTokens.push(host);
       }
       if (typeof component.port === "number" || typeof component.port === "string") {
+        const port = String(component.port);
+        if (!isPort(port)) {
+          throw new TypeError("URI port is malformed.");
+        }
         uriTokens.push(":");
-        uriTokens.push(String(component.port));
+        uriTokens.push(port);
       }
       return uriTokens.length ? uriTokens.join("") : void 0;
     }
@@ -4019,12 +4024,15 @@ var require_fast_uri = __commonJS({
       }
       return false;
     }
+    function isIPLiteral(host) {
+      return host[0] === "[" && host[host.length - 1] === "]";
+    }
     function hasMalformedComponentPercentEncoding(matches) {
       const host = matches[4];
-      return hasMalformedPercentEncoding(matches[3]) || host !== void 0 && !(host[0] === "[" && host[host.length - 1] === "]") && hasMalformedPercentEncoding(host) || hasMalformedPercentEncoding(matches[6]) || hasMalformedPercentEncoding(matches[7]) || hasMalformedPercentEncoding(matches[8]);
+      return hasMalformedPercentEncoding(matches[3]) || host !== void 0 && !isIPLiteral(host) && hasMalformedPercentEncoding(host) || hasMalformedPercentEncoding(matches[6]) || hasMalformedPercentEncoding(matches[7]) || hasMalformedPercentEncoding(matches[8]);
     }
     function canonicalizeHost(parsed, options, schemeHandler, isIP) {
-      if (!options.unicodeSupport && (!schemeHandler || !schemeHandler.unicodeSupport) && parsed.host && parsed.host[0] !== "[" && (options.domainHost || schemeHandler && schemeHandler.domainHost) && isIP === false && nonSimpleDomain(parsed.host)) {
+      if (!options.unicodeSupport && (!schemeHandler || !schemeHandler.unicodeSupport) && parsed.host && !isIPLiteral(parsed.host) && (options.domainHost || schemeHandler && schemeHandler.domainHost) && isIP === false && nonSimpleDomain(parsed.host)) {
         try {
           parsed.host = new URL("http://" + parsed.host).hostname;
         } catch (e) {
@@ -4111,10 +4119,11 @@ var require_fast_uri = __commonJS({
         if (parsed.host) {
           const ipv4result = isIPv4(parsed.host);
           if (ipv4result === false) {
-            const bracketedIPLiteral = parsed.host[0] === "[" && parsed.host[parsed.host.length - 1] === "]";
+            const bracketedIPLiteral = isIPLiteral(parsed.host);
+            const hasIPLiteralBracket = parsed.host.indexOf("[") !== -1 || parsed.host.indexOf("]") !== -1;
             const ipv6result = normalizeIPv6(parsed.host);
             isIP = ipv6result.isIPV6 || ipv6result.isIPVFuture === true;
-            malformedIPLiteral = bracketedIPLiteral && ipv6result.error === true;
+            malformedIPLiteral = hasIPLiteralBracket && (!bracketedIPLiteral || ipv6result.error === true);
             parsed.host = isIP ? ipv6result.host : ipv6result.host.toLowerCase();
             if (malformedIPLiteral) {
               parsed.error = parsed.error || "URI host is malformed.";
@@ -4137,14 +4146,17 @@ var require_fast_uri = __commonJS({
           parsed.error = parsed.error || "URI is not a " + options.reference + " reference.";
         }
         const schemeHandler = getSchemeHandler(options.scheme || parsed.scheme);
-        malformedHost = canonicalizeHost(parsed, options, schemeHandler, isIP);
-        if (!schemeHandler || schemeHandler && !schemeHandler.skipNormalize) {
-          if (uri.indexOf("%") !== -1) {
-            if (parsed.host !== void 0 && !malformedIPLiteral) {
-              const host = isIP ? parsed.host : normalizePercentEncoding(parsed.host, true);
-              parsed.host = reescapeHostDelimiters(host, isIP);
-            }
+        if (!malformedIPLiteral) {
+          malformedHost = canonicalizeHost(parsed, options, schemeHandler, isIP);
+        }
+        if (uri.indexOf("%") !== -1 && parsed.host !== void 0 && !malformedIPLiteral) {
+          let host = isIP ? parsed.host : normalizePercentEncoding(parsed.host, true);
+          if (!isIP) {
+            host = normalizePercentEncoding(host.toLowerCase());
           }
+          parsed.host = reescapeHostDelimiters(host, isIP);
+        }
+        if (!schemeHandler || schemeHandler && !schemeHandler.skipNormalize) {
           if (parsed.path) {
             parsed.path = normalizePathEncoding(parsed.path);
           }
@@ -12786,8 +12798,8 @@ function emoji() {
 }
 var ipv4 = /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$/;
 var ipv6 = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:))$/;
-var mac = (delimiter) => {
-  const escapedDelim = escapeRegex(delimiter ?? ":");
+var mac = (delimiter2) => {
+  const escapedDelim = escapeRegex(delimiter2 ?? ":");
   return new RegExp(`^(?:[0-9A-F]{2}${escapedDelim}){5}[0-9A-F]{2}$|^(?:[0-9a-f]{2}${escapedDelim}){5}[0-9a-f]{2}$`);
 };
 var cidrv4 = /^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\/([0-9]|[1-2][0-9]|3[0-2])$/;
@@ -36825,7 +36837,7 @@ function registerUpdaterTools(server2, updater) {
   server2.registerTool(
     "iva_bitrix24_update_check",
     {
-      description: "Check the installed and candidate iva-bitrix24 semantic versions, exact Git source and GitHub Actions. This does not change the server.",
+      description: "Check installed and candidate iva-bitrix24 versions, Git source, CI and LibreOffice availability. This does not change the server.",
       inputSchema: external_exports.object({}).strict(),
       annotations: readOnly
     },
@@ -36851,7 +36863,7 @@ function registerUpdaterTools(server2, updater) {
   server2.registerTool(
     "iva_bitrix24_update_status",
     {
-      description: "Read the latest background iva-bitrix24 update or rollback status, including semantic versions when available.",
+      description: "Read the latest background iva-bitrix24 update or rollback status and LibreOffice availability.",
       inputSchema: external_exports.object({}).strict(),
       annotations: readOnly
     },
@@ -36859,7 +36871,7 @@ function registerUpdaterTools(server2, updater) {
   );
 }
 function createMcpServer(reader, updater = null, files = null) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.5.0" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.5.1" });
   registerUpdaterTools(server2, updater);
   if (files) {
     server2.registerTool(
@@ -37133,8 +37145,9 @@ function createMcpServer(reader, updater = null, files = null) {
 // server/src/plugin-updater.ts
 import { execFile as execFileCallback } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir as mkdir2, open as open3, readFile as readFile2, readdir as readdir2, rename, rm as rm2, stat, writeFile } from "node:fs/promises";
-import { basename as basename2, dirname, join as join2, resolve as resolve2 } from "node:path";
+import { constants } from "node:fs";
+import { access, chmod, mkdir as mkdir2, open as open3, readFile as readFile2, readdir as readdir2, rename, rm as rm2, stat, writeFile } from "node:fs/promises";
+import { basename as basename2, delimiter, dirname, join as join2, resolve as resolve2 } from "node:path";
 import { promisify as promisify2 } from "node:util";
 var execFile2 = promisify2(execFileCallback);
 var PLUGIN_NAME = "bitrix24-read";
@@ -37144,6 +37157,26 @@ var MANIFEST_LIMIT_BYTES = 64 * 1024;
 var OFFER_TTL_MS = 15 * 60 * 1e3;
 var LOCK_STALE_MS = 2 * 60 * 60 * 1e3;
 var JOB_START_TIMEOUT_MS = 2 * 60 * 1e3;
+async function executableOnPath(name) {
+  const searchPath = process.env.PATH || ["/usr/local/bin", "/usr/bin", "/bin"].join(delimiter);
+  for (const directory of searchPath.split(delimiter).filter(Boolean).slice(0, 64)) {
+    try {
+      const candidate = join2(directory, name);
+      if (!(await stat(candidate)).isFile()) continue;
+      await access(candidate, constants.X_OK);
+      return true;
+    } catch {
+    }
+  }
+  return false;
+}
+function officeRenderer(available) {
+  return {
+    available,
+    neededFor: ["ppt", "pptx", "office_visual_analysis"],
+    ...available ? {} : { installAction: "rerun_interactive_installer_on_iva_server" }
+  };
+}
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -37256,6 +37289,7 @@ var PluginUpdater = class {
       fetch: globalThis.fetch,
       now: () => /* @__PURE__ */ new Date(),
       token: () => randomBytes(12).toString("hex").toUpperCase(),
+      hasLibreOffice: () => executableOnPath("libreoffice"),
       ...operations
     };
   }
@@ -37359,6 +37393,7 @@ var PluginUpdater = class {
     return runs.length > 0 && runs.every((run2) => run2.conclusion === "success") ? "success" : "failure";
   }
   async check() {
+    const renderer = officeRenderer(await this.#operations.hasLibreOffice());
     const entry = await this.#entry();
     const source = sourceFromEntry(entry);
     if (!source) {
@@ -37366,6 +37401,7 @@ var PluginUpdater = class {
       return {
         ok: false,
         state: "local_source",
+        officeRenderer: renderer,
         message: "\u042D\u0442\u043E\u0442 \u044D\u043A\u0437\u0435\u043C\u043F\u043B\u044F\u0440 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D \u0438\u0437 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E\u0439 \u043F\u0430\u043F\u043A\u0438 \u0438 \u043D\u0435 \u043C\u043E\u0436\u0435\u0442 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0442\u044C GitHub. \u041E\u0434\u0438\u043D \u0440\u0430\u0437 \u043F\u0435\u0440\u0435\u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u0435 \u0435\u0433\u043E \u0438\u0437 mamysh/iva-bitrix24/plugin."
       };
     }
@@ -37382,6 +37418,7 @@ var PluginUpdater = class {
         ref: source.ref,
         currentSha,
         currentVersion,
+        officeRenderer: renderer,
         enabled: entry.enabled === true,
         trusted: entry.trusted === true
       };
@@ -37396,6 +37433,7 @@ var PluginUpdater = class {
         ref: source.ref,
         currentSha,
         currentVersion,
+        officeRenderer: renderer,
         enabled: entry.enabled === true,
         trusted: entry.trusted === true
       };
@@ -37429,6 +37467,7 @@ var PluginUpdater = class {
       currentVersion,
       candidateVersion,
       ci,
+      officeRenderer: renderer,
       ...ci === "success" ? {
         approvalToken,
         approvalPrompt: {
@@ -37438,6 +37477,7 @@ var PluginUpdater = class {
             `v${currentVersion} \u2192 v${candidateVersion}`,
             `\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A: ${source.label} @${source.ref}`,
             "CI: success \u2705",
+            ...!renderer.available ? ["LibreOffice \u043E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442: \u043F\u043E\u0441\u043B\u0435 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F \u0437\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0449\u0438\u043A \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435, \u0447\u0442\u043E\u0431\u044B \u0432\u044B\u0431\u0440\u0430\u0442\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0443. \u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u043D\u0435 \u0441\u0442\u0430\u0432\u0438\u0442 \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0435 \u043F\u0430\u043A\u0435\u0442\u044B."] : [],
             "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0438 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 \u0431\u0443\u0434\u0443\u0442 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u044B."
           ].join("\n"),
           options: [
@@ -37550,14 +37590,15 @@ var PluginUpdater = class {
     };
   }
   async status() {
+    const renderer = officeRenderer(await this.#operations.hasLibreOffice());
     let names;
     try {
       names = await readdir2(this.#jobs);
     } catch {
-      return { ok: true, state: "never_run" };
+      return { ok: true, state: "never_run", officeRenderer: renderer };
     }
     const latest = names.filter((name) => name.endsWith(".json")).sort().at(-1);
-    if (!latest) return { ok: true, state: "never_run" };
+    if (!latest) return { ok: true, state: "never_run", officeRenderer: renderer };
     const parsed = JSON.parse(await readFile2(join2(this.#jobs, latest), "utf8"));
     if (!isRecord(parsed)) throw new Error("UPDATE_JOB_INVALID");
     const allowed2 = [
@@ -37588,6 +37629,7 @@ var PluginUpdater = class {
     const withCurrentVersion = {
       ...safe2,
       currentVersion,
+      officeRenderer: renderer,
       ..."installedVersion" in safe2 || !recordedSha || recordedSha !== currentSha ? {} : { installedVersion: currentVersion }
     };
     if (currentSha && recordedSha && currentSha !== recordedSha) {
@@ -38185,7 +38227,7 @@ var ReadCapabilityReader = class {
 
 // server/src/main.ts
 function unavailableServer(error61, updater) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.5.0" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.5.1" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",

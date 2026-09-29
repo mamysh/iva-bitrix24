@@ -106,8 +106,39 @@ mkdir -p -- "$IVA_ATTACHMENTS_ROOT" || die "Не удалось подготов
 if ! command -v pdftoppm >/dev/null 2>&1; then
   warn "pdftoppm не найден: просмотр страниц PDF и Office пока недоступен. Установите poppler-utils."
 fi
-if ! command -v libreoffice >/dev/null 2>&1; then
-  warn "LibreOffice не найден: разбор PPT/PPTX и визуальный просмотр Office пока недоступны."
+if command -v libreoffice >/dev/null 2>&1; then
+  ok "LibreOffice уже установлен: презентации и страницы Office можно разбирать."
+else
+  say ""
+  warn "LibreOffice не найден. Он нужен для разбора PPT/PPTX и просмотра страниц Office."
+  say "Поиск, скачивание и отправка файлов работают и без него."
+  if [[ -r /proc/meminfo ]] && awk '/^MemTotal:/ { exit ($2 < 1536000 ? 0 : 1) }' /proc/meminfo; then
+    warn "На сервере меньше 1,5 ГБ RAM: крупные презентации могут обрабатываться медленно."
+  fi
+  if command -v apt-get >/dev/null 2>&1 &&
+     command -v apt-cache >/dev/null 2>&1 &&
+     apt-cache show libreoffice-impress-nogui >/dev/null 2>&1 &&
+     apt-cache show libreoffice-writer-nogui >/dev/null 2>&1 &&
+     apt-cache show libreoffice-calc-nogui >/dev/null 2>&1; then
+    read -r -p "Установить компоненты LibreOffice без графического интерфейса? [y/N] " OFFICE_ANSWER <&3
+    case "$OFFICE_ANSWER" in
+      y|Y|yes|YES|Yes|д|Д|да|ДА|Да)
+        if ! command -v sudo >/dev/null 2>&1; then
+          warn "sudo недоступен. Попросите администратора установить libreoffice-impress-nogui, libreoffice-writer-nogui и libreoffice-calc-nogui."
+        elif sudo -v <&3 >&3 2>&3 &&
+             sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+               libreoffice-impress-nogui libreoffice-writer-nogui libreoffice-calc-nogui <&3 >&3 2>&3 &&
+             command -v libreoffice >/dev/null 2>&1; then
+          ok "LibreOffice установлен."
+        else
+          warn "LibreOffice не удалось установить. Плагин продолжит работать без разбора презентаций."
+        fi
+        ;;
+      *) say "Продолжаю без LibreOffice. Позже можно повторно запустить этот установщик." ;;
+    esac
+  else
+    warn "Для этой системы автоматическая установка не подготовлена; установите LibreOffice средствами вашего дистрибутива."
+  fi
 fi
 
 say "${bold}Шаг 1 из 4. Установка плагина${reset}"

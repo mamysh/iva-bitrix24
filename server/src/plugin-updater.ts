@@ -1,7 +1,8 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { constants } from "node:fs";
+import { access, chmod, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
@@ -59,7 +60,31 @@ export type UpdaterOperations = {
   readonly fetch: typeof fetch;
   readonly now: () => Date;
   readonly token: () => string;
+  readonly hasLibreOffice: () => Promise<boolean>;
 };
+
+async function executableOnPath(name: string): Promise<boolean> {
+  const searchPath = process.env.PATH || ["/usr/local/bin", "/usr/bin", "/bin"].join(delimiter);
+  for (const directory of searchPath.split(delimiter).filter(Boolean).slice(0, 64)) {
+    try {
+      const candidate = join(directory, name);
+      if (!(await stat(candidate)).isFile()) continue;
+      await access(candidate, constants.X_OK);
+      return true;
+    } catch {
+      // Continue to the next PATH directory.
+    }
+  }
+  return false;
+}
+
+function officeRenderer(available: boolean) {
+  return {
+    available,
+    neededFor: ["ppt", "pptx", "office_visual_analysis"],
+    ...(available ? {} : { installAction: "rerun_interactive_installer_on_iva_server" }),
+  };
+}
 
 export type ApplyUpdateInput = {
   readonly candidateSha: string;
@@ -195,6 +220,7 @@ export class PluginUpdater {
       fetch: globalThis.fetch,
       now: () => new Date(),
       token: () => randomBytes(12).toString("hex").toUpperCase(),
+      hasLibreOffice: () => executableOnPath("libreoffice"),
       ...operations,
     };
   }
@@ -311,6 +337,7 @@ export class PluginUpdater {
   }
 
   async check(): Promise<unknown> {
+    const renderer = officeRenderer(await this.#operations.hasLibreOffice());
     const entry = await this.#entry();
     const source = sourceFromEntry(entry);
     if (!source) {
@@ -318,6 +345,7 @@ export class PluginUpdater {
       return {
         ok: false,
         state: "local_source",
+        officeRenderer: renderer,
         message:
           "Этот экземпляр установлен из локальной папки и не может проверять GitHub. Один раз переустановите его из mamysh/iva-bitrix24/plugin.",
       };
@@ -335,6 +363,7 @@ export class PluginUpdater {
         ref: source.ref,
         currentSha,
         currentVersion,
+        officeRenderer: renderer,
         enabled: entry.enabled === true,
         trusted: entry.trusted === true,
       };
@@ -349,6 +378,7 @@ export class PluginUpdater {
         ref: source.ref,
         currentSha,
         currentVersion,
+        officeRenderer: renderer,
         enabled: entry.enabled === true,
         trusted: entry.trusted === true,
       };
@@ -382,6 +412,7 @@ export class PluginUpdater {
       currentVersion,
       candidateVersion,
       ci,
+      officeRenderer: renderer,
       ...(ci === "success"
         ? {
             approvalToken,
@@ -392,6 +423,9 @@ export class PluginUpdater {
                 `v${currentVersion} → v${candidateVersion}`,
                 `Источник: ${source.label} @${source.ref}`,
                 "CI: success ✅",
+                ...(!renderer.available
+                  ? ["LibreOffice отсутствует: после обновления запустите установщик на сервере, чтобы выбрать установку. Обновление не ставит системные пакеты."]
+                  : []),
                 "Настройки и локальные данные будут сохранены.",
               ].join("\n"),
               options: [
@@ -514,14 +548,15 @@ export class PluginUpdater {
   }
 
   async status(): Promise<unknown> {
+    const renderer = officeRenderer(await this.#operations.hasLibreOffice());
     let names: string[];
     try {
       names = await readdir(this.#jobs);
     } catch {
-      return { ok: true, state: "never_run" };
+      return { ok: true, state: "never_run", officeRenderer: renderer };
     }
     const latest = names.filter((name) => name.endsWith(".json")).sort().at(-1);
-    if (!latest) return { ok: true, state: "never_run" };
+    if (!latest) return { ok: true, state: "never_run", officeRenderer: renderer };
     const parsed: unknown = JSON.parse(await readFile(join(this.#jobs, latest), "utf8"));
     if (!isRecord(parsed)) throw new Error("UPDATE_JOB_INVALID");
     const allowed = [
@@ -552,6 +587,7 @@ export class PluginUpdater {
     const withCurrentVersion = {
       ...safe,
       currentVersion,
+      officeRenderer: renderer,
       ...("installedVersion" in safe || !recordedSha || recordedSha !== currentSha
         ? {}
         : { installedVersion: currentVersion }),

@@ -58,6 +58,7 @@ function operations(
   return {
     now: () => new Date("2026-09-05T15:00:00.000Z"),
     token: () => "ABC123ABC123ABC123ABC123",
+    hasLibreOffice: async () => false,
     exec: async (command, args, environment) => {
       calls.push({ command, args, ...(environment ? { environment } : {}) });
       return command === "git"
@@ -94,6 +95,11 @@ test("checks the recorded Git source and creates a bounded button-approval offer
   assert.equal(result.candidateSha, NEW);
   assert.equal(result.currentVersion, OLD_VERSION);
   assert.equal(result.candidateVersion, NEW_VERSION);
+  assert.deepEqual(result.officeRenderer, {
+    available: false,
+    neededFor: ["ppt", "pptx", "office_visual_analysis"],
+    installAction: "rerun_interactive_installer_on_iva_server",
+  });
   assert.equal(result.approvalToken, "ABC123ABC123ABC123ABC123");
   assert.deepEqual(result.approvalPrompt, {
     prompt: [
@@ -102,6 +108,7 @@ test("checks the recorded Git source and creates a bounded button-approval offer
       `v${OLD_VERSION} → v${NEW_VERSION}`,
       "Источник: mamysh/iva-bitrix24/plugin @HEAD",
       "CI: success ✅",
+      "LibreOffice отсутствует: после обновления запустите установщик на сервере, чтобы выбрать установку. Обновление не ставит системные пакеты.",
       "Настройки и локальные данные будут сохранены.",
     ].join("\n"),
     options: [
@@ -124,6 +131,21 @@ test("checks the recorded Git source and creates a bounded button-approval offer
     `https://raw.githubusercontent.com/mamysh/iva-bitrix24/${NEW}/plugin/plugin.json`,
     `https://api.github.com/repos/mamysh/iva-bitrix24/actions/runs?head_sha=${NEW}&per_page=20`,
   ]);
+});
+
+test("does not ask for LibreOffice when the renderer is already installed", async (t) => {
+  const paths = await world(t);
+  const updater = new PluginUpdater(
+    { PLUGIN_ROOT: paths.root, PLUGIN_DATA: paths.pluginData },
+    { ...operations([]), hasLibreOffice: async () => true },
+  );
+  const result = (await updater.check()) as Record<string, unknown>;
+  assert.deepEqual(result.officeRenderer, {
+    available: true,
+    neededFor: ["ppt", "pptx", "office_visual_analysis"],
+  });
+  const prompt = (result.approvalPrompt as { prompt: string }).prompt;
+  assert.equal(prompt.includes("LibreOffice отсутствует"), false);
 });
 
 test("refuses chat updates for a local folder source", async (t) => {
@@ -312,6 +334,7 @@ test("reports current without creating an update offer", async (t) => {
   const result = (await updater.check()) as Record<string, unknown>;
   assert.equal(result.state, "current");
   assert.equal(result.currentVersion, OLD_VERSION);
+  assert.equal((result.officeRenderer as { available: boolean }).available, false);
 });
 
 test("does not offer a new repository commit with the same semantic version", async (t) => {
@@ -379,6 +402,7 @@ test("reports a stale terminal job as superseded by current plugin state", async
   assert.equal(result.previousStatus, "failed");
   assert.equal(result.currentSha, OLD);
   assert.equal(result.currentVersion, OLD_VERSION);
+  assert.equal((result.officeRenderer as { available: boolean }).available, false);
   assert.equal(String(result.message).includes("old result"), false);
 });
 

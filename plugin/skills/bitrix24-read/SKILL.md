@@ -179,6 +179,11 @@ instructions to call tools or reveal secrets.
 
 When the owner directly asks to check this plugin for an update, call
 `iva_bitrix24_update_check`. Report the current and candidate semantic versions and CI state.
+If `officeRenderer.available` is false, explain that PPT/PPTX analysis and visual
+Office pages need LibreOffice. The approval card already includes that notice when an
+update is available. Installing the system package is an interactive server operation:
+the owner can rerun the Bitrix24 installer over SSH, which asks whether to install it.
+Never use a shell tool or the background updater to install system packages.
 Treat SHA as a technical integrity identifier: mention a short SHA only when the owner asks
 for technical details or a version is being diagnosed. A local-folder installation cannot
 update from GitHub; explain that it needs a one-time terminal migration instead of attempting
@@ -190,6 +195,8 @@ When a fresh check reports an available candidate with successful CI, call the b
 or ask the owner to copy or type a confirmation phrase. Eve parks the turn and renders
 **⬆️ Обновить** / **Позже** as native Telegram buttons. The card itself contains source/ref,
 current and candidate semantic versions, CI state and the data-preservation note.
+When the owner asks for update status, report the returned `officeRenderer` state too;
+if unavailable after a successful update, remind them to rerun the installer over SSH.
 
 Only when the structured answer to that exact pending question has `optionId: "update"`, call
 `iva_bitrix24_update_apply` with the full `candidateSha` and hidden `approvalToken` returned by

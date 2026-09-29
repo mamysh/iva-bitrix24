@@ -187,7 +187,7 @@ export function registerUpdaterTools(
     "iva_bitrix24_update_check",
     {
       description:
-        "Check the installed and candidate iva-bitrix24 semantic versions, exact Git source and GitHub Actions. This does not change the server.",
+        "Check installed and candidate iva-bitrix24 versions, Git source, CI and LibreOffice availability. This does not change the server.",
       inputSchema: z.object({}).strict(),
       annotations: readOnly,
     },
@@ -217,7 +217,7 @@ export function registerUpdaterTools(
     "iva_bitrix24_update_status",
     {
       description:
-        "Read the latest background iva-bitrix24 update or rollback status, including semantic versions when available.",
+        "Read the latest background iva-bitrix24 update or rollback status and LibreOffice availability.",
       inputSchema: z.object({}).strict(),
       annotations: readOnly,
     },
@@ -230,7 +230,7 @@ export function createMcpServer(
   updater: PluginUpdaterPort | null = null,
   files: FileReaderPort | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.5.0" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.5.1" });
   registerUpdaterTools(server, updater);
 
   if (files) {

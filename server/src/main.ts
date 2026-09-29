@@ -16,7 +16,7 @@ function unavailableServer(
   error: ConfigurationError,
   updater: PluginUpdaterPort | null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.5.0" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.5.1" });
   registerUpdaterTools(server, updater);
   server.registerTool(
     "bitrix24_connection_check",
