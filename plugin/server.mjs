@@ -13647,9 +13647,9 @@ var asciiTabOrNewline = /[\t\n\r]/g;
 function stripTabAndNewline(value) {
   return value.replace(asciiTabOrNewline, "");
 }
-function urlHostnameOk(url2, hostname3) {
-  hostname3.lastIndex = 0;
-  return hostname3.test(url2.hostname);
+function urlHostnameOk(url2, hostname4) {
+  hostname4.lastIndex = 0;
+  return hostname4.test(url2.hostname);
 }
 function urlProtocolOk(url2, protocol) {
   protocol.lastIndex = 0;
@@ -36871,7 +36871,7 @@ function registerUpdaterTools(server2, updater) {
   );
 }
 function createMcpServer(reader, updater = null, files = null) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.5.1" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.5.4" });
   registerUpdaterTools(server2, updater);
   if (files) {
     server2.registerTool(
@@ -37146,8 +37146,9 @@ function createMcpServer(reader, updater = null, files = null) {
 import { execFile as execFileCallback } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { constants } from "node:fs";
-import { access, chmod, mkdir as mkdir2, open as open3, readFile as readFile2, readdir as readdir2, rename, rm as rm2, stat, writeFile } from "node:fs/promises";
-import { basename as basename2, delimiter, dirname, join as join2, resolve as resolve2 } from "node:path";
+import { access, chmod, mkdir as mkdir2, open as open3, readFile as readFile2, readdir as readdir2, realpath as realpath2, rename, rm as rm2, stat, writeFile } from "node:fs/promises";
+import { hostname as hostname3, homedir, userInfo } from "node:os";
+import { basename as basename2, delimiter, dirname, isAbsolute as isAbsolute2, join as join2, resolve as resolve2 } from "node:path";
 import { promisify as promisify2 } from "node:util";
 var execFile2 = promisify2(execFileCallback);
 var PLUGIN_NAME = "bitrix24-read";
@@ -37170,11 +37171,60 @@ async function executableOnPath(name) {
   }
   return false;
 }
-function officeRenderer(available) {
+function wrapperPath(source, name) {
+  const raw = new RegExp(`^${name}="((?:\\\\.|[^"\\\\])*)"$`, "mu").exec(source)?.[1];
+  if (!raw) return null;
+  const path = raw.replace(/\\(["\\$`])/gu, "$1");
+  return isAbsolute2(path) && !/[\0\r\n]/u.test(path) ? path : null;
+}
+async function verifiedIvaPath(dataDir, wrapper = join2(homedir(), ".local", "bin", "iva")) {
+  try {
+    const source = await readFile2(wrapper, "utf8");
+    const root = wrapperPath(source, "IVA_ROOT");
+    const data = wrapperPath(source, "IVA_DATA");
+    if (!root || !data || await realpath2(data) !== await realpath2(dataDir)) return null;
+    if (!(await stat(join2(root, "current"))).isDirectory()) return null;
+    return await realpath2(root);
+  } catch {
+    return null;
+  }
+}
+async function officeHost(dataDir) {
+  let release = "";
+  try {
+    release = await readFile2("/etc/os-release", "utf8");
+  } catch {
+  }
+  const osId = /^ID=["']?([a-z0-9_-]+)["']?$/mu.exec(release)?.[1] || "unknown";
+  const aptTools = await Promise.all([executableOnPath("apt-get"), executableOnPath("apt-cache")]);
+  const aptPackages = aptTools.every(Boolean) && (await Promise.all(
+    ["libreoffice-impress-nogui", "libreoffice-writer-nogui", "libreoffice-calc-nogui"].map(async (name) => {
+      try {
+        await execFile2("apt-cache", ["show", name], { timeout: 5e3, maxBuffer: 64e3 });
+        return true;
+      } catch {
+        return false;
+      }
+    })
+  )).every(Boolean);
+  return {
+    hostname: hostname3(),
+    user: userInfo().username,
+    osId,
+    aptGet: aptPackages,
+    ivaPath: await verifiedIvaPath(dataDir)
+  };
+}
+function officeRenderer(available, root, host) {
+  const command = !available && host.ivaPath && host.aptGet && ["ubuntu", "debian"].includes(host.osId) ? "sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-impress-nogui libreoffice-writer-nogui libreoffice-calc-nogui" : void 0;
   return {
     available,
     neededFor: ["ppt", "pptx", "office_visual_analysis"],
-    ...available ? {} : { installAction: "rerun_interactive_installer_on_iva_server" }
+    ...!available ? {
+      installAction: command ? "run_command_on_iva_server" : "ask_server_administrator",
+      server: { hostname: host.hostname, user: host.user, ivaPath: host.ivaPath, pluginPath: root, osId: host.osId },
+      ...command ? { command } : {}
+    } : {}
   };
 }
 function isRecord(value) {
@@ -37262,6 +37312,7 @@ var PluginUpdater = class {
   #root;
   #data;
   #state;
+  #dataDir;
   #jobs;
   #offer;
   #operations;
@@ -37275,6 +37326,7 @@ var PluginUpdater = class {
       throw new Error("UPDATE_ENVIRONMENT_UNAVAILABLE");
     }
     this.#state = join2(dataDir, "custom", "plugins.json");
+    this.#dataDir = dataDir;
     this.#jobs = join2(this.#data, "update-jobs");
     this.#offer = join2(this.#data, "update-offer.json");
     this.#operations = {
@@ -37290,6 +37342,7 @@ var PluginUpdater = class {
       now: () => /* @__PURE__ */ new Date(),
       token: () => randomBytes(12).toString("hex").toUpperCase(),
       hasLibreOffice: () => executableOnPath("libreoffice"),
+      officeHost,
       ...operations
     };
   }
@@ -37393,7 +37446,7 @@ var PluginUpdater = class {
     return runs.length > 0 && runs.every((run2) => run2.conclusion === "success") ? "success" : "failure";
   }
   async check() {
-    const renderer = officeRenderer(await this.#operations.hasLibreOffice());
+    const renderer = officeRenderer(await this.#operations.hasLibreOffice(), this.#root, await this.#operations.officeHost(this.#dataDir));
     const entry = await this.#entry();
     const source = sourceFromEntry(entry);
     if (!source) {
@@ -37477,7 +37530,12 @@ var PluginUpdater = class {
             `v${currentVersion} \u2192 v${candidateVersion}`,
             `\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A: ${source.label} @${source.ref}`,
             "CI: success \u2705",
-            ...!renderer.available ? ["LibreOffice \u043E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442: \u043F\u043E\u0441\u043B\u0435 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F \u0437\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0449\u0438\u043A \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435, \u0447\u0442\u043E\u0431\u044B \u0432\u044B\u0431\u0440\u0430\u0442\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0443. \u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u043D\u0435 \u0441\u0442\u0430\u0432\u0438\u0442 \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0435 \u043F\u0430\u043A\u0435\u0442\u044B."] : [],
+            ...!renderer.available ? [
+              `LibreOffice \u043E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442 \u043D\u0430 ${renderer.server.hostname} (${renderer.server.osId}); Iva \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u043E\u0442 ${renderer.server.user}.`,
+              ...renderer.server.ivaPath ? [`\u041F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u043D\u044B\u0439 \u043F\u0443\u0442\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 Iva: ${renderer.server.ivaPath}. \u041F\u043B\u0430\u0433\u0438\u043D: ${renderer.server.pluginPath}.`] : ["\u041F\u0443\u0442\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 Iva \u043D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044C."],
+              ...renderer.command ? ["\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0438\u0442\u0435\u0441\u044C \u043A \u044D\u0442\u043E\u043C\u0443 \u0441\u0435\u0440\u0432\u0435\u0440\u0443 \u043F\u043E SSH \u0438 \u0432\u044B\u043F\u043E\u043B\u043D\u0438\u0442\u0435:", renderer.command] : ["\u041A\u043E\u043C\u0430\u043D\u0434\u0430 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0434\u043B\u044F \u044D\u0442\u043E\u0439 \u0441\u0438\u0441\u0442\u0435\u043C\u044B \u043D\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u0430; \u043E\u0431\u0440\u0430\u0442\u0438\u0442\u0435\u0441\u044C \u043A \u0430\u0434\u043C\u0438\u043D\u0438\u0441\u0442\u0440\u0430\u0442\u043E\u0440\u0443 \u0441\u0435\u0440\u0432\u0435\u0440\u0430."],
+              "\u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u043F\u043B\u0430\u0433\u0438\u043D\u0430 \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0435 \u043F\u0430\u043A\u0435\u0442\u044B \u043D\u0435 \u0443\u0441\u0442\u0430\u043D\u0430\u0432\u043B\u0438\u0432\u0430\u0435\u0442."
+            ] : [],
             "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0438 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 \u0431\u0443\u0434\u0443\u0442 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u044B."
           ].join("\n"),
           options: [
@@ -37590,7 +37648,7 @@ var PluginUpdater = class {
     };
   }
   async status() {
-    const renderer = officeRenderer(await this.#operations.hasLibreOffice());
+    const renderer = officeRenderer(await this.#operations.hasLibreOffice(), this.#root, await this.#operations.officeHost(this.#dataDir));
     let names;
     try {
       names = await readdir2(this.#jobs);
@@ -38227,7 +38285,7 @@ var ReadCapabilityReader = class {
 
 // server/src/main.ts
 function unavailableServer(error61, updater) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.5.1" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.5.4" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",

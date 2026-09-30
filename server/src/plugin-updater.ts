@@ -1,8 +1,9 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { constants } from "node:fs";
-import { access, chmod, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, delimiter, dirname, join, resolve } from "node:path";
+import { access, chmod, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { hostname, homedir, userInfo } from "node:os";
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
@@ -61,6 +62,7 @@ export type UpdaterOperations = {
   readonly now: () => Date;
   readonly token: () => string;
   readonly hasLibreOffice: () => Promise<boolean>;
+  readonly officeHost: (dataDir: string) => Promise<{ hostname: string; user: string; osId: string; aptGet: boolean; ivaPath: string | null }>;
 };
 
 async function executableOnPath(name: string): Promise<boolean> {
@@ -78,11 +80,58 @@ async function executableOnPath(name: string): Promise<boolean> {
   return false;
 }
 
-function officeRenderer(available: boolean) {
+function wrapperPath(source: string, name: "IVA_ROOT" | "IVA_DATA"): string | null {
+  const raw = new RegExp(`^${name}="((?:\\\\.|[^"\\\\])*)"$`, "mu").exec(source)?.[1];
+  if (!raw) return null;
+  const path = raw.replace(/\\(["\\$`])/gu, "$1");
+  return isAbsolute(path) && !/[\0\r\n]/u.test(path) ? path : null;
+}
+
+export async function verifiedIvaPath(dataDir: string, wrapper = join(homedir(), ".local", "bin", "iva")): Promise<string | null> {
+  try {
+    const source = await readFile(wrapper, "utf8");
+    const root = wrapperPath(source, "IVA_ROOT");
+    const data = wrapperPath(source, "IVA_DATA");
+    if (!root || !data || await realpath(data) !== await realpath(dataDir)) return null;
+    if (!(await stat(join(root, "current"))).isDirectory()) return null;
+    return await realpath(root);
+  } catch { return null; }
+}
+
+async function officeHost(dataDir: string) {
+  let release = "";
+  try { release = await readFile("/etc/os-release", "utf8"); } catch { /* Non-Linux host. */ }
+  const osId = /^ID=["']?([a-z0-9_-]+)["']?$/mu.exec(release)?.[1] || "unknown";
+  const aptTools = await Promise.all([executableOnPath("apt-get"), executableOnPath("apt-cache")]);
+  const aptPackages = aptTools.every(Boolean) && (await Promise.all(
+    ["libreoffice-impress-nogui", "libreoffice-writer-nogui", "libreoffice-calc-nogui"].map(async (name) => {
+      try {
+        await execFile("apt-cache", ["show", name], { timeout: 5_000, maxBuffer: 64_000 });
+        return true;
+      } catch { return false; }
+    }),
+  )).every(Boolean);
+  return {
+    hostname: hostname(),
+    user: userInfo().username,
+    osId,
+    aptGet: aptPackages,
+    ivaPath: await verifiedIvaPath(dataDir),
+  };
+}
+
+function officeRenderer(available: boolean, root: string, host: Awaited<ReturnType<typeof officeHost>>) {
+  const command = !available && host.ivaPath && host.aptGet && ["ubuntu", "debian"].includes(host.osId)
+    ? "sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-impress-nogui libreoffice-writer-nogui libreoffice-calc-nogui"
+    : undefined;
   return {
     available,
     neededFor: ["ppt", "pptx", "office_visual_analysis"],
-    ...(available ? {} : { installAction: "rerun_interactive_installer_on_iva_server" }),
+    ...(!available ? {
+      installAction: command ? "run_command_on_iva_server" : "ask_server_administrator",
+      server: { hostname: host.hostname, user: host.user, ivaPath: host.ivaPath, pluginPath: root, osId: host.osId },
+      ...(command ? { command } : {}),
+    } : {}),
   };
 }
 
@@ -183,6 +232,7 @@ export class PluginUpdater {
   readonly #root: string;
   readonly #data: string;
   readonly #state: string;
+  readonly #dataDir: string;
   readonly #jobs: string;
   readonly #offer: string;
   readonly #operations: UpdaterOperations;
@@ -206,6 +256,7 @@ export class PluginUpdater {
       throw new Error("UPDATE_ENVIRONMENT_UNAVAILABLE");
     }
     this.#state = join(dataDir, "custom", "plugins.json");
+    this.#dataDir = dataDir;
     this.#jobs = join(this.#data, "update-jobs");
     this.#offer = join(this.#data, "update-offer.json");
     this.#operations = {
@@ -221,6 +272,7 @@ export class PluginUpdater {
       now: () => new Date(),
       token: () => randomBytes(12).toString("hex").toUpperCase(),
       hasLibreOffice: () => executableOnPath("libreoffice"),
+      officeHost,
       ...operations,
     };
   }
@@ -337,7 +389,7 @@ export class PluginUpdater {
   }
 
   async check(): Promise<unknown> {
-    const renderer = officeRenderer(await this.#operations.hasLibreOffice());
+    const renderer = officeRenderer(await this.#operations.hasLibreOffice(), this.#root, await this.#operations.officeHost(this.#dataDir));
     const entry = await this.#entry();
     const source = sourceFromEntry(entry);
     if (!source) {
@@ -424,7 +476,12 @@ export class PluginUpdater {
                 `Источник: ${source.label} @${source.ref}`,
                 "CI: success ✅",
                 ...(!renderer.available
-                  ? ["LibreOffice отсутствует: после обновления запустите установщик на сервере, чтобы выбрать установку. Обновление не ставит системные пакеты."]
+                  ? [
+                    `LibreOffice отсутствует на ${renderer.server!.hostname} (${renderer.server!.osId}); Iva работает от ${renderer.server!.user}.`,
+                    ...(renderer.server!.ivaPath ? [`Проверенный путь установки Iva: ${renderer.server!.ivaPath}. Плагин: ${renderer.server!.pluginPath}.`] : ["Путь установки Iva не удалось подтвердить."]),
+                    ...(renderer.command ? ["Подключитесь к этому серверу по SSH и выполните:", renderer.command] : ["Команда установки для этой системы не проверена; обратитесь к администратору сервера."]),
+                    "Обновление плагина системные пакеты не устанавливает.",
+                  ]
                   : []),
                 "Настройки и локальные данные будут сохранены.",
               ].join("\n"),
@@ -548,7 +605,7 @@ export class PluginUpdater {
   }
 
   async status(): Promise<unknown> {
-    const renderer = officeRenderer(await this.#operations.hasLibreOffice());
+    const renderer = officeRenderer(await this.#operations.hasLibreOffice(), this.#root, await this.#operations.officeHost(this.#dataDir));
     let names: string[];
     try {
       names = await readdir(this.#jobs);

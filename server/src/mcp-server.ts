@@ -230,7 +230,7 @@ export function createMcpServer(
   updater: PluginUpdaterPort | null = null,
   files: FileReaderPort | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.5.1" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.5.4" });
   registerUpdaterTools(server, updater);
 
   if (files) {

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { PluginUpdater, type UpdaterOperations } from "../src/plugin-updater.ts";
+import { PluginUpdater, verifiedIvaPath, type UpdaterOperations } from "../src/plugin-updater.ts";
 
 const OLD = "1".repeat(40);
 const NEW = "2".repeat(40);
@@ -59,6 +59,7 @@ function operations(
     now: () => new Date("2026-09-05T15:00:00.000Z"),
     token: () => "ABC123ABC123ABC123ABC123",
     hasLibreOffice: async () => false,
+    officeHost: async (dataDir) => ({ hostname: "iva-host", user: "iva-user", osId: "ubuntu", aptGet: true, ivaPath: join(dataDir, "..") }),
     exec: async (command, args, environment) => {
       calls.push({ command, args, ...(environment ? { environment } : {}) });
       return command === "git"
@@ -98,7 +99,9 @@ test("checks the recorded Git source and creates a bounded button-approval offer
   assert.deepEqual(result.officeRenderer, {
     available: false,
     neededFor: ["ppt", "pptx", "office_visual_analysis"],
-    installAction: "rerun_interactive_installer_on_iva_server",
+    installAction: "run_command_on_iva_server",
+    server: { hostname: "iva-host", user: "iva-user", ivaPath: join(paths.data, ".."), pluginPath: paths.root, osId: "ubuntu" },
+    command: "sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-impress-nogui libreoffice-writer-nogui libreoffice-calc-nogui",
   });
   assert.equal(result.approvalToken, "ABC123ABC123ABC123ABC123");
   assert.deepEqual(result.approvalPrompt, {
@@ -108,7 +111,11 @@ test("checks the recorded Git source and creates a bounded button-approval offer
       `v${OLD_VERSION} → v${NEW_VERSION}`,
       "Источник: mamysh/iva-bitrix24/plugin @HEAD",
       "CI: success ✅",
-      "LibreOffice отсутствует: после обновления запустите установщик на сервере, чтобы выбрать установку. Обновление не ставит системные пакеты.",
+      "LibreOffice отсутствует на iva-host (ubuntu); Iva работает от iva-user.",
+      `Проверенный путь установки Iva: ${join(paths.data, "..")}. Плагин: ${paths.root}.`,
+      "Подключитесь к этому серверу по SSH и выполните:",
+      "sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-impress-nogui libreoffice-writer-nogui libreoffice-calc-nogui",
+      "Обновление плагина системные пакеты не устанавливает.",
       "Настройки и локальные данные будут сохранены.",
     ].join("\n"),
     options: [
@@ -146,6 +153,42 @@ test("does not ask for LibreOffice when the renderer is already installed", asyn
   });
   const prompt = (result.approvalPrompt as { prompt: string }).prompt;
   assert.equal(prompt.includes("LibreOffice отсутствует"), false);
+});
+
+test("verifies Iva installation path against its CLI wrapper and data directory", async (t) => {
+  const paths = await world(t);
+  const ivaRoot = join(paths.data, "..");
+  const wrapper = join(ivaRoot, "iva-cli");
+  await mkdir(join(ivaRoot, "current"));
+  await writeFile(wrapper, `IVA_ROOT="${ivaRoot}"\nIVA_DATA="${paths.data}"\n`);
+  assert.equal(await verifiedIvaPath(paths.data, wrapper), await realpath(ivaRoot));
+  assert.equal(await verifiedIvaPath(join(ivaRoot, "other-data"), wrapper), null);
+  await writeFile(wrapper, `IVA_ROOT="${ivaRoot}"\nIVA_DATA="${join(ivaRoot, "other-data")}"\n`);
+  assert.equal(await verifiedIvaPath(paths.data, wrapper), null);
+});
+
+test("withholds a package command when the Iva installation path is unverified", async (t) => {
+  const paths = await world(t);
+  const updater = new PluginUpdater(
+    { PLUGIN_ROOT: paths.root, PLUGIN_DATA: paths.pluginData },
+    { ...operations([]), officeHost: async () => ({ hostname: "iva-host", user: "iva-user", osId: "ubuntu", aptGet: true, ivaPath: null }) },
+  );
+  const result = (await updater.check()) as { officeRenderer: Record<string, unknown>; approvalPrompt: { prompt: string } };
+  assert.equal(result.officeRenderer.installAction, "ask_server_administrator");
+  assert.equal("command" in result.officeRenderer, false);
+  assert.match(result.approvalPrompt.prompt, /Путь установки Iva не удалось подтвердить/u);
+});
+
+test("does not invent an installation command for an unsupported server", async (t) => {
+  const paths = await world(t);
+  const updater = new PluginUpdater(
+    { PLUGIN_ROOT: paths.root, PLUGIN_DATA: paths.pluginData },
+    { ...operations([]), officeHost: async () => ({ hostname: "other-host", user: "iva-user", osId: "fedora", aptGet: false, ivaPath: join(paths.data, "..") }) },
+  );
+  const result = (await updater.check()) as { officeRenderer: Record<string, unknown>; approvalPrompt: { prompt: string } };
+  assert.equal(result.officeRenderer.installAction, "ask_server_administrator");
+  assert.equal("command" in result.officeRenderer, false);
+  assert.match(result.approvalPrompt.prompt, /Команда установки для этой системы не проверена/u);
 });
 
 test("refuses chat updates for a local folder source", async (t) => {
@@ -403,6 +446,10 @@ test("reports a stale terminal job as superseded by current plugin state", async
   assert.equal(result.currentSha, OLD);
   assert.equal(result.currentVersion, OLD_VERSION);
   assert.equal((result.officeRenderer as { available: boolean }).available, false);
+  assert.equal(
+    (result.officeRenderer as { command: string }).command,
+    "sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-impress-nogui libreoffice-writer-nogui libreoffice-calc-nogui",
+  );
   assert.equal(String(result.message).includes("old result"), false);
 });
 
