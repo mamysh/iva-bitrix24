@@ -1,6 +1,6 @@
 {
   "name": "iva-bitrix24",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "private": true,
   "description": "Bitrix24 integration plugin for Iva with bounded task and document discovery, download and analysis.",
   "license": "MIT",
