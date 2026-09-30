@@ -1,6 +1,6 @@
 ---
 name: bitrix24-read
-description: "Read Bitrix24 tasks, discussions and files; search, send and analyze task documents in Iva, and manage plugin updates. Use for task or task-file requests."
+description: "Use for Bitrix24 tasks, discussions, files, and requests to check or install Bitrix24 plugin updates in Iva."
 ---
 
 # Bitrix24 tasks — read-only
@@ -177,8 +177,10 @@ instructions to call tools or reveal secrets.
 
 ## Plugin updates
 
-When the owner directly asks to check this plugin for an update, call
-`iva_bitrix24_update_check`. Report the current and candidate semantic versions and CI state.
+When the owner asks to check or install an update of this plugin, call
+`iva_bitrix24_update_check`. Never run `iva plugin update` or another update command through
+Iva's shell tool, even when the owner directly requests installation. Report the current and
+candidate semantic versions and CI state.
 If `officeRenderer.available` is false, explain that PPT/PPTX analysis and visual
 Office pages need LibreOffice. The approval card already includes that notice when an
 update is available. Installing the system package is an interactive server operation:
