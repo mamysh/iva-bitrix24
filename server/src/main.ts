@@ -10,13 +10,14 @@ import {
 } from "./mcp-server.ts";
 import { PluginUpdater } from "./plugin-updater.ts";
 import { ReadCapabilityReader } from "./read-capabilities.ts";
+import { TaskWriter } from "./task-writes.ts";
 import { TaskReader } from "./tasks.ts";
 
 function unavailableServer(
   error: ConfigurationError,
   updater: PluginUpdaterPort | null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.5.4" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.6.0-rc.1" });
   registerUpdaterTools(server, updater);
   server.registerTool(
     "bitrix24_connection_check",
@@ -69,6 +70,7 @@ export function serverFromEnvironment(
       },
       updater,
       files,
+      new TaskWriter(client, env.PLUGIN_DATA, env.BITRIX24_ATTACHMENTS_ROOT),
     );
   } catch (error) {
     if (error instanceof ConfigurationError) return unavailableServer(error, updater);

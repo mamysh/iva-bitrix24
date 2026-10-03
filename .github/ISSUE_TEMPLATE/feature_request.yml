@@ -14,13 +14,13 @@ body:
     id: permissions
     attributes:
       label: Permission and privacy impact
-      description: Which Bitrix24 methods, scopes and returned fields would be required?
+      description: Which Bitrix24 methods, scopes, returned fields and confirmation steps would be required?
     validations:
       required: true
   - type: checkboxes
     id: boundary
     attributes:
-      label: Read-only boundary
+      label: Integration boundary
       options:
         - label: This proposal does not add a generic REST-call tool.
           required: true

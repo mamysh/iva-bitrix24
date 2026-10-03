@@ -63,6 +63,8 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
+      "bitrix24_apply_task_action",
+      "bitrix24_cancel_task_action",
       "bitrix24_capabilities",
       "bitrix24_connection_check",
       "bitrix24_download_task_document",
@@ -70,10 +72,12 @@ try {
       "bitrix24_list_departments",
       "bitrix24_list_task_documents",
       "bitrix24_list_tasks",
+      "bitrix24_prepare_task_action",
       "bitrix24_release_task_document",
       "bitrix24_search_people",
       "bitrix24_search_projects",
       "bitrix24_search_task_documents",
+      "bitrix24_task_action_status",
       "bitrix24_task_checklist",
       "bitrix24_task_comments",
       "bitrix24_task_fields",

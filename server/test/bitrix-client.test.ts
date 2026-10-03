@@ -234,3 +234,15 @@ test("turns an aborted request into a safe timeout error", async () => {
       error instanceof BitrixRequestError && error.code === "TIMEOUT",
   );
 });
+
+
+test("write methods stay separate from read allowlist and never retry uncertain responses", async () => {
+  for (const response of [() => Response.json({ error: "OVERLOAD_LIMIT" }, { status: 503 }), () => new Response("invalid"), () => Response.json({ result: false })]) {
+    let calls = 0;
+    const client = new BitrixClient(config, { fetch: async () => { calls++; return response(); }, sleep: async () => assert.fail("write must never sleep/retry") });
+    await assert.rejects(client.write("tasks.task.add", { fields: {} }), /WRITE_RESULT_UNKNOWN/u);
+    assert.equal(calls, 1);
+    await assert.rejects(client.call("tasks.task.add" as AllowedMethod), /METHOD_NOT_ALLOWED/u);
+    assert.equal(calls, 1);
+  }
+});
