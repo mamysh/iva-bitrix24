@@ -11,6 +11,7 @@ explicit live smoke test.
 | Bitrix24 Tasks REST | current task, comment, checklist and attachment APIs | official contract review and synthetic contract tests | supported for documented read-only tools |
 | Bitrix24 new task card | module `tasks 25.700.0+` discussion model | `CHAT_ID` discovery, official `im.dialog.messages.get` contract, synthetic system-event test and owner live canary | supported for bounded discussion and change-event reading |
 | Bitrix24 task documents | current task/chat/comment/checklist file APIs | official contracts and synthetic list, search and download tests | supported contract; live file transfer pending |
+| Bitrix24 task writes | established Tasks REST plus IM v2 upload | official docs and synthetic tests | 0.6.0-rc.1 preview; live portal and native button verification pending |
 | Iva file delivery plugin | existing `iva-file-delivery` MCP tools | checked local plugin contract and 50 MiB/path limits | required for Telegram document delivery |
 | PDF and Office rendering | `pdftoppm`, plus LibreOffice for Office files | PDF binary available in development; Office renderer not present there | optional server dependencies; Office visual rendering pending live check |
 | Bitrix24 REST 3.0 | `/rest/api/...` | official docs review at `b24restdocs@de91707`; task list filtering is documented only for `id` | evaluated and deliberately not selected for the current read contract |

@@ -38,7 +38,12 @@ async function connectedClient(taskReader: BitrixReaderPort = reader()) {
     check: async () => ({ state: "current" }),
     apply: async (input) => ({ state: "started", input }),
     status: async () => ({ state: "never_run" }),
-  }, files());
+  }, files(), {
+    prepare: async () => ({ draftId: "00000000-0000-4000-8000-000000000001", expiresAt: "2026-10-03T12:30:00Z", approvalPrompt: { prompt: "Превью", options: [{ id: "confirm", label: "Подтвердить" }, { id: "cancel", label: "Отменить" }], allowFreeform: true }, untrustedContent: true }),
+    apply: async (draftId) => ({ state: "applied", draftId }),
+    cancel: async (draftId) => ({ state: "cancelled", draftId }),
+    status: async (draftId) => ({ state: "unknown", draftId }),
+  });
   const client = new Client({ name: "contract-test", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([
@@ -58,6 +63,8 @@ test("publishes bounded task, document and update tools", async (t) => {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
+      "bitrix24_apply_task_action",
+      "bitrix24_cancel_task_action",
       "bitrix24_capabilities",
       "bitrix24_connection_check",
       "bitrix24_download_task_document",
@@ -65,10 +72,12 @@ test("publishes bounded task, document and update tools", async (t) => {
       "bitrix24_list_departments",
       "bitrix24_list_task_documents",
       "bitrix24_list_tasks",
+      "bitrix24_prepare_task_action",
       "bitrix24_release_task_document",
       "bitrix24_search_people",
       "bitrix24_search_projects",
       "bitrix24_search_task_documents",
+      "bitrix24_task_action_status",
       "bitrix24_task_checklist",
       "bitrix24_task_comments",
       "bitrix24_task_fields",
@@ -87,7 +96,7 @@ test("publishes bounded task, document and update tools", async (t) => {
   assert.match(comments?.description ?? "", /Use it proactively for analytics/u);
   assert.equal(apply?.annotations?.readOnlyHint, false);
   assert.equal(apply?.annotations?.destructiveHint, true);
-  for (const tool of tools.filter(({ name }) => !["iva_bitrix24_update_apply", "bitrix24_download_task_document", "bitrix24_release_task_document"].includes(name))) {
+  for (const tool of tools.filter(({ name }) => !["bitrix24_apply_task_action", "bitrix24_prepare_task_action", "bitrix24_cancel_task_action", "iva_bitrix24_update_apply", "bitrix24_download_task_document", "bitrix24_release_task_document"].includes(name))) {
     assert.equal(tool.annotations?.readOnlyHint, true);
     assert.equal(tool.annotations?.destructiveHint, false);
   }
@@ -314,4 +323,19 @@ test("keeps an ambiguous task error actionable without guessing its cause", asyn
     retryable: false,
     action: "check_task_id_or_access",
   });
+});
+
+
+test("task writes expose preview buttons and reject incomplete or modified execution payloads", async (t) => {
+  const { client, server } = await connectedClient();
+  t.after(async () => { await client.close(); await server.close(); });
+  const missing = await client.callTool({ name: "bitrix24_prepare_task_action", arguments: { action: "create", title: "Title" } });
+  assert.equal(missing.isError, true);
+  const result = await client.callTool({ name: "bitrix24_prepare_task_action", arguments: { action: "create", title: "Title", description: "Description", responsibleId: 1, deadline: "2026-10-10T18:00:00+03:00" } });
+  const payload = JSON.parse((result.content as Array<{ text: string }>)[0]!.text);
+  assert.deepEqual(payload.approvalPrompt.options.map((o: { id: string }) => o.id), ["confirm", "cancel"]);
+  const altered = await client.callTool({ name: "bitrix24_apply_task_action", arguments: { draftId: payload.draftId, responsibleId: 999 } });
+  assert.equal(altered.isError, true);
+  const tools = (await client.listTools()).tools;
+  assert.equal(tools.find((t) => t.name === "bitrix24_apply_task_action")?.annotations?.readOnlyHint, false);
 });

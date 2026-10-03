@@ -180,3 +180,8 @@ and belong to the requested task.
 Relations are deliberately shallow: one parent summary, up to 20 dependency summaries and up
 to 20 immediate subtasks. The tool does not recurse. Every related task remains subject to the
 webhook employee's ordinary Bitrix24 access.
+
+## Task mutations
+
+The existing read contract is unchanged. The separate development write contract is described
+in [TASK_WRITES](TASK_WRITES.md). It does not return raw mutation responses.

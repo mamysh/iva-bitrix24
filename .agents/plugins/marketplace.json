@@ -9,7 +9,7 @@
         "path": "plugin",
         "ref": "stable"
       },
-      "description": "Bounded Bitrix24 task and document discovery, download and analysis for Iva."
+      "description": "Bitrix24 tasks and documents for Iva; task actions with preview and confirmation in the 0.6 prerelease channel."
     }
   ]
 }

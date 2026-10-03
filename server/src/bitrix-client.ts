@@ -18,10 +18,36 @@ export const ALLOWED_METHODS = [
   "user.get",
 ] as const;
 
+export const WRITE_METHODS = [
+  "tasks.task.add",
+  "tasks.task.update",
+  "tasks.task.complete",
+  "tasks.task.approve",
+  "tasks.task.disapprove",
+  "tasks.task.renew",
+  "task.checklistitem.add",
+  "task.commentitem.add",
+  "im.message.add",
+  "im.v2.File.upload",
+] as const;
+export type WriteMethod = (typeof WRITE_METHODS)[number];
+type RestMethod = AllowedMethod | WriteMethod;
+const writable = new Set<string>(WRITE_METHODS);
+
 export type AllowedMethod = (typeof ALLOWED_METHODS)[number];
 
 const allowed = new Set<string>(ALLOWED_METHODS);
-const REQUIRED_SCOPES: Partial<Record<AllowedMethod, string>> = {
+const REQUIRED_SCOPES: Partial<Record<RestMethod, string>> = {
+  "tasks.task.add": "task",
+  "tasks.task.update": "task",
+  "tasks.task.complete": "task",
+  "tasks.task.approve": "task",
+  "tasks.task.disapprove": "task",
+  "tasks.task.renew": "task",
+  "task.checklistitem.add": "task",
+  "task.commentitem.add": "task",
+  "im.message.add": "im",
+  "im.v2.File.upload": "im",
   "department.get": "department",
   "disk.attachedObject.get": "disk",
   "disk.file.get": "disk",
@@ -48,7 +74,11 @@ export class BitrixRequestError extends Error {
   readonly retryable: boolean;
   readonly requiredScope: string | null;
 
-  constructor(code: string, retryable = false, requiredScope: string | null = null) {
+  constructor(
+    code: string,
+    retryable = false,
+    requiredScope: string | null = null,
+  ) {
     super(`Bitrix24 request failed (${code})`);
     this.name = "BitrixRequestError";
     this.code = code;
@@ -86,7 +116,7 @@ export type BitrixPage = {
 function safeUpstreamCode(
   value: unknown,
   status: number,
-  method: AllowedMethod,
+  method: RestMethod,
 ): string {
   if (
     value === "0" &&
@@ -143,12 +173,24 @@ export class BitrixClient {
     return new URL(path, this.#config.portalOrigin).toString();
   }
 
-  async downloadSignedFile(urlValue: string, destination: import("node:fs/promises").FileHandle, maxBytes: number): Promise<number> {
+  async downloadSignedFile(
+    urlValue: string,
+    destination: import("node:fs/promises").FileHandle,
+    maxBytes: number,
+  ): Promise<number> {
     const resolveSigned = (value: string, base: string): URL => {
       let candidate: URL;
-      try { candidate = new URL(value, base); }
-      catch { throw new BitrixRequestError("INVALID_DOWNLOAD_URL"); }
-      if (candidate.protocol !== "https:" || candidate.origin !== this.#config.portalOrigin || candidate.username || candidate.password)
+      try {
+        candidate = new URL(value, base);
+      } catch {
+        throw new BitrixRequestError("INVALID_DOWNLOAD_URL");
+      }
+      if (
+        candidate.protocol !== "https:" ||
+        candidate.origin !== this.#config.portalOrigin ||
+        candidate.username ||
+        candidate.password
+      )
         throw new BitrixRequestError("INVALID_DOWNLOAD_URL");
       return candidate;
     };
@@ -158,7 +200,11 @@ export class BitrixClient {
       try {
         response = await this.#dependencies.fetch(url, {
           method: "GET",
-          headers: { accept: "*/*", "user-agent": "iva-bitrix24/1.0", referer: `${this.#config.portalOrigin}/` },
+          headers: {
+            accept: "*/*",
+            "user-agent": "iva-bitrix24/1.0",
+            referer: `${this.#config.portalOrigin}/`,
+          },
           redirect: "manual",
           signal: AbortSignal.timeout(120_000),
         });
@@ -171,7 +217,8 @@ export class BitrixClient {
       if (!location) throw new BitrixRequestError("DOWNLOAD_REDIRECT_REFUSED");
       url = resolveSigned(location, url.toString());
     }
-    if (!response.ok || !response.body) throw new BitrixRequestError("DOWNLOAD_FAILED");
+    if (!response.ok || !response.body)
+      throw new BitrixRequestError("DOWNLOAD_FAILED");
     const announced = Number(response.headers.get("content-length") ?? "0");
     if (announced > maxBytes) throw new BitrixRequestError("FILE_TOO_LARGE");
     const type = response.headers.get("content-type")?.toLowerCase() ?? "";
@@ -189,13 +236,44 @@ export class BitrixClient {
       }
       let written = 0;
       while (written < value.byteLength) {
-        const part = await destination.write(value, written, value.byteLength - written);
-        if (part.bytesWritten <= 0) throw new BitrixRequestError("DOWNLOAD_WRITE_FAILED");
+        const part = await destination.write(
+          value,
+          written,
+          value.byteLength - written,
+        );
+        if (part.bytesWritten <= 0)
+          throw new BitrixRequestError("DOWNLOAD_WRITE_FAILED");
         written += part.bytesWritten;
       }
     }
     if (total === 0) throw new BitrixRequestError("EMPTY_FILE");
     return total;
+  }
+
+  // Mutations never retry: a lost response may already have changed the portal.
+  async write(method: WriteMethod, params: unknown): Promise<unknown> {
+    if (!writable.has(method))
+      throw new BitrixRequestError("METHOD_NOT_ALLOWED");
+    try {
+      const result = (await this.#attempt(method, params)).result;
+      if (result === undefined || result === null || result === false)
+        throw new BitrixRequestError("WRITE_RESULT_UNKNOWN");
+      return result;
+    } catch (error) {
+      if (
+        error instanceof BitrixRequestError &&
+        !error.retryable &&
+        ![
+          "INVALID_RESPONSE",
+          "RESPONSE_TOO_LARGE",
+          "HTTP_500",
+          "HTTP_502",
+          "HTTP_504",
+        ].includes(error.code)
+      )
+        throw error;
+      throw new BitrixRequestError("WRITE_RESULT_UNKNOWN");
+    }
   }
 
   async call(method: AllowedMethod, params: unknown = {}): Promise<unknown> {
@@ -228,7 +306,8 @@ export class BitrixClient {
     method: AllowedMethod,
     params: unknown,
   ): Promise<BitrixEnvelope> {
-    if (!allowed.has(method)) throw new BitrixRequestError("METHOD_NOT_ALLOWED");
+    if (!allowed.has(method))
+      throw new BitrixRequestError("METHOD_NOT_ALLOWED");
 
     for (let attempt = 0; attempt < this.#config.maxAttempts; attempt += 1) {
       try {
@@ -238,11 +317,13 @@ export class BitrixClient {
           error instanceof BitrixRequestError
             ? error.retryable
             : error instanceof TypeError ||
-              (error instanceof DOMException && error.name === "AbortError");
+              (error instanceof DOMException &&
+                ["AbortError", "TimeoutError"].includes(error.name));
         if (!retryable || attempt + 1 >= this.#config.maxAttempts) {
           if (error instanceof BitrixRequestError) throw error;
           throw new BitrixRequestError(
-            error instanceof DOMException && error.name === "AbortError"
+            error instanceof DOMException &&
+              ["AbortError", "TimeoutError"].includes(error.name)
               ? "TIMEOUT"
               : "NETWORK_ERROR",
           );
@@ -255,30 +336,22 @@ export class BitrixClient {
     throw new BitrixRequestError("RETRY_EXHAUSTED");
   }
 
-  async #attempt(
-    method: AllowedMethod,
-    params: unknown,
-  ): Promise<BitrixEnvelope> {
+  async #attempt(method: RestMethod, params: unknown): Promise<BitrixEnvelope> {
     const url = new URL(this.#config.webhookBaseUrl);
     url.pathname = `${url.pathname}/${method}.json`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.#config.timeoutMs);
-
-    let response: Response;
-    try {
-      response = await this.#dependencies.fetch(url, {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(params),
-        redirect: "manual",
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
+    const signal = AbortSignal.timeout(
+      method === "im.v2.File.upload" ? 120_000 : this.#config.timeoutMs,
+    );
+    const response = await this.#dependencies.fetch(url, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(params),
+      redirect: "manual",
+      signal,
+    });
 
     if (response.status >= 300 && response.status < 400)
       throw new BitrixRequestError("REDIRECT_REFUSED");
@@ -304,7 +377,9 @@ export class BitrixClient {
       throw new BitrixRequestError(
         code,
         retryableStatus || RETRYABLE_CODES.has(code),
-        code === "INSUFFICIENT_SCOPE" ? (REQUIRED_SCOPES[method] ?? null) : null,
+        code === "INSUFFICIENT_SCOPE"
+          ? (REQUIRED_SCOPES[method] ?? null)
+          : null,
       );
     }
     return envelope;
