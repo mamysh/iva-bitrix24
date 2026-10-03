@@ -244,7 +244,7 @@ export function createMcpServer(
   files: FileReaderPort | null = null,
   writer: Pick<TaskWriter, "prepare" | "apply" | "cancel" | "status"> | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.6.0-rc.1" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.6.0" });
   registerUpdaterTools(server, updater);
   if (writer) {
     server.registerTool("bitrix24_prepare_task_action", {

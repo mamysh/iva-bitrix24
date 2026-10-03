@@ -1,6 +1,6 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "bitrix24-read",
-  "version": "0.6.0-rc.1",
-  "description": "Bitrix24 tasks and documents for Iva; task actions with preview and confirmation in the 0.6 prerelease channel."
+  "version": "0.6.0",
+  "description": "Bitrix24 tasks and documents for Iva, with task actions through preview and confirmation."
 }
