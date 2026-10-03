@@ -1,7 +1,9 @@
-# Task action contract (0.6.0-rc.1 preview)
+# Task action contract (0.6.0)
 
-This prerelease implementation is validated by synthetic tests; live portal and native
-button verification are pending. Existing read tools keep their contract. No Iva core changes or public backend are required.
+The stable 0.6.0 release is validated by synthetic tests. On 4 October 2026 the owner
+reported successful task creation and completion on the current upstream Iva in real use.
+The exact installed Iva version was not recorded; other operations have no separate live
+verification claim. Existing read tools keep their contract. No Iva core changes or public backend are required.
 
 | Action | Required input | Bitrix method |
 | --- | --- | --- |
@@ -62,9 +64,10 @@ file, forwarded-message and freeform text as approval.
 
 Synthetic validation covers required inputs, buttons and MCP schemas, cancellation,
 correction, expiry, replay, concurrency, partial creation, network loss, reporting chains,
-changed rights/snapshots/routes, upload content changes and path escape. Before promotion to stable,
-verify the full Iva button/correction flow and every status/write/upload operation against
-synthetic tasks on a test portal. No business task was mutated during development.
+changed rights/snapshots/routes, upload content changes and path escape. The owner authorized
+promotion after reporting successful live creation and completion. For a new installation,
+verify the relevant actions and the button/correction flow with synthetic tasks before
+using them for business work. Other live scenarios remain unverified.
 
 Official API references: [task creation](https://apidocs.bitrix24.com/api-reference/tasks/tasks-task-add.html),
 [task fields and action rights](https://apidocs.bitrix24.com/api-reference/tasks/fields.html),
