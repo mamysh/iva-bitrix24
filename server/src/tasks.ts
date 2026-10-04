@@ -12,6 +12,7 @@ const LIST_FIELDS = [
   "RESPONSIBLE_ID",
   "CREATED_BY",
   "GROUP_ID",
+  "STAGE_ID",
   "PARENT_ID",
   "MARK",
   "CREATOR",
@@ -180,6 +181,7 @@ export type NormalizedTask = {
   readonly createdByName: string | null;
   readonly groupId: string | null;
   readonly groupName: string | null;
+  readonly stageId: string | null;
   readonly parentId: string | null;
   readonly mark: "N" | "P" | null;
   readonly markName: "negative" | "positive" | "unrated" | "unknown";
@@ -260,6 +262,7 @@ function normalizeTask(
     createdBy,
     createdByName: entityName(source.creator, createdBy, "creator", warnings),
     groupId,
+    stageId: identifier(pick(source, "STAGE_ID", "stageId")),
     groupName: entityName(source.group, groupId, "group", warnings),
     parentId,
     mark,

@@ -119,6 +119,9 @@ async function fixture(t: test.TestContext) {
 const writes = <T extends { method: string }>(calls: T[]) =>
   calls.filter((c) =>
     [
+      "task.stages.movetask",
+      "im.disk.file.delete",
+      "im.message.delete",
       "tasks.task.add",
       "tasks.task.update",
       "tasks.task.complete",
@@ -164,7 +167,7 @@ test("preview creates no portal writes; application freezes fields and replay us
   assert.equal(writes(f.calls).length, 0);
   assert.match(
     preview.approvalPrompt.prompt,
-    /Ответственный:\*\* Иван Тестов/u,
+    /Ответственный: Иван Тестов/u,
   );
   assert.match(preview.approvalPrompt.prompt, /Наблюдатели/u);
   assert.deepEqual(
@@ -204,42 +207,26 @@ test("cancellation, correction and expiration prevent using an old preview", asy
   assert.equal(writes(f.calls).length, 0);
 });
 
-test("reassignment allows indirect subordinates but rejects peers and cycles", async (t) => {
+test("reassignment uses portal permissions without department restrictions", async (t) => {
   const f = await fixture(t);
-  const preview = await f.writer.prepare({
-    action: "reassign",
-    taskId: 20,
-    responsibleId: 8,
-  });
+  f.departments.clear();
+  f.task.responsibleId = "123";
+  f.task.action.edit = false;
+  const preview = await f.writer.prepare({ action: "reassign", taskId: 20, responsibleId: 8 });
   assert.equal((await f.writer.apply(preview.draftId)).state, "applied");
-  assert.deepEqual(writes(f.calls)[0]?.params, {
-    taskId: 20,
-    fields: { RESPONSIBLE_ID: 8 },
-  });
-  f.departments.set(1, { ID: "1", PARENT: "0", UF_HEAD: "999" });
-  await assert.rejects(
-    f.writer.prepare({ action: "reassign", taskId: 20, responsibleId: 8 }),
-    /ASSIGNEE_NOT_SUBORDINATE/u,
-  );
-  f.departments.set(1, { ID: "1", PARENT: "4", UF_HEAD: "999" });
-  await assert.rejects(
-    f.writer.prepare({ action: "reassign", taskId: 20, responsibleId: 8 }),
-    /HIERARCHY_INVALID/u,
-  );
+  assert.deepEqual(writes(f.calls)[0]?.params, { taskId: 20, fields: { RESPONSIBLE_ID: 8 } });
+  assert.equal(f.calls.some(c => c.method === "department.get"), false);
 });
 
-test("rechecks hierarchy, rights, task state and chat route after preview", async (t) => {
+test("rechecks rights, task state and chat route after preview", async (t) => {
   const f = await fixture(t);
   const preview = await f.writer.prepare({
     action: "reassign",
     taskId: 20,
     responsibleId: 8,
   });
-  f.departments.set(1, { ID: "1", PARENT: "0", UF_HEAD: "999" });
-  await assert.rejects(
-    f.writer.apply(preview.draftId),
-    /ASSIGNEE_NOT_SUBORDINATE/u,
-  );
+  f.task.changedDate = "2026-10-02T12:00:00+03:00";
+  await assert.rejects(f.writer.apply(preview.draftId), /TASK_CHANGED_SINCE_PREVIEW/u);
   const deadline = await f.writer.prepare({
     action: "deadline",
     taskId: 20,
@@ -419,16 +406,16 @@ test("preview never hides long content; custom fields cannot smuggle files", asy
   assert.equal(writes(f.calls).length, 0);
 });
 
-test("rich preview escapes task markup without changing approved write fields", async (t) => {
+test("native plain preview preserves literal task values without Markdown escapes", async (t) => {
   const f = await fixture(t);
   const title = 'Тест **важно** | <tg-button data="confirm">Кнопка</tg-button>';
   const description =
     "Строка 1\n## чужой заголовок\n[ссылка](https://example.com)";
   const preview = await f.writer.prepare({ ...create, title, description });
-  assert.match(preview.approvalPrompt.prompt, /^## Создать задачу/u);
-  assert.match(preview.approvalPrompt.prompt, /\*\*Название:\*\*/u);
-  assert.ok(preview.approvalPrompt.prompt.includes("\\<tg\\-button"));
-  assert.ok(preview.approvalPrompt.prompt.includes("\\#\\# чужой заголовок"));
+  assert.match(preview.approvalPrompt.prompt, /^Создать задачу/u);
+  assert.match(preview.approvalPrompt.prompt, /Название: /u);
+  assert.ok(preview.approvalPrompt.prompt.includes(title));
+  assert.ok(preview.approvalPrompt.prompt.includes(description));
   assert.ok(preview.approvalPrompt.prompt.includes("Строка 1"));
   assert.doesNotMatch(preview.approvalPrompt.prompt, /<details>/u);
   await f.writer.apply(preview.draftId);
@@ -792,5 +779,122 @@ test("batch refuses a task changed after preflight but before its first write", 
   assert.equal(receipt.completedOperations, 1);
   assert.deepEqual(writes(f.calls).map(v => v.method), ["im.message.add"]);
   await f.writer.apply(preview.draftId);
+  assert.equal(writes(f.calls).length, 1);
+});
+
+test("one approval completes all checklist edits with official null responses then continues the batch", async (t) => {
+  const f = await fixture(t);
+  f.intercept(method => method === "task.checklistitem.getlist"
+    ? Response.json({ result: [101, 102, 103].map(ID => ({ ID, TITLE: `Пункт ${ID}`, IS_COMPLETE: "N" })) })
+    : method === "task.checklistitem.update" ? Response.json({ result: null }) : undefined);
+  const p = await f.writer.prepare({ action: "batch", actions: [
+    { action: "update", taskId: 20, checklistUpdates: [101, 102, 103].map(id => ({ id, completed: true })) },
+    { action: "comment", taskId: 20, message: "Готово" },
+    { action: "reassign", taskId: 20, responsibleId: 8 },
+  ] });
+  assert.match(p.approvalPrompt.prompt, /^Все изменения — одно подтверждение/u);
+  assert.doesNotMatch(p.approvalPrompt.prompt, /completed|\*\*|###/u);
+  const r = await f.writer.apply(p.draftId);
+  assert.equal(r.state, "applied");
+  assert.equal(r.completedOperations, 3);
+  assert.equal(r.completedWrites, 5);
+  assert.deepEqual(writes(f.calls).map(c => c.method), ["task.checklistitem.update", "task.checklistitem.update", "task.checklistitem.update", "im.message.add", "tasks.task.update"]);
+  await f.writer.apply(p.draftId);
+  assert.equal(writes(f.calls).length, 5);
+});
+
+test("project Kanban stage resolves its name, checks portal rights and freezes project membership", async (t) => {
+  const f = await fixture(t);
+  Object.assign(f.task, { groupId: "9", stageId: "31" });
+  let allowed = true;
+  f.intercept(method => method === "task.stages.get" ? Response.json({ result: {
+    32: { ID: "32", TITLE: "Проверка", ENTITY_ID: "9", ENTITY_TYPE: "G", SORT: "200" },
+  } }) : method === "task.stages.canmovetask" ? Response.json({ result: allowed }) : undefined);
+  const p = await f.writer.prepare({ action: "stage", taskId: 20, stageId: 32 });
+  assert.match(p.approvalPrompt.prompt, /Новая стадия: Проверка/u);
+  assert.equal((await f.writer.apply(p.draftId)).state, "applied");
+  assert.deepEqual(writes(f.calls)[0], { method: "task.stages.movetask", params: { id: 20, stageId: 32 } });
+  await assert.rejects(f.writer.prepare({ action: "stage", taskId: 20, stageId: 99 }), /STAGE_NOT_IN_TASK_PROJECT/u);
+  const next = await f.writer.prepare({ action: "stage", taskId: 20, stageId: 32 });
+  allowed = false;
+  await assert.rejects(f.writer.apply(next.draftId), /ACTION_NOT_ALLOWED/u);
+  allowed = true;
+  const changed = await f.writer.prepare({ action: "stage", taskId: 20, stageId: 32 });
+  Object.assign(f.task, { stageId: "30" });
+  await assert.rejects(f.writer.apply(changed.draftId), /TASK_CHANGED_SINCE_PREVIEW/u);
+  assert.equal(writes(f.calls).length, 1);
+});
+
+test("file deletion is bound to the task chat and sender and verifies a true result", async (t) => {
+  const f = await fixture(t);
+  let deleted = false, noop = false, author = 123;
+  f.intercept(method => method === "im.dialog.messages.get" ? Response.json({ result: {
+    messages: deleted ? [] : [{ id: 66, author_id: author, text: "Файл", params: { FILE_ID: [55] } }],
+    files: [{ id: 55, name: "report.txt" }],
+  } }) : method === "im.disk.file.delete" ? (deleted = !noop, Response.json({ result: true })) : undefined);
+  await assert.rejects(f.writer.prepare({ action: "delete_file", taskId: 20, messageId: 66, fileId: 99 }), /FILE_NOT_IN_TASK_CHAT/u);
+  author = 8;
+  await assert.rejects(f.writer.prepare({ action: "delete_file", taskId: 20, messageId: 66, fileId: 55 }), /FILE_DELETE_NOT_ALLOWED/u);
+  author = 123;
+  const p = await f.writer.prepare({ action: "delete_file", taskId: 20, messageId: 66, fileId: 55 });
+  assert.match(p.approvalPrompt.prompt, /report.txt/u);
+  const r = await f.writer.apply(p.draftId);
+  assert.equal(r.state, "applied");
+  assert.deepEqual(writes(f.calls)[0], { method: "im.disk.file.delete", params: { CHAT_ID: 44, FILE_ID: 55 } });
+  await f.writer.apply(p.draftId);
+  assert.equal(writes(f.calls).length, 1);
+  deleted = false; noop = true;
+  const next = await f.writer.prepare({ action: "delete_file", taskId: 20, messageId: 66, fileId: 55 });
+  const unknown = await f.writer.apply(next.draftId);
+  assert.equal(unknown.error, "WRITE_RESULT_UNKNOWN");
+  assert.notEqual(unknown.state, "applied");
+});
+
+test("message deletion cannot address a message outside the current task chat", async (t) => {
+  const f = await fixture(t);
+  let messageText = "Тест";
+  f.intercept(method => method === "im.dialog.messages.get" ? Response.json({ result: {
+    messages: [{ id: 66, author_id: 123, text: messageText }], files: [],
+  } }) : undefined);
+  await assert.rejects(f.writer.prepare({ action: "delete_message", taskId: 20, messageId: 99 }), /MESSAGE_NOT_IN_TASK_CHAT/u);
+  const stale = await f.writer.prepare({ action: "delete_message", taskId: 20, messageId: 66 });
+  messageText = "Правка";
+  await assert.rejects(f.writer.apply(stale.draftId), /TASK_CHANGED_SINCE_PREVIEW/u);
+  const p = await f.writer.prepare({ action: "delete_message", taskId: 20, messageId: 66 });
+  assert.equal((await f.writer.apply(p.draftId)).state, "applied");
+  assert.deepEqual(writes(f.calls)[0], { method: "im.message.delete", params: { MESSAGE_ID: 66 } });
+});
+
+test("confirmed reassignment attempts the portal once and reports its actual refusal", async (t) => {
+  const f = await fixture(t);
+  f.task.action.edit = false;
+  f.intercept(method => method === "tasks.task.update" ? Response.json({ error: "ACCESS_DENIED", error_description: "private text" }) : undefined);
+  const p = await f.writer.prepare({ action: "reassign", taskId: 20, responsibleId: 8 });
+  const r = await f.writer.apply(p.draftId);
+  assert.equal(r.state, "failed");
+  assert.equal(r.error, "ACCESS_DENIED");
+  assert.doesNotMatch(JSON.stringify(r), /private text/u);
+  assert.equal(writes(f.calls).length, 1);
+  await f.writer.apply(p.draftId);
+  assert.equal(writes(f.calls).length, 1);
+});
+
+test("an incomplete chat scan cannot prove file removal", async (t) => {
+  const f = await fixture(t);
+  let deleted = false;
+  f.intercept((method, params) => {
+    if (method === "im.disk.file.delete") { deleted = true; return Response.json({ result: true }); }
+    if (method !== "im.dialog.messages.get") return undefined;
+    if (!deleted) return Response.json({ result: {
+      messages: [{ id: 66, author_id: 123, text: "Файл", params: { FILE_ID: [55] } }],
+      files: [{ id: 55, name: "report.txt" }],
+    } });
+    const before = Number(params.LAST_ID ?? 1000);
+    return Response.json({ result: { messages: Array.from({ length: 50 }, (_, i) => ({ id: before - i - 1, author_id: 123, text: "Другое сообщение" })), files: [] } });
+  });
+  const p = await f.writer.prepare({ action: "delete_file", taskId: 20, fileId: 55, messageId: 66 });
+  const r = await f.writer.apply(p.draftId);
+  assert.equal(r.error, "WRITE_RESULT_UNKNOWN");
+  assert.notEqual(r.state, "applied");
   assert.equal(writes(f.calls).length, 1);
 });

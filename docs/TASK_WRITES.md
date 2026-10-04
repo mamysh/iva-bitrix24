@@ -1,4 +1,4 @@
-# Task action contract (prerelease 0.7.0-rc.2; stable 0.6.0)
+# Task action contract (local prerelease 0.7.0-rc.4; stable 0.6.0)
 
 The stable 0.6.0 release is validated by synthetic tests. On 4 October 2026 the owner
 reported successful task creation and completion on the current upstream Iva in real use.
@@ -14,7 +14,7 @@ verification claim. Existing read tools keep their contract. No Iva core changes
 | upload | taskId, attachments-relative path; optional message | im.v2.File.upload with current task chat |
 | complete | taskId | tasks.task.approve at awaiting control; otherwise tasks.task.complete |
 | rework | taskId | tasks.task.disapprove at awaiting control; tasks.task.renew when completed |
-| reassign | taskId, responsibleId | tasks.task.update; current assignee must be subordinate |
+| reassign | taskId, responsibleId | tasks.task.update; active target, accessible task, portal authorization |
 | deadline | taskId, deadline with timezone | tasks.task.update |
 
 Creation optionally accepts auditors, accomplices, projectId, a flat checklist, priority,
@@ -34,8 +34,7 @@ description (empty clears), deadline (null clears), auditors (replacement), addA
 removeAuditors (deltas preserving other observers), accomplices, projectId (null detaches),
 priority and tags. Auditors replacement cannot be mixed with deltas. `checklist` appends
 entries; `checklistUpdates` accepts existing IDs with title and/or completed status. Checklist
-replacement/deletion is not exposed. Missing fields stay untouched. Reassignment retains its
-separate hierarchy check; update cannot bypass it. Edit rights are required.
+replacement/deletion is not exposed. Missing fields stay untouched. Reassignment uses a separate typed action, active target validation and portal authorization. Edit rights are required.
 
 Batch uploads are capped at 50 MiB in total to bound memory during preflight.
 Batch contains 1–20 non-nested actions, including independent creates and operations on
@@ -56,22 +55,14 @@ requires prepare again. One pending draft exists per webhook owner, across chats
 30 minute expiry. The complete displayed preview is capped at 3500 characters; larger
 previews are refused instead of truncated. People names are resolved and shown with IDs.
 
-The prompt is Markdown: an operation heading and bold field labels. Untrusted values are
-escaped as literal text; escaping changes only display, never the frozen write payload.
-Pass approvalPrompt unchanged to native ask_question. Do not collapse or hide approved
-fields. Rendering, removal of the question buttons and the appended selection status are
-owned by Iva’s Telegram channel. A selection status records a choice, not a successful write.
+The native question prompt is plain text. Iva's question delivery bypasses rich-reply rendering; emitting Markdown markers or MarkdownV2 escapes would show them literally. Pass approvalPrompt unchanged to native ask_question. Reports and action results may use rich replies separately. Checklist edits use readable labels instead of JSON; task statuses use names. The full frozen payload remains visible. Selection means approval, not successful execution.
 
 Apply accepts only the UUID. It rechecks profile/portal, current rights and task snapshot
 (title, assignee, deadline, status, changedDate, chat route and operation), and hashes upload
-bytes again. Changes require a fresh preview. A subordinate is proved by walking from the
-current responsible person's departments through parent departments until UF_HEAD matches
-the webhook owner. Merely sharing a department does not suffice. Traversal is bounded to
-20 memberships and 30 levels, with cycle detection and no positive cache. New assignees
-must be active; Bitrix24 additionally enforces its object/group permissions.
+bytes again. Changes require a fresh preview. Reassignment checks an active target and current task access; it does not require department scope or local subordinate proof. Bitrix24 enforces the actual assignment permissions.
 
 All preview actions need task and user_brief/user_basic/user scopes. Projects additionally
-need sonet_group; hierarchy needs department; task chat and upload need im. Local private
+need sonet_group; task chat, upload and chat deletion need im. Local private
 PLUGIN_DATA is mandatory for writes. Upload uses BITRIX24_ATTACHMENTS_ROOT when configured, otherwise the verified Iva CLI
 installation and its vault setting recover the attachments root at startup. Failure stays
 closed with ATTACHMENTS_NOT_CONFIGURED. It requires a regular
@@ -134,3 +125,13 @@ Example: existing card edits, a comment and a selected file share one native con
 
 For a new task put the comment in `create.comment` and selected files in `create.uploads`
 alongside its title, description, responsibleId, deadline, observers and checklist.
+
+## Project Kanban and chat deletion (local RC4)
+
+`bitrix24_project_stages(projectId)` reads `task.stages.get(entityId)` and returns normalized IDs, titles and order for the project's G stages. `stage(taskId, stageId)` validates the destination against the task's current project, checks `task.stages.canmovetask(entityId, entityType:G)`, and writes `task.stages.movetask(id, stageId)`. Task status is separate. Stage/project changes invalidate the preview.
+
+`delete_file(taskId, fileId, messageId)` resolves the task chat, reads at most 200 messages, verifies file membership and the sending owner, then calls `im.disk.file.delete(CHAT_ID, FILE_ID)`. The preview contains filename and deletion warning. This method may return true without deleting another sender's file; membership/sender checks and a post-write read prevent false success. Unverifiable removal remains unknown and is never retried. `delete_message(taskId, messageId)` verifies membership and unchanged message text, previews it and calls `im.message.delete(MESSAGE_ID)`; author/admin permissions are enforced by Bitrix24. No arbitrary Drive deletion is exposed. Targets outside the bounded history require resolution, never guessed IDs. Both actions and stage changes can share a batch approval.
+
+The documented success of `task.checklistitem.update` is explicit `result:null`. Only this method accepts null; missing results, errors and response loss remain unknown. All items continue under the original approval, with durable per-item progress.
+
+References: [checklist update](https://apidocs.bitrix24.com/api-reference/tasks/checklist-item/task-checklist-item-update.html), [stages](https://apidocs.bitrix24.com/api-reference/tasks/stages/index.html), [chat file deletion](https://apidocs.bitrix24.com/api-reference/chats/files/im-disk-file-delete.html), [message deletion](https://apidocs.bitrix24.com/api-reference/chats/messages/im-message-delete.html).

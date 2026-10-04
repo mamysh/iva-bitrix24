@@ -2,6 +2,14 @@
 
 Значимые пользовательские изменения этого проекта будут фиксироваться здесь.
 
+## 0.7.0-rc.4 — unreleased
+
+- Native approval cards use readable plain text without visible Markdown escapes or checklist JSON. Reports retain rich-replies instructions.
+- A documented null success from checklist editing no longer stops a batch or forces separate approvals for each item.
+- Reassignment attempts the confirmed change under Bitrix24 permissions without a local department hierarchy gate.
+- Added project Kanban stage discovery and movement, distinct from task status.
+- Added previewed deletion of a selected file or message in the current task chat; file removal is verified after the API response. All actions may share one batch confirmation.
+
 ## 0.7.0-rc.3 — 2026-10-04 (подготовка выпуска, ещё не выпущено)
 
 - Проверка обновлений сохраняет весь prerelease-суффикс с дефисами и отклоняет

@@ -2,6 +2,8 @@ import type { BitrixConfig } from "./config.ts";
 
 export const ALLOWED_METHODS = [
   "profile",
+  "task.stages.get",
+  "task.stages.canmovetask",
   "scope",
   "department.get",
   "disk.attachedObject.get",
@@ -19,6 +21,9 @@ export const ALLOWED_METHODS = [
 ] as const;
 
 export const WRITE_METHODS = [
+  "task.stages.movetask",
+  "im.disk.file.delete",
+  "im.message.delete",
   "tasks.task.add",
   "tasks.task.update",
   "tasks.task.complete",
@@ -39,6 +44,11 @@ export type AllowedMethod = (typeof ALLOWED_METHODS)[number];
 
 const allowed = new Set<string>(ALLOWED_METHODS);
 const REQUIRED_SCOPES: Partial<Record<RestMethod, string>> = {
+  "task.stages.get": "task",
+  "task.stages.canmovetask": "task",
+  "task.stages.movetask": "task",
+  "im.disk.file.delete": "im",
+  "im.message.delete": "im",
   "tasks.task.add": "task",
   "tasks.task.update": "task",
   "tasks.task.complete": "task",
@@ -258,6 +268,8 @@ export class BitrixClient {
       throw new BitrixRequestError("METHOD_NOT_ALLOWED");
     try {
       const result = (await this.#attempt(method, params)).result;
+      // Official checklist update success is result:null. Missing result is still unknown.
+      if (method === "task.checklistitem.update" && result === null) return null;
       if (result === undefined || result === null || result === false)
         throw new BitrixRequestError("WRITE_RESULT_UNKNOWN");
       return result;

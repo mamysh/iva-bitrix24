@@ -62,7 +62,7 @@ try {
   const { tools } = await client.listTools();
   const actionSchema = tools.find(tool => tool.name === "bitrix24_prepare_task_action").inputSchema;
   assert.equal(actionSchema.type, "object");
-  for (const field of ["action", "taskId", "title", "addAuditors", "uploads", "actions"])
+  for (const field of ["action", "taskId", "title", "addAuditors", "uploads", "actions", "stageId", "fileId", "messageId"])
     assert.ok(actionSchema.properties?.[field], `missing action schema field: ${field}`);
   assert.match(JSON.stringify(actionSchema.properties.actions), /checklistUpdates/u);
   assert.deepEqual(
@@ -78,6 +78,7 @@ try {
       "bitrix24_list_task_documents",
       "bitrix24_list_tasks",
       "bitrix24_prepare_task_action",
+      "bitrix24_project_stages",
       "bitrix24_release_task_document",
       "bitrix24_search_people",
       "bitrix24_search_projects",
