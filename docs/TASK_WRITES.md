@@ -1,4 +1,4 @@
-# Task action contract (prerelease 0.7.0-rc.4; stable 0.6.0)
+# Task action contract (prerelease 0.7.0-rc.5; stable 0.6.0)
 
 The stable 0.6.0 release is validated by synthetic tests. On 4 October 2026 the owner
 reported successful task creation and completion on the current upstream Iva in real use.
@@ -17,7 +17,7 @@ verification claim. Existing read tools keep their contract. No Iva core changes
 | reassign | taskId, responsibleId | tasks.task.update; active target, accessible task, portal authorization |
 | deadline | taskId, deadline with timezone | tasks.task.update |
 
-Creation optionally accepts auditors, accomplices, projectId, a flat checklist, priority,
+Creation optionally accepts auditors, accomplices, projectId, checklist entries with optional checklistTitle, priority,
 parentId, tags, taskControl, allowChangeDeadline, allowTimeTracking, timeEstimate,
 startDatePlan, endDatePlan and scalar/scalar-array customFields known to getFields.
 Creation also accepts `comment` and up to ten `uploads: [{path, message?}]`: their full
@@ -33,7 +33,14 @@ Update edits the existing task ID; it never calls tasks.task.add. It accepts tit
 description (empty clears), deadline (null clears), auditors (replacement), addAuditors and
 removeAuditors (deltas preserving other observers), accomplices, projectId (null detaches),
 priority and tags. Auditors replacement cannot be mixed with deltas. `checklist` appends
-entries; `checklistUpdates` accepts existing IDs with title and/or completed status. Checklist
+entries into the sole existing list, or the root selected by `checklistId`. Several roots
+require explicit selection (`CHECKLIST_SELECTION_REQUIRED`), never a guessed target.
+Passing `checklistTitle` with entries creates a new named list; it cannot be mixed with
+`checklistId`. Creation without a title uses “Чек-лист”. An explicit root is created with
+`PARENT_ID: 0`; children use the returned positive ID. Missing/ambiguous root responses
+stop before adding children. The root ID is persisted in the receipt, and replay never
+recreates it. The heading is not included in completedChecklistItems.
+`checklistUpdates` accepts existing IDs with title and/or completed status. Checklist
 replacement/deletion is not exposed. Missing fields stay untouched. Reassignment uses a separate typed action, active target validation and portal authorization. Edit rights are required.
 
 Batch uploads are capped at 50 MiB in total to bound memory during preflight.
@@ -135,3 +142,20 @@ alongside its title, description, responsibleId, deadline, observers and checkli
 The documented success of `task.checklistitem.update` is explicit `result:null`. Only this method accepts null; missing results, errors and response loss remain unknown. All items continue under the original approval, with durable per-item progress.
 
 References: [checklist update](https://apidocs.bitrix24.com/api-reference/tasks/checklist-item/task-checklist-item-update.html), [stages](https://apidocs.bitrix24.com/api-reference/tasks/stages/index.html), [chat file deletion](https://apidocs.bitrix24.com/api-reference/chats/files/im-disk-file-delete.html), [message deletion](https://apidocs.bitrix24.com/api-reference/chats/messages/im-message-delete.html).
+
+## Presentation
+
+Native approval previews group related fields with single line breaks and separate actions
+with one blank line. Employee labels use the account email only when `user_basic` or `user`
+is granted and the email is returned; otherwise name/ID and “почта недоступна” remain explicit.
+Dates preserve the frozen ISO wall-clock time and offset while displaying
+`06.10.2026, 14:35 (UTC+03:00)`. The applied deadline remains the original ISO value.
+Checklist edits display the snapshot's actual item title, proposed rename and completion state;
+identical titles retain IDs for disambiguation. No approved field is hidden or truncated.
+The checklist read tool marks headings as `kind: checklist` and entries as `kind: item`.
+Rich reports follow the skill; native question formatting is a host-channel capability,
+not something Markdown in a plugin prompt can enable.
+
+Pending previews use schema 3. Drafts prepared by RC4 or earlier must be prepared and confirmed
+again after upgrade because explicit root creation changes the approved mutation set. Existing
+receipts remain readable and replay protection remains in effect.

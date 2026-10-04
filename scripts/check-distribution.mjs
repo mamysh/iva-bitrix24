@@ -24,6 +24,11 @@ assert.match(packageJson.version, semver, "package version must be strict SemVer
 assert.equal(packageLock.version, packageJson.version);
 assert.equal(packageLock.packages?.[""]?.version, packageJson.version);
 assert.equal(manifest.version, packageJson.version);
+for (const path of ["server/src/main.ts", "server/src/mcp-server.ts"]) {
+  const source = await readFile(path, "utf8");
+  assert.ok(source.includes(`version: "${packageJson.version}"`), `${path}: MCP version differs from manifest`);
+}
+
 assert.equal(packageJson.license, "MIT");
 assert.equal(manifest.name, "bitrix24-read");
 assert.match(

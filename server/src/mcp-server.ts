@@ -147,7 +147,7 @@ function errorDetails(code: string, retryable: boolean) {
       retryable: false,
       action: "use_returned_cursor",
     };
-  if (["DUPLICATE_TASK_UPDATE", "CHECKLIST_ITEM_NOT_FOUND", "TOO_MANY_AUDITORS"].includes(code))
+  if (["DUPLICATE_TASK_UPDATE", "CHECKLIST_ITEM_NOT_FOUND", "CHECKLIST_SELECTION_REQUIRED", "TOO_MANY_AUDITORS"].includes(code))
     return { category: "input", retryable: false, action: "revise_task_request" };
   if (code === "TASK_CHAT_UNAVAILABLE")
     return {
@@ -250,7 +250,7 @@ export function createMcpServer(
   files: FileReaderPort | null = null,
   writer: Pick<TaskWriter, "prepare" | "apply" | "cancel" | "status" | "stages"> | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.4" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.5" });
   registerUpdaterTools(server, updater);
   if (writer) {
     server.registerTool("bitrix24_project_stages", {

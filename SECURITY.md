@@ -116,3 +116,8 @@ State хранится в private PLUGIN_DATA с режимами 0700/0600. А�
 после ответа API: true может означать отсутствие изменений. Произвольный disk.file.delete
 не разрешён. Стадии берутся из канбана текущего проекта, права перемещения повторно
 проверяются перед записью. Все эти операции входят в общий подтверждаемый batch.
+
+Approval labels also request account EMAIL only under user_basic or user, never broader
+contact fields. Without returned email they keep an explicit name/ID fallback. Named checklist
+roots and their child IDs are persisted before subsequent writes; old pending draft schemas
+require a fresh preview after upgrade. Existing receipts are preserved.

@@ -383,6 +383,7 @@ test("normalizes checklist data and resolves immediate task relations without re
   const relations = await capabilityReader.taskRelations({ taskId: 7, subtaskLimit: 10 });
 
   assert.equal(checklist.items[0]?.completed, true);
+  assert.equal(checklist.items[0]?.kind, "checklist");
   assert.equal(JSON.stringify(checklist).includes("IMAGE"), false);
   assert.equal(relations.parent?.id, "2");
   assert.deepEqual(relations.dependencies.map(({ id }) => id), ["3"]);

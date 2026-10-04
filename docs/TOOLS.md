@@ -46,3 +46,11 @@ RC4 добавляет `bitrix24_project_stages` (всего 26 tools), канб
 
 
 Контракты: [чтение задач](TASK_CONTRACT.md), [действия с задачами](TASK_WRITES.md).
+
+
+Checklist presentation: `bitrix24_task_checklist` returns `kind: checklist` for root headings
+and `kind: item` for entries. Use titles and completion marks in replies, not IDs/JSON.
+Task prepare accepts `checklistTitle` for a new named list and `checklistId` to append to a
+selected existing root; they require entries and cannot be combined. Several roots require
+explicit selection. Dates in approval previews are localized without changing the ISO payload;
+employee labels use granted account email, with an explicit unavailable-email fallback.
