@@ -1065,3 +1065,41 @@ test("rich cancellation and process restart preserve the approval boundary", asy
   await f.writer.apply(p.draftId, p.richApproval!.confirmReply);
   assert.equal(writes(f.calls).filter(c => c.method === "tasks.task.add").length, 1);
 });
+
+
+test("rich preview separates logical blocks but keeps checklist entries and employee details together", async t => {
+  const f = await fixture(t);
+  const p = await f.writer.prepare({action: "update", taskId: 20, checklist: ["Первое", "Второе"]}, "rich");
+  const md = p.richApproval!.markdown;
+  assert.match(md, /\*\*Изменить существующую задачу\*\*  \n\n\*\*Задача/u);
+  assert.match(md, /\n\n\*\*Ответственный:/u);
+  assert.match(md, /\nДолжность[^\n]+  \n\n\*\*Текущий срок:/u);
+  assert.match(md, /\n☐ Первое  \n☐ Второе/u);
+  assert.doesNotMatch(md, /☐ Первое  \n\n☐ Второе/u);
+  const close = await f.writer.prepare({action: "complete", taskId: 20}, "rich");
+  assert.match(close.richApproval!.markdown, /\n\nБудет завершена/u);
+});
+
+test("responsible preview includes position and named departments, with per-preview cached lookups", async t => {
+  const f = await fixture(t);
+  f.intercept((method, params) => method === "scope" ? Response.json({result: ["task", "user_basic", "department"]})
+    : method === "user.get" ? Response.json({result: [{ID: params.ID, NAME: "Иван", LAST_NAME: "Тестов", ACTIVE: true, EMAIL: "ivan@example.invalid", WORK_POSITION: "Менеджер", UF_DEPARTMENT: [4, "4", 5]}]})
+    : method === "department.get" ? Response.json({result: [{ID: params.ID, NAME: Number(params.ID) === 4 ? "Маркетинг" : "Продажи"}]}) : undefined);
+  const p = await f.writer.prepare({action: "batch", actions: [{action: "complete", taskId: 20}, {...create}]}, "rich");
+  assert.match(p.approvalPrompt.prompt, /Иван Тестов \(ivan@example.invalid\)\nДолжность — Менеджер; подразделение — Маркетинг, Продажи/u);
+  assert.equal(f.calls.filter(c => c.method === "department.get").length, 2);
+  assert.equal(writes(f.calls).length, 0);
+});
+
+test("missing or denied optional profile details never prevent preparation", async t => {
+  const f = await fixture(t);
+  const basic = await f.writer.prepare(create, "rich");
+  assert.match(basic.approvalPrompt.prompt, /Должность — не указана; подразделение — недоступно/u);
+  assert.equal(f.calls.filter(c => c.method === "department.get").length, 0);
+  f.intercept(method => method === "scope" ? Response.json({result: ["task", "user_brief", "department"]})
+    : method === "department.get" ? Response.json({error: "ACCESS_DENIED", error_description: "private upstream detail"}) : undefined);
+  const denied = await f.writer.prepare(create, "rich");
+  assert.match(denied.approvalPrompt.prompt, /подразделение — недоступно/u);
+  assert.doesNotMatch(denied.approvalPrompt.prompt, /private upstream/u);
+  assert.equal(writes(f.calls).length, 0);
+});

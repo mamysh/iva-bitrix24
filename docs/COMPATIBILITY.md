@@ -61,3 +61,9 @@ from native HITL and is not claimed for webhook-only or groups (use native there
 Validation includes 145 synthetic tests, real bundle MCP discovery and a plugin-preview
 round-trip through actual Iva outbox with a fake transport. Binding, escaping, cancellation,
 expiry, snapshot and replay are covered; a complete live model/Telegram button/portal write is not yet verified.
+
+RC7 refines rich preview block spacing and adds position/department context for responsible
+people. Synthetic tests cover block continuations, department deduplication and unavailable
+metadata fallback. Names require granted department scope; it is optional for task writes.
+The owner’s RC6 screenshot confirms rendered rich task approval, not a full apply/replay audit.
+RC7 has not yet been installed or live checked.
