@@ -108,10 +108,10 @@ export class TaskFileReader {
       if (!Array.isArray(tasks)) throw new BitrixRequestError("INVALID_RESPONSE");
       const selected = tasks.slice(0, 5 - scannedTasks);
       for (const rawTask of selected) {
+        scannedTasks += 1;
         const task = object(rawTask);
         const taskId = id(task.ID ?? task.id);
         if (!taskId) { partial = true; continue; }
-        scannedTasks += 1;
         const inventory = await this.list(Number(taskId));
         partial ||= inventory.partial;
         for (const file of inventory.files) {

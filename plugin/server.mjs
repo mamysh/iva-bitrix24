@@ -36092,13 +36092,13 @@ var TaskFileReader = class {
       if (!Array.isArray(tasks)) throw new BitrixRequestError("INVALID_RESPONSE");
       const selected = tasks.slice(0, 5 - scannedTasks);
       for (const rawTask of selected) {
+        scannedTasks += 1;
         const task = object3(rawTask);
         const taskId = id(task.ID ?? task.id);
         if (!taskId) {
           partial2 = true;
           continue;
         }
-        scannedTasks += 1;
         const inventory = await this.list(Number(taskId));
         partial2 ||= inventory.partial;
         for (const file2 of inventory.files) {
@@ -37893,7 +37893,7 @@ function registerUpdaterTools(server2, updater) {
   );
 }
 function createMcpServer(reader, updater = null, files = null, writer = null) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.2" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.3" });
   registerUpdaterTools(server2, updater);
   if (writer) {
     server2.registerTool("bitrix24_prepare_task_action", {
@@ -38278,12 +38278,19 @@ function safeSha(value) {
   return typeof value === "string" && SHA.test(value) ? value : "";
 }
 function safeVersion(value) {
-  return typeof value === "string" && value.length <= 100 && SEMVER.test(value) ? value : "";
+  if (typeof value !== "string" || value.length > 100 || !SEMVER.test(value))
+    return "";
+  const coreAndPrerelease = value.split("+", 1)[0];
+  const separator = coreAndPrerelease.indexOf("-");
+  if (separator !== -1 && coreAndPrerelease.slice(separator + 1).split(".").some((part) => /^0[0-9]+$/u.test(part))) return "";
+  return value;
 }
 function compareVersions(left, right) {
   const parts = (version2) => {
     const withoutBuild = version2.split("+", 1)[0];
-    const [core, prerelease] = withoutBuild.split("-", 2);
+    const separator = withoutBuild.indexOf("-");
+    const core = separator === -1 ? withoutBuild : withoutBuild.slice(0, separator);
+    const prerelease = separator === -1 ? void 0 : withoutBuild.slice(separator + 1);
     return {
       core: core.split(".").map((part) => BigInt(part)),
       prerelease: prerelease?.split(".") ?? null
@@ -39369,7 +39376,7 @@ async function resolveAttachmentsRoot(env, wrapper = join4(env.HOME || homedir2(
 
 // server/src/main.ts
 function unavailableServer(error61, updater) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.2" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.3" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",
