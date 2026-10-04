@@ -1,4 +1,4 @@
-# Task action contract (local prerelease 0.7.0-rc.4; stable 0.6.0)
+# Task action contract (prerelease 0.7.0-rc.4; stable 0.6.0)
 
 The stable 0.6.0 release is validated by synthetic tests. On 4 October 2026 the owner
 reported successful task creation and completion on the current upstream Iva in real use.
@@ -126,7 +126,7 @@ Example: existing card edits, a comment and a selected file share one native con
 For a new task put the comment in `create.comment` and selected files in `create.uploads`
 alongside its title, description, responsibleId, deadline, observers and checklist.
 
-## Project Kanban and chat deletion (local RC4)
+## Project Kanban and chat deletion (RC4)
 
 `bitrix24_project_stages(projectId)` reads `task.stages.get(entityId)` and returns normalized IDs, titles and order for the project's G stages. `stage(taskId, stageId)` validates the destination against the task's current project, checks `task.stages.canmovetask(entityId, entityType:G)`, and writes `task.stages.movetask(id, stageId)`. Task status is separate. Stage/project changes invalidate the preview.
 

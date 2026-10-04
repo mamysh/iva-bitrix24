@@ -2,7 +2,7 @@
 
 Значимые пользовательские изменения этого проекта будут фиксироваться здесь.
 
-## 0.7.0-rc.4 — unreleased
+## 0.7.0-rc.4 — 2026-10-04 (предварительный выпуск)
 
 - Native approval cards use readable plain text without visible Markdown escapes or checklist JSON. Reports retain rich-replies instructions.
 - A documented null success from checklist editing no longer stops a batch or forces separate approvals for each item.

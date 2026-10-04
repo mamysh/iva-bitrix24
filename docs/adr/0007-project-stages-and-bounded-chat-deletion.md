@@ -1,6 +1,6 @@
 # ADR 0007: Project stages, chat deletion and portal assignment permissions
 
-Status: accepted for local 0.7.0-rc.4; not released or live verified.
+Status: accepted for prerelease 0.7.0-rc.4; not live verified.
 
 ## Context
 
