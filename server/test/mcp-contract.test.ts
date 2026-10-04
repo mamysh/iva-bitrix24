@@ -339,3 +339,20 @@ test("task writes expose preview buttons and reject incomplete or modified execu
   const tools = (await client.listTools()).tools;
   assert.equal(tools.find((t) => t.name === "bitrix24_apply_task_action")?.annotations?.readOnlyHint, false);
 });
+
+test("MCP accepts one update/comment/upload batch and rejects empty edits and nested batches", async t => {
+  const {client, server} = await connectedClient();
+  t.after(async () => { await client.close(); await server.close(); });
+  const valid = await client.callTool({ name: "bitrix24_prepare_task_action", arguments: {
+    action: "batch", actions: [
+      {action: "update", taskId: 20, addAuditors: [8], checklist: ["Проверить"]},
+      {action: "comment", taskId: 20, message: "тест"},
+      {action: "upload", taskId: 20, path: "test.txt"},
+    ],
+  }});
+  assert.notEqual(valid.isError, true);
+  for (const args of [{action: "update", taskId: 20}, {action: "batch", actions: [{action: "batch", actions: []}]}]) {
+    const invalid = await client.callTool({name: "bitrix24_prepare_task_action", arguments: args});
+    assert.equal(invalid.isError, true);
+  }
+});

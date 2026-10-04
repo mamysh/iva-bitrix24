@@ -89,7 +89,11 @@ async function fixture(t: test.TestContext) {
                       ? { fields: { UF_TEST: { isReadOnly: false } } }
                       : method === "sonet_group.get"
                         ? [{ ID: "9", NAME: "Проект" }]
-                        : true;
+                        : method === "task.checklistitem.getlist"
+                          ? []
+                          : method === "im.v2.File.upload"
+                            ? { file: { id: "55" }, messageId: "66" }
+                            : true;
         return Response.json({ result });
       },
       sleep: async () => {},
@@ -122,6 +126,7 @@ const writes = <T extends { method: string }>(calls: T[]) =>
       "tasks.task.disapprove",
       "tasks.task.renew",
       "task.checklistitem.add",
+      "task.checklistitem.update",
       "task.commentitem.add",
       "im.message.add",
       "im.v2.File.upload",
@@ -157,7 +162,10 @@ test("preview creates no portal writes; application freezes fields and replay us
     customFields: { UF_TEST: "текст" },
   });
   assert.equal(writes(f.calls).length, 0);
-  assert.match(preview.approvalPrompt.prompt, /Ответственный: Иван Тестов/u);
+  assert.match(
+    preview.approvalPrompt.prompt,
+    /Ответственный:\*\* Иван Тестов/u,
+  );
   assert.match(preview.approvalPrompt.prompt, /Наблюдатели/u);
   assert.deepEqual(
     preview.approvalPrompt.options.map((o) => o.id),
@@ -409,4 +417,380 @@ test("preview never hides long content; custom fields cannot smuggle files", asy
     /CUSTOM_FIELD_NOT_SUPPORTED/u,
   );
   assert.equal(writes(f.calls).length, 0);
+});
+
+test("rich preview escapes task markup without changing approved write fields", async (t) => {
+  const f = await fixture(t);
+  const title = 'Тест **важно** | <tg-button data="confirm">Кнопка</tg-button>';
+  const description =
+    "Строка 1\n## чужой заголовок\n[ссылка](https://example.com)";
+  const preview = await f.writer.prepare({ ...create, title, description });
+  assert.match(preview.approvalPrompt.prompt, /^## Создать задачу/u);
+  assert.match(preview.approvalPrompt.prompt, /\*\*Название:\*\*/u);
+  assert.ok(preview.approvalPrompt.prompt.includes("\\<tg\\-button"));
+  assert.ok(preview.approvalPrompt.prompt.includes("\\#\\# чужой заголовок"));
+  assert.ok(preview.approvalPrompt.prompt.includes("Строка 1"));
+  assert.doesNotMatch(preview.approvalPrompt.prompt, /<details>/u);
+  await f.writer.apply(preview.draftId);
+  assert.deepEqual(writes(f.calls)[0]?.params.fields, {
+    TITLE: title,
+    DESCRIPTION: description,
+    RESPONSIBLE_ID: 7,
+    DEADLINE: create.deadline,
+    CREATED_BY: 123,
+  });
+});
+
+test("editing a card adds observers without dropping existing ones and appends checklist; never creates another task", async (t) => {
+  const f = await fixture(t);
+  Object.assign(f.task, {
+    description: "Старое описание",
+    auditors: ["8"],
+    accomplices: [],
+    tags: [],
+  });
+  const p = await f.writer.prepare({
+    action: "update",
+    taskId: 20,
+    title: "Исправленный отчёт",
+    description: "Новый текст",
+    addAuditors: [9],
+    checklist: ["Один", "Два", "Три"],
+  });
+  assert.equal(writes(f.calls).length, 0);
+  assert.match(p.approvalPrompt.prompt, /Наблюдатели после правки/u);
+  assert.match(p.approvalPrompt.prompt, /ID 8/u);
+  assert.match(p.approvalPrompt.prompt, /ID 9/u);
+  const r = await f.writer.apply(p.draftId);
+  assert.equal(r.state, "applied");
+  assert.equal(r.taskId, 20);
+  assert.equal(r.completedChecklistItems, 3);
+  assert.deepEqual(writes(f.calls)[0], {
+    method: "tasks.task.update",
+    params: {
+      taskId: 20,
+      fields: {
+        TITLE: "Исправленный отчёт",
+        DESCRIPTION: "Новый текст",
+        AUDITORS: [8, 9],
+      },
+    },
+  });
+  assert.equal(
+    writes(f.calls).filter((v) => v.method === "tasks.task.add").length,
+    0,
+  );
+});
+
+test("one preview approves card changes, a comment and a file, and replay never repeats them", async (t) => {
+  const f = await fixture(t);
+  Object.assign(f.task, { auditors: ["8"] });
+  await writeFile(join(f.root, "test.txt"), "Файл");
+  const p = await f.writer.prepare({
+    action: "batch",
+    actions: [
+      {
+        action: "update",
+        taskId: 20,
+        addAuditors: [9],
+        checklist: ["Проверить"],
+      },
+      { action: "comment", taskId: 20, message: "тест" },
+      { action: "upload", taskId: 20, path: "test.txt", message: "Документ" },
+    ],
+  });
+  assert.equal(writes(f.calls).length, 0);
+  for (const v of ["одно подтверждение", "ID 9", "Проверить", "тест", "test"])
+    assert.ok(p.approvalPrompt.prompt.includes(v));
+  assert.equal(p.approvalPrompt.options.length, 2);
+  assert.equal(p.approvalPrompt.prompt.match(/Задача №20/gu)?.length, 1);
+  const r = await f.writer.apply(p.draftId);
+  assert.equal(r.state, "applied");
+  assert.equal(r.completedOperations, 3);
+  const ops = r.operations as Record<string, unknown>[];
+  assert.deepEqual(
+    ops.map((v) => v.taskId),
+    [20, 20, 20],
+  );
+  assert.equal(ops[2]?.fileId, 55);
+  assert.equal(ops[2]?.messageId, 66);
+  assert.deepEqual(
+    writes(f.calls).map((v) => v.method),
+    [
+      "tasks.task.update",
+      "task.checklistitem.add",
+      "im.message.add",
+      "im.v2.File.upload",
+    ],
+  );
+  assert.deepEqual(await f.writer.apply(p.draftId), r);
+  assert.equal(writes(f.calls).length, 4);
+});
+
+test("batch validates every file and snapshot before any write; cancel cancels the whole request", async (t) => {
+  const f = await fixture(t);
+  await writeFile(join(f.root, "test.txt"), "Файл");
+  const input = {
+    action: "batch",
+    actions: [
+      { action: "comment", taskId: 20, message: "тест" },
+      { action: "upload", taskId: 20, path: "test.txt" },
+    ],
+  } as const;
+  const p = await f.writer.prepare({ ...input, actions: [...input.actions] });
+  await writeFile(join(f.root, "test.txt"), "Изменён");
+  await assert.rejects(f.writer.apply(p.draftId), /UPLOAD_FILE_CHANGED/u);
+  assert.equal(writes(f.calls).length, 0);
+  await f.writer.cancel(p.draftId);
+  await assert.rejects(f.writer.apply(p.draftId));
+  assert.equal(writes(f.calls).length, 0);
+});
+
+test("failed or lost batch operation stops the remainder and retains exact progress across restart", async (t) => {
+  for (const lost of [false, true]) {
+    const f = await fixture(t);
+    f.intercept((method) => {
+      if (method === "im.message.add") {
+        if (lost) throw new TypeError("lost");
+        return Response.json({ error: "ACCESS_DENIED" });
+      }
+      return undefined;
+    });
+    const p = await f.writer.prepare({
+      action: "batch",
+      actions: [
+        { action: "update", taskId: 20, description: "Правка" },
+        { action: "comment", taskId: 20, message: "тест" },
+        { action: "complete", taskId: 20 },
+      ],
+    });
+    const r = await f.writer.apply(p.draftId);
+    assert.equal(r.state, "partial");
+    assert.equal(r.completedOperations, 1);
+    assert.equal(r.doNotRetry, true);
+    const ops = r.operations as Record<string, unknown>[];
+    assert.equal(ops[0]?.state, "applied");
+    assert.equal(ops[1]?.state, lost ? "unknown" : "failed");
+    assert.equal(writes(f.calls).length, 2);
+    const restarted = new TaskWriter(f.client, f.root, f.root);
+    assert.deepEqual(await restarted.apply(p.draftId), r);
+    assert.equal(writes(f.calls).length, 2);
+  }
+});
+
+test("edit clears requested fields, preserves others, checks rights, and refuses stale observer lists", async (t) => {
+  const f = await fixture(t);
+  Object.assign(f.task, { auditors: ["8"] });
+  const p = await f.writer.prepare({
+    action: "update",
+    taskId: 20,
+    removeAuditors: [8],
+    deadline: null,
+    projectId: null,
+    description: "",
+    tags: [],
+  });
+  const r = await f.writer.apply(p.draftId);
+  assert.equal(r.state, "applied");
+  assert.deepEqual(writes(f.calls)[0]?.params.fields, {
+    DESCRIPTION: "",
+    DEADLINE: "",
+    AUDITORS: [],
+    GROUP_ID: 0,
+    TAGS: [],
+  });
+  const next = await f.writer.prepare({
+    action: "update",
+    taskId: 20,
+    addAuditors: [9],
+  });
+  Object.assign(f.task, { auditors: ["8", "10"] });
+  await assert.rejects(
+    f.writer.apply(next.draftId),
+    /TASK_CHANGED_SINCE_PREVIEW/u,
+  );
+  f.task.action.edit = false;
+  await assert.rejects(
+    f.writer.prepare({ action: "update", taskId: 20, description: "Правка" }),
+    /ACTION_NOT_ALLOWED/u,
+  );
+  assert.equal(writes(f.calls).length, 1);
+});
+
+test("existing checklist entries can be renamed and completed without replacing the checklist", async (t) => {
+  const f = await fixture(t);
+  f.intercept((method) =>
+    method === "task.checklistitem.getlist"
+      ? Response.json({
+          result: [
+            {
+              ID: "101",
+              TITLE: "Проверить",
+              IS_COMPLETE: "N",
+              SORT_INDEX: "10",
+            },
+          ],
+        })
+      : undefined,
+  );
+  const p = await f.writer.prepare({
+    action: "update",
+    taskId: 20,
+    checklistUpdates: [{ id: 101, title: "Проверено", completed: true }],
+  });
+  assert.equal((await f.writer.apply(p.draftId)).state, "applied");
+  assert.deepEqual(writes(f.calls), [
+    {
+      method: "task.checklistitem.update",
+      params: {
+        TASKID: 20,
+        ITEMID: 101,
+        FIELDS: { TITLE: "Проверено", IS_COMPLETE: "Y" },
+      },
+    },
+  ]);
+  await assert.rejects(
+    f.writer.prepare({
+      action: "update",
+      taskId: 20,
+      checklistUpdates: [{ id: 102, completed: true }],
+    }),
+    /CHECKLIST_ITEM_NOT_FOUND/u,
+  );
+});
+
+test("unknown upload response is never advertised as sent or retried", async (t) => {
+  const f = await fixture(t);
+  await writeFile(join(f.root, "test.txt"), "test");
+  f.intercept((method) =>
+    method === "im.v2.File.upload"
+      ? Response.json({ result: true })
+      : undefined,
+  );
+  const p = await f.writer.prepare({
+    action: "upload",
+    taskId: 20,
+    path: "test.txt",
+  });
+  const r = await f.writer.apply(p.draftId);
+  assert.notEqual(r.state, "applied");
+  assert.equal(r.error, "WRITE_RESULT_UNKNOWN");
+  await f.writer.apply(p.draftId);
+  assert.equal(writes(f.calls).length, 1);
+});
+
+test("rejects empty edits, mixed observer modes and nested or duplicate update batches", async (t) => {
+  for (const raw of [
+    { action: "update", taskId: 20 },
+    { action: "update", taskId: 20, auditors: [8], addAuditors: [9] },
+    { action: "update", taskId: 20, addAuditors: [8], removeAuditors: [8] },
+    { action: "batch", actions: [] },
+    { action: "batch", actions: [{ action: "batch", actions: [] }] },
+  ])
+    assert.equal(taskWriteSchema.safeParse(raw).success, false);
+  const f = await fixture(t);
+  await assert.rejects(
+    f.writer.prepare({
+      action: "batch",
+      actions: [
+        { action: "update", taskId: 20, title: "a" },
+        { action: "update", taskId: 20, addAuditors: [8] },
+      ],
+    }),
+    /DUPLICATE_TASK_UPDATE/u,
+  );
+});
+
+test("creation with checklist, comment and file uses one preview and only the returned new task ID", async (t) => {
+  const f = await fixture(t);
+  await writeFile(join(f.root, "report.txt"), "Report");
+  f.intercept((method, params) =>
+    method === "tasks.task.get" && params.taskId === 21
+      ? Response.json({
+          result: { task: { ...f.task, id: "21", chatId: "99" } },
+        })
+      : undefined,
+  );
+  const p = await f.writer.prepare({
+    ...create,
+    checklist: ["Проверить"],
+    comment: "тест",
+    uploads: [{ path: "report.txt", message: "Файл к задаче" }],
+  });
+  assert.equal(writes(f.calls).length, 0);
+  assert.match(
+    p.approvalPrompt.prompt,
+    /Комментарий в обсуждение новой задачи/u,
+  );
+  assert.equal(p.approvalPrompt.prompt.includes("undefined:"), false);
+  assert.equal(p.approvalPrompt.prompt.includes('"path"'), false);
+  const r = await f.writer.apply(p.draftId);
+  assert.equal(r.state, "applied");
+  assert.equal(r.taskId, 21);
+  assert.deepEqual(
+    writes(f.calls).map((v) => v.method),
+    [
+      "tasks.task.add",
+      "task.checklistitem.add",
+      "im.message.add",
+      "im.v2.File.upload",
+    ],
+  );
+  assert.equal(writes(f.calls).at(-1)?.params.dialogId, "chat99");
+  assert.equal(
+    (r.operations as Record<string, unknown>[])[0]?.commentSent,
+    true,
+  );
+  assert.deepEqual((r.operations as Record<string, unknown>[])[0]?.files, [
+    { fileId: 55, messageId: 66, name: "report.txt" },
+  ]);
+  await f.writer.apply(p.draftId);
+  assert.equal(writes(f.calls).length, 4);
+});
+
+test("creation checks every attached file before creating and preserves the new task if its chat fails", async (t) => {
+  const f = await fixture(t);
+  await writeFile(join(f.root, "report.txt"), "Report");
+  const input = { ...create, uploads: [{ path: "report.txt" }] };
+  const p = await f.writer.prepare(input);
+  await writeFile(join(f.root, "report.txt"), "Changed");
+  await assert.rejects(f.writer.apply(p.draftId), /UPLOAD_FILE_CHANGED/u);
+  assert.equal(writes(f.calls).length, 0);
+  f.intercept((method, params) =>
+    method === "tasks.task.get" && params.taskId === 21
+      ? Response.json({
+          result: { task: { ...f.task, id: "21", chatId: "0" } },
+        })
+      : undefined,
+  );
+  const next = await f.writer.prepare(input);
+  const r = await f.writer.apply(next.draftId);
+  assert.equal(r.state, "partial");
+  assert.equal(r.taskId, 21);
+  assert.equal(r.error, "TASK_CHAT_UNAVAILABLE");
+  await f.writer.apply(next.draftId);
+  assert.equal(writes(f.calls).length, 1);
+});
+
+
+test("batch refuses a task changed after preflight but before its first write", async t => {
+  const f = await fixture(t);
+  f.intercept((method, params) => method === "tasks.task.get" && params.taskId === 22
+    ? Response.json({result: {task: {...f.task, id: "22"}}}) : undefined);
+  const preview = await f.writer.prepare({action: "batch", actions: [
+    {action: "comment", taskId: 20, message: "first"},
+    {action: "deadline", taskId: 22, deadline: "2026-10-12T18:00:00+03:00"},
+  ]});
+  f.intercept((method, params) => {
+    if (method === "tasks.task.get" && params.taskId === 22)
+      return Response.json({result: {task: {...f.task, id: "22", changedDate: writes(f.calls).length > 0 ? "2026-10-04T12:00:00+03:00" : f.task.changedDate}}});
+    return undefined;
+  });
+  const receipt = await f.writer.apply(preview.draftId);
+  assert.equal(receipt.state, "partial");
+  assert.equal(receipt.error, "TASK_CHANGED_SINCE_PREVIEW");
+  assert.equal(receipt.completedOperations, 1);
+  assert.deepEqual(writes(f.calls).map(v => v.method), ["im.message.add"]);
+  await f.writer.apply(preview.draftId);
+  assert.equal(writes(f.calls).length, 1);
 });

@@ -10,6 +10,7 @@ import {
 } from "./mcp-server.ts";
 import { PluginUpdater } from "./plugin-updater.ts";
 import { ReadCapabilityReader } from "./read-capabilities.ts";
+import { resolveAttachmentsRoot } from "./attachments-root.ts";
 import { TaskWriter } from "./task-writes.ts";
 import { TaskReader } from "./tasks.ts";
 
@@ -17,7 +18,7 @@ function unavailableServer(
   error: ConfigurationError,
   updater: PluginUpdaterPort | null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.6.0" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.1" });
   registerUpdaterTools(server, updater);
   server.registerTool(
     "bitrix24_connection_check",
@@ -38,9 +39,9 @@ function unavailableServer(
   return server;
 }
 
-export function serverFromEnvironment(
+export async function serverFromEnvironment(
   env: Readonly<Record<string, string | undefined>> = process.env,
-): McpServer {
+): Promise<McpServer> {
   let updater: PluginUpdater | null = null;
   try {
     updater = new PluginUpdater(env);
@@ -51,7 +52,8 @@ export function serverFromEnvironment(
     const client = new BitrixClient(loadConfig(env));
     const tasks = new TaskReader(client);
     const capabilities = new ReadCapabilityReader(client);
-    const files = new TaskFileReader(client, env.BITRIX24_ATTACHMENTS_ROOT);
+    const attachmentsRoot = await resolveAttachmentsRoot(env);
+    const files = new TaskFileReader(client, attachmentsRoot);
     return createMcpServer(
       {
         connectionCheck: () => tasks.connectionCheck(),
@@ -70,7 +72,7 @@ export function serverFromEnvironment(
       },
       updater,
       files,
-      new TaskWriter(client, env.PLUGIN_DATA, env.BITRIX24_ATTACHMENTS_ROOT),
+      new TaskWriter(client, env.PLUGIN_DATA, attachmentsRoot),
     );
   } catch (error) {
     if (error instanceof ConfigurationError) return unavailableServer(error, updater);
@@ -78,5 +80,5 @@ export function serverFromEnvironment(
   }
 }
 
-const server = serverFromEnvironment();
+const server = await serverFromEnvironment();
 await server.connect(new StdioServerTransport());

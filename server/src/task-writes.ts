@@ -13,7 +13,7 @@ const id = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const text = z.string().trim().min(1).max(10_000);
 const date = z.iso.datetime({ offset: true });
 const people = z.array(id).max(50);
-export const taskWriteSchema = z.discriminatedUnion("action", [
+const singleWriteSchema = z.discriminatedUnion("action", [
   z
     .object({
       action: z.literal("create"),
@@ -21,6 +21,18 @@ export const taskWriteSchema = z.discriminatedUnion("action", [
       description: text,
       responsibleId: id,
       deadline: date,
+      comment: text.optional(),
+      uploads: z
+        .array(
+          z
+            .object({
+              path: z.string().min(1).max(1000),
+              message: text.optional(),
+            })
+            .strict(),
+        )
+        .max(10)
+        .optional(),
       auditors: people.optional(),
       accomplices: people.optional(),
       projectId: id.optional(),
@@ -50,6 +62,57 @@ export const taskWriteSchema = z.discriminatedUnion("action", [
     })
     .strict(),
   z
+    .object({
+      action: z.literal("update"),
+      taskId: id,
+      title: z.string().trim().min(1).max(250).optional(),
+      description: z.string().max(10_000).optional(),
+      deadline: date.nullable().optional(),
+      auditors: people.optional(),
+      addAuditors: people.optional(),
+      removeAuditors: people.optional(),
+      accomplices: people.optional(),
+      projectId: id.nullable().optional(),
+      priority: z.enum(["0", "1", "2"]).optional(),
+      tags: z.array(z.string().trim().min(1).max(100)).max(30).optional(),
+      checklist: z.array(z.string().trim().min(1).max(500)).max(50).optional(),
+      checklistUpdates: z
+        .array(
+          z
+            .object({
+              id,
+              title: z.string().trim().min(1).max(500).optional(),
+              completed: z.boolean().optional(),
+            })
+            .strict()
+            .refine((v) => v.title !== undefined || v.completed !== undefined),
+        )
+        .max(50)
+        .optional(),
+    })
+    .strict()
+    .refine((v) =>
+      Object.entries(v).some(
+        ([k, value]) =>
+          !["action", "taskId"].includes(k) &&
+          value !== undefined &&
+          (!Array.isArray(value) ||
+            value.length > 0 ||
+            ["auditors", "accomplices", "tags"].includes(k)),
+      ),
+    )
+    .refine(
+      (v) =>
+        v.auditors === undefined ||
+        (v.addAuditors === undefined && v.removeAuditors === undefined),
+    )
+    .refine(
+      (v) =>
+        !(v.addAuditors ?? []).some((n) =>
+          (v.removeAuditors ?? []).includes(n),
+        ),
+    ),
+  z
     .object({ action: z.literal("comment"), taskId: id, message: text })
     .strict(),
   z
@@ -69,7 +132,17 @@ export const taskWriteSchema = z.discriminatedUnion("action", [
     .object({ action: z.literal("deadline"), taskId: id, deadline: date })
     .strict(),
 ]);
-export type TaskWrite = z.infer<typeof taskWriteSchema>;
+export type TaskWrite = z.infer<typeof singleWriteSchema>;
+export const taskWriteSchema = z.discriminatedUnion("action", [
+  ...singleWriteSchema.options,
+  z
+    .object({
+      action: z.literal("batch"),
+      actions: z.array(singleWriteSchema).min(1).max(20),
+    })
+    .strict(),
+]);
+export type TaskRequest = z.infer<typeof taskWriteSchema>;
 type Data = Record<string, unknown>;
 const object = (value: unknown): Data =>
   value !== null && typeof value === "object" && !Array.isArray(value)
@@ -96,18 +169,32 @@ type Snapshot = {
   changedDate: string;
   chatId: number | null;
   method: WriteMethod;
+  editState?: Data;
+};
+type FileStamp = { name: string; bytes: number; sha256: string };
+type UploadContent = FileStamp & { data: Buffer };
+type Prepared = {
+  input: TaskWrite;
+  snapshot: Snapshot | null;
+  file: FileStamp | null;
+  uploads: FileStamp[];
+  prompt: string;
 };
 type Offer = {
-  schema: 1;
+  schema: 2;
   draftId: string;
   owner: number;
   portal: string;
   createdAt: number;
-  input: TaskWrite;
-  snapshot: Snapshot | null;
-  file: { name: string; bytes: number; sha256: string } | null;
+  input: TaskRequest;
+  steps: Prepared[];
   prompt: string;
 };
+
+// Escape presentation only: the approved task payload retains its original values.
+function previewText(value: string): string {
+  return value.replace(/[\\`*_{}\[\]()#+.!|<>~=$-]/gu, "\\$&");
+}
 
 // One pending preview per webhook owner. State is private plugin data, never inside the bundle.
 export class TaskWriter {
@@ -233,6 +320,12 @@ export class TaskWriter {
             "CHANGED_DATE",
             "CHAT_ID",
             "ACTION",
+            "DESCRIPTION",
+            "AUDITORS",
+            "ACCOMPLICES",
+            "GROUP_ID",
+            "PRIORITY",
+            "TAGS",
           ],
         }),
       ).task,
@@ -251,6 +344,10 @@ export class TaskWriter {
       case "upload":
         if (!positive(task.chatId)) return fail("TASK_CHAT_UNAVAILABLE");
         method = "im.v2.File.upload";
+        break;
+      case "update":
+        if (rights.edit !== true) return fail("ACTION_NOT_ALLOWED");
+        method = "tasks.task.update";
         break;
       case "deadline":
         if (rights.changeDeadline !== true) return fail("ACTION_NOT_ALLOWED");
@@ -295,6 +392,24 @@ export class TaskWriter {
       changedDate: task.changedDate,
       chatId: positive(task.chatId),
       method,
+      ...(input.action === "update"
+        ? {
+            editState: {
+              description: task.description ?? null,
+              auditors: task.auditors ?? [],
+              accomplices: task.accomplices ?? [],
+              projectId: task.groupId ?? null,
+              priority: task.priority ?? null,
+              tags: task.tags ?? [],
+              checklist:
+                input.checklist?.length || input.checklistUpdates?.length
+                  ? await this.#client.call("task.checklistitem.getlist", {
+                      TASKID: input.taskId,
+                    })
+                  : null,
+            },
+          }
+        : {}),
     };
   }
   async #file(path: string) {
@@ -401,141 +516,319 @@ export class TaskWriter {
     }
     return fields;
   }
-  async prepare(raw: TaskWrite) {
-    const input = taskWriteSchema.parse(raw);
-    return this.#locked(async () => {
-      const owner = await this.#owner();
-      let snapshot: Snapshot | null = null;
-      let file: Offer["file"] = null;
-      const lines: string[] = [];
-      if (input.action === "create") {
-        await this.#createFields(input, owner);
+  async #updateFields(
+    input: Extract<TaskWrite, { action: "update" }>,
+    snapshot: Snapshot,
+  ): Promise<Data> {
+    const fields: Data = {};
+    const mapping = {
+      title: "TITLE",
+      description: "DESCRIPTION",
+      deadline: "DEADLINE",
+      auditors: "AUDITORS",
+      accomplices: "ACCOMPLICES",
+      projectId: "GROUP_ID",
+      priority: "PRIORITY",
+      tags: "TAGS",
+    } as const;
+    for (const [key, target] of Object.entries(mapping)) {
+      const value = input[key as keyof typeof mapping];
+      if (value !== undefined)
+        fields[target] = value ?? (key === "projectId" ? 0 : "");
+    }
+    if (input.addAuditors !== undefined || input.removeAuditors !== undefined) {
+      const raw = snapshot.editState?.auditors;
+      if (!Array.isArray(raw) || raw.some((v) => positive(v) === null))
+        return fail("INVALID_RESPONSE");
+      fields.AUDITORS = [
+        ...new Set([
+          ...raw.map((v) => positive(v)!),
+          ...(input.addAuditors ?? []),
+        ]),
+      ].filter((v) => !(input.removeAuditors ?? []).includes(v));
+      if ((fields.AUDITORS as number[]).length > 50)
+        return fail("TOO_MANY_AUDITORS");
+    }
+    for (const person of new Set([
+      ...((fields.AUDITORS as number[]) ?? []),
+      ...(input.accomplices ?? []),
+    ]))
+      await this.#person(person);
+    if (input.projectId) {
+      const raw = await this.#client.call("sonet_group.get", {
+        FILTER: { ID: input.projectId },
+      });
+      if (
+        !(Array.isArray(raw) ? raw : []).some(
+          (v) => positive(object(v).ID) === input.projectId,
+        )
+      )
+        return fail("PROJECT_NOT_FOUND_OR_DENIED");
+    }
+    if (input.checklist?.length) this.#nextChecklistSort(snapshot);
+    const checklist = snapshot.editState?.checklist;
+    if (input.checklistUpdates?.length) {
+      if (!Array.isArray(checklist)) return fail("INVALID_RESPONSE");
+      const ids = new Set(
+        checklist.map((v) => positive(object(v).ID ?? object(v).id)),
+      );
+      if (
+        new Set(input.checklistUpdates.map((v) => v.id)).size !==
+          input.checklistUpdates.length ||
+        input.checklistUpdates.some((v) => !ids.has(v.id))
+      )
+        return fail("CHECKLIST_ITEM_NOT_FOUND");
+    }
+    return fields;
+  }
+  #nextChecklistSort(snapshot: Snapshot): number {
+    const list = snapshot.editState?.checklist;
+    if (!Array.isArray(list)) return fail("INVALID_RESPONSE");
+    return list.reduce((max, row) => {
+      const n = Number(object(row).SORT_INDEX ?? object(row).sortIndex ?? 0);
+      if (!Number.isSafeInteger(n) || n < 0 || n > 2_000_000_000)
+        return fail("INVALID_RESPONSE");
+      return Math.max(max, n + 1);
+    }, 0);
+  }
+  async #prepareOne(input: TaskWrite, owner: number): Promise<Prepared> {
+    let snapshot: Snapshot | null = null;
+    let file: Prepared["file"] = null;
+    const lines: string[] = [];
+    const uploads: FileStamp[] = [];
+    if (input.action === "create") {
+      await this.#createFields(input, owner);
+      lines.push(
+        "Создать задачу в Битрикс24",
+        `Название: ${previewText(input.title)}`,
+        `Описание: ${previewText(input.description)}`,
+        `Ответственный: ${previewText((await this.#person(input.responsibleId)).label)}`,
+        `Срок: ${input.deadline}`,
+      );
+      for (const [key, label] of [
+        ["auditors", "Наблюдатели"],
+        ["accomplices", "Соисполнители"],
+      ] as const) {
+        const labels = [];
+        for (const person of input[key] ?? [])
+          labels.push(previewText((await this.#person(person)).label));
+        if (labels.length) lines.push(`${label}: ${labels.join(", ")}`);
+      }
+      if (input.projectId) {
+        const raw = await this.#client.call("sonet_group.get", {
+          FILTER: { ID: input.projectId },
+        });
+        const project = (Array.isArray(raw) ? raw : [])
+          .map(object)
+          .find((p) => positive(p.ID) === input.projectId);
+        if (!project) return fail("PROJECT_NOT_FOUND_OR_DENIED");
         lines.push(
-          "Создать задачу в Битрикс24",
-          `Название: ${input.title}`,
-          `Описание: ${input.description}`,
-          `Ответственный: ${(await this.#person(input.responsibleId)).label}`,
-          `Срок: ${input.deadline}`,
+          `Проект: ${previewText(String(project.NAME).slice(0, 250))} (ID ${input.projectId})`,
         );
-        for (const [key, label] of [
-          ["auditors", "Наблюдатели"],
-          ["accomplices", "Соисполнители"],
-        ] as const) {
-          const labels = [];
-          for (const person of input[key] ?? [])
-            labels.push((await this.#person(person)).label);
-          if (labels.length) lines.push(`${label}: ${labels.join(", ")}`);
-        }
-        if (input.projectId) {
-          const raw = await this.#client.call("sonet_group.get", {
-            FILTER: { ID: input.projectId },
-          });
-          const project = (Array.isArray(raw) ? raw : [])
-            .map(object)
-            .find((p) => positive(p.ID) === input.projectId);
-          if (!project) return fail("PROJECT_NOT_FOUND_OR_DENIED");
-          lines.push(
-            `Проект: ${String(project.NAME).slice(0, 250)} (ID ${input.projectId})`,
-          );
+      }
+      if (input.checklist?.length)
+        lines.push(
+          "Чек-лист:",
+          ...input.checklist.map((item, i) => `${i + 1}. ${previewText(item)}`),
+        );
+      const extras = Object.fromEntries(
+        Object.entries(input).filter(
+          ([key]) =>
+            ![
+              "action",
+              "title",
+              "description",
+              "responsibleId",
+              "deadline",
+              "auditors",
+              "accomplices",
+              "projectId",
+              "checklist",
+              "comment",
+              "uploads",
+            ].includes(key),
+        ),
+      );
+      const labels: Record<string, string> = {
+        priority: "Приоритет",
+        parentId: "Родительская задача",
+        tags: "Теги",
+        taskControl: "Контроль результата",
+        allowChangeDeadline: "Исполнитель может менять срок",
+        allowTimeTracking: "Учёт времени",
+        timeEstimate: "Оценка времени, секунд",
+        startDatePlan: "Начало по плану",
+        endDatePlan: "Окончание по плану",
+        customFields: "Пользовательские поля",
+      };
+      for (const [key, value] of Object.entries(extras))
+        lines.push(
+          `${labels[key]}: ${typeof value === "boolean" ? (value ? "да" : "нет") : previewText(JSON.stringify(value))}`,
+        );
+      if (input.comment)
+        lines.push(
+          `Комментарий в обсуждение новой задачи: ${previewText(input.comment)}`,
+        );
+      for (const upload of input.uploads ?? []) {
+        const content = await this.#file(upload.path);
+        uploads.push({
+          name: content.name,
+          bytes: content.bytes,
+          sha256: content.sha256,
+        });
+        lines.push(
+          `Файл в чат новой задачи: ${previewText(content.name)} (${content.bytes} байт)`,
+          `Текст к файлу: ${previewText(upload.message ?? "без сообщения")}`,
+        );
+      }
+    } else {
+      snapshot = await this.#snapshot(input, owner);
+      const labels = {
+        update: "Изменить существующую задачу",
+        comment: "Добавить комментарий",
+        upload: "Добавить файл в чат задачи",
+        complete: "Закрыть задачу",
+        rework: "Вернуть на доработку",
+        reassign: "Изменить ответственного",
+        deadline: "Изменить срок",
+      };
+      lines.push(
+        labels[input.action],
+        `Задача №${input.taskId}: ${previewText(snapshot.title)}`,
+        `Ответственный: ${previewText((await this.#person(snapshot.responsibleId)).label)}`,
+        `Текущий срок: ${previewText(snapshot.deadline ?? "не задан")}`,
+        `Текущий статус: ${snapshot.status}`,
+      );
+      if (input.action === "update") {
+        const fields = await this.#updateFields(input, snapshot);
+        const labels: Record<string, string> = {
+          TITLE: "Новое название",
+          DESCRIPTION: "Новое описание",
+          DEADLINE: "Новый срок",
+          AUDITORS: "Наблюдатели после правки",
+          ACCOMPLICES: "Соисполнители",
+          GROUP_ID: "Проект",
+          PRIORITY: "Приоритет",
+          TAGS: "Теги",
+        };
+        for (const [key, value] of Object.entries(fields)) {
+          let display =
+            typeof value === "string" ? value : JSON.stringify(value);
+          if (["AUDITORS", "ACCOMPLICES"].includes(key)) {
+            const names: string[] = [];
+            for (const person of value as number[])
+              names.push((await this.#person(person)).label);
+            display = names.join(", ") || "нет";
+          }
+          lines.push(`${labels[key]}: ${previewText(display || "очистить")}`);
         }
         if (input.checklist?.length)
           lines.push(
-            "Чек-лист:",
-            ...input.checklist.map((item, i) => `${i + 1}. ${item}`),
+            "Добавить в чек-лист:",
+            ...input.checklist.map((v, i) => `${i + 1}. ${previewText(v)}`),
           );
-        const extras = Object.fromEntries(
-          Object.entries(input).filter(
-            ([key]) =>
-              ![
-                "action",
-                "title",
-                "description",
-                "responsibleId",
-                "deadline",
-                "auditors",
-                "accomplices",
-                "projectId",
-                "checklist",
-              ].includes(key),
-          ),
-        );
-        const labels: Record<string, string> = {
-          priority: "Приоритет",
-          parentId: "Родительская задача",
-          tags: "Теги",
-          taskControl: "Контроль результата",
-          allowChangeDeadline: "Исполнитель может менять срок",
-          allowTimeTracking: "Учёт времени",
-          timeEstimate: "Оценка времени, секунд",
-          startDatePlan: "Начало по плану",
-          endDatePlan: "Окончание по плану",
-          customFields: "Пользовательские поля",
-        };
-        for (const [key, value] of Object.entries(extras))
+        for (const change of input.checklistUpdates ?? [])
           lines.push(
-            `${labels[key]}: ${typeof value === "boolean" ? (value ? "да" : "нет") : JSON.stringify(value)}`,
+            `Правка пункта №${change.id}: ${previewText(JSON.stringify(change))}`,
           );
-      } else {
-        snapshot = await this.#snapshot(input, owner);
-        const labels = {
-          comment: "Добавить комментарий",
-          upload: "Добавить файл в чат задачи",
-          complete: "Закрыть задачу",
-          rework: "Вернуть на доработку",
-          reassign: "Изменить ответственного",
-          deadline: "Изменить срок",
-        };
-        lines.push(
-          labels[input.action],
-          `Задача №${input.taskId}: ${snapshot.title}`,
-          `Ответственный: ${(await this.#person(snapshot.responsibleId)).label}`,
-          `Текущий срок: ${snapshot.deadline ?? "не задан"}`,
-          `Текущий статус: ${snapshot.status}`,
-        );
-        if (input.action === "comment" || input.action === "upload")
-          lines.push(`Текст: ${input.message ?? "без сообщения"}`);
-        if (input.action === "comment")
-          lines.push(
-            `Куда: ${snapshot.chatId ? "чат задачи" : "комментарии задачи"}`,
-          );
-        if (input.action === "deadline")
-          lines.push(`Новый срок: ${input.deadline}`);
-        if (input.action === "reassign")
-          lines.push(
-            `Новый ответственный: ${(await this.#person(input.responsibleId)).label}`,
-          );
-        if (input.action === "complete")
-          lines.push(
-            snapshot.status === 4
-              ? "Будет принят результат задачи на контроле."
-              : "Будет завершена задача; при включённом контроле она может перейти на проверку постановщику.",
-          );
-        if (input.action === "rework")
-          lines.push(
-            snapshot.status === 4
-              ? "Результат на контроле будет отклонён."
-              : "Закрытая задача будет возобновлена.",
-          );
-        if (input.action === "upload") {
-          const content = await this.#file(input.path);
-          file = {
-            name: content.name,
-            bytes: content.bytes,
-            sha256: content.sha256,
-          };
-          lines.push(`Файл: ${file.name} (${file.bytes} байт)`);
-        }
       }
+      if (input.action === "comment" || input.action === "upload")
+        lines.push(`Текст: ${previewText(input.message ?? "без сообщения")}`);
+      if (input.action === "comment")
+        lines.push(
+          `Куда: ${snapshot.chatId ? "чат задачи" : "комментарии задачи"}`,
+        );
+      if (input.action === "deadline")
+        lines.push(`Новый срок: ${input.deadline}`);
+      if (input.action === "reassign")
+        lines.push(
+          `Новый ответственный: ${previewText((await this.#person(input.responsibleId)).label)}`,
+        );
+      if (input.action === "complete")
+        lines.push(
+          snapshot.status === 4
+            ? "Будет принят результат задачи на контроле."
+            : "Будет завершена задача; при включённом контроле она может перейти на проверку постановщику.",
+        );
+      if (input.action === "rework")
+        lines.push(
+          snapshot.status === 4
+            ? "Результат на контроле будет отклонён."
+            : "Закрытая задача будет возобновлена.",
+        );
+      if (input.action === "upload") {
+        const content = await this.#file(input.path);
+        file = {
+          name: content.name,
+          bytes: content.bytes,
+          sha256: content.sha256,
+        };
+        lines.push(`Файл: ${previewText(file.name)} (${file.bytes} байт)`);
+      }
+    }
+    return {
+      input,
+      snapshot,
+      file,
+      uploads,
+      prompt: lines
+        .map((line, index) =>
+          index === 0
+            ? `## ${line}`
+            : line.replace(/^([^:\n]+): /u, "**$1:** "),
+        )
+        .join("\n\n"),
+    };
+  }
+  async prepare(raw: TaskRequest) {
+    const input = taskWriteSchema.parse(raw);
+    return this.#locked(async () => {
+      const owner = await this.#owner();
+      const actions = input.action === "batch" ? input.actions : [input];
+      // Combining two updates for one card would resolve participant deltas against the same old state.
+      const updates = actions
+        .filter((v) => v.action === "update")
+        .map((v) => v.taskId);
+      if (new Set(updates).size !== updates.length)
+        return fail("DUPLICATE_TASK_UPDATE");
+      const steps: Prepared[] = [];
+      for (const action of actions)
+        steps.push(await this.#prepareOne(action, owner));
+      if (
+        steps.reduce(
+          (total, step) =>
+            total +
+            (step.file?.bytes ?? 0) +
+            step.uploads.reduce((n, v) => n + v.bytes, 0),
+          0,
+        ) > FILE_LIMIT
+      )
+        return fail("UPLOAD_BATCH_TOO_LARGE");
+      const seenTasks = new Set<number>();
+      const batchPrompt = steps
+        .map((step, index) => {
+          const parts = step.prompt.split("\n\n");
+          if (step.input.action !== "create") {
+            if (seenTasks.has(step.input.taskId)) {
+              parts.splice(1, 4); // Task context already appears in this same approval card.
+            } else seenTasks.add(step.input.taskId);
+          }
+          parts[0] = `### ${index + 1}. ${parts[0]!.slice(3)}`;
+          return parts.join("\n\n");
+        })
+        .join("\n\n");
       const offer: Offer = {
-        schema: 1,
+        schema: 2,
         draftId: randomUUID(),
         owner,
         portal: this.#client.taskWebUrl(1),
         createdAt: this.#now(),
         input,
-        snapshot,
-        file,
-        prompt: lines.join("\n\n"),
+        steps,
+        prompt:
+          input.action === "batch"
+            ? `## Все изменения — одно подтверждение\n\n${batchPrompt}\n\nДействия выполнятся по порядку. При ошибке выполнение остановится; уже выполненное сохранится.`
+            : steps[0]!.prompt,
       };
       // Telegram cards are bounded. Refuse rather than hide/truncate any approved field.
       if (offer.prompt.length > 3500) return fail("PREVIEW_TOO_LARGE");
@@ -560,7 +853,7 @@ export class TaskWriter {
     const raw = object(
       JSON.parse(await readFile(join(this.#root(), "active.json"), "utf8")),
     );
-    if (raw.schema !== 1 || raw.draftId !== draftId)
+    if (raw.schema !== 2 || raw.draftId !== draftId)
       return fail("DRAFT_SUPERSEDED");
     const offer = raw as Offer;
     const age = this.#now() - offer.createdAt;
@@ -571,7 +864,15 @@ export class TaskWriter {
       offer.portal !== this.#client.taskWebUrl(1)
     )
       return fail("DRAFT_OWNER_CHANGED");
-    taskWriteSchema.parse(offer.input);
+    const input = taskWriteSchema.parse(offer.input);
+    const actions = input.action === "batch" ? input.actions : [input];
+    if (
+      !Array.isArray(offer.steps) ||
+      JSON.stringify(
+        offer.steps.map((step) => singleWriteSchema.parse(step.input)),
+      ) !== JSON.stringify(actions)
+    )
+      return fail("INVALID_DRAFT_STATE");
     return offer;
   }
   async status(draftId: string) {
@@ -604,100 +905,270 @@ export class TaskWriter {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
       const offer = await this.#offer(draftId);
-      const input = offer.input;
-      if (input.action !== "create") {
-        const current = await this.#snapshot(input, offer.owner);
-        if (JSON.stringify(current) !== JSON.stringify(offer.snapshot))
-          return fail("TASK_CHANGED_SINCE_PREVIEW");
+      const prepared: {
+        step: Prepared;
+        file: UploadContent | null;
+        uploads: UploadContent[];
+        fields: Data | null;
+      }[] = [];
+      // Validate the entire request before the first write.
+      for (const step of offer.steps) {
+        const input = step.input;
+        if (input.action !== "create") {
+          const current = await this.#snapshot(input, offer.owner);
+          if (JSON.stringify(current) !== JSON.stringify(step.snapshot))
+            return fail("TASK_CHANGED_SINCE_PREVIEW");
+        }
+        const file =
+          input.action === "upload" ? await this.#file(input.path) : null;
+        if (file && file.sha256 !== step.file?.sha256)
+          return fail("UPLOAD_FILE_CHANGED");
+        const fields =
+          input.action === "create"
+            ? await this.#createFields(input, offer.owner)
+            : input.action === "update"
+              ? await this.#updateFields(input, step.snapshot!)
+              : null;
+        if (input.action === "create")
+          for (const userId of new Set([
+            input.responsibleId,
+            ...(input.auditors ?? []),
+            ...(input.accomplices ?? []),
+          ]))
+            await this.#person(userId);
+        const uploads: UploadContent[] = [];
+        if (input.action === "create")
+          for (const [index, upload] of (input.uploads ?? []).entries()) {
+            const content = await this.#file(upload.path);
+            if (content.sha256 !== step.uploads[index]?.sha256)
+              return fail("UPLOAD_FILE_CHANGED");
+            uploads.push(content);
+          }
+        prepared.push({ step, file, uploads, fields });
       }
-      const file =
-        input.action === "upload" ? await this.#file(input.path) : null;
-      if (file && file.sha256 !== offer.file?.sha256)
-        return fail("UPLOAD_FILE_CHANGED");
-      const fields =
-        input.action === "create"
-          ? await this.#createFields(input, offer.owner)
-          : null;
-      if (input.action === "create") {
-        for (const userId of new Set([
-          input.responsibleId,
-          ...(input.auditors ?? []),
-          ...(input.accomplices ?? []),
-        ]))
-          await this.#person(userId);
-      }
-      // Persist BEFORE any side effect. Even a crash cannot replay this write.
       let result: Data = {
         owner: offer.owner,
         portal: offer.portal,
         state: "unknown",
         draftId,
-        action: input.action,
-        taskId: input.action === "create" ? null : input.taskId,
+        action: offer.input.action,
+        taskId:
+          offer.input.action === "batch" || offer.input.action === "create"
+            ? null
+            : offer.input.taskId,
         completedChecklistItems: 0,
+        completedOperations: 0,
+        completedWrites: 0,
+        operations: [],
       };
       await this.#atomic(receiptPath, result);
+      const operations: Data[] = [];
+      const touchedTasks = new Set<number>();
+      let active: Data | null = null;
+      const persist = async () => {
+        result.operations = operations;
+        await this.#atomic(receiptPath, result);
+      };
+      const write = async (method: WriteMethod, params: Data) => {
+        result.currentMethod = method;
+        if (active) active.state = "unknown";
+        await persist(); // The pending method remains unknown after a crash, never replayed.
+        const response = await this.#client.write(method, params);
+        result.completedWrites = Number(result.completedWrites) + 1;
+        if (active) active.completedWrites = Number(active.completedWrites) + 1;
+        await persist();
+        return response;
+      };
       try {
-        if (input.action === "create") {
-          const response = object(
-            await this.#client.write("tasks.task.add", { fields }),
-          );
-          const taskId =
-            positive(object(response.task).id) ?? fail("WRITE_RESULT_UNKNOWN");
-          result.taskId = taskId;
-          await this.#atomic(receiptPath, result);
-          for (const [index, title] of (input.checklist ?? []).entries()) {
-            await this.#client.write("task.checklistitem.add", {
-              TASKID: taskId,
-              FIELDS: { TITLE: title, SORT_INDEX: index },
-            });
-            result.completedChecklistItems = index + 1;
-            await this.#atomic(receiptPath, result);
+        for (const { step, file, uploads, fields } of prepared) {
+          const input = step.input;
+          active = {
+            action: input.action,
+            taskId: input.action === "create" ? null : input.taskId,
+            state: "pending",
+            completedWrites: 0,
+            completedChecklistItems: 0,
+            completedChecklistUpdates: 0,
+          };
+          operations.push(active);
+          result.currentOperation = operations.length - 1;
+          if (input.action === "create") {
+            const response = object(await write("tasks.task.add", { fields }));
+            const taskId =
+              positive(object(response.task).id) ??
+              fail("WRITE_RESULT_UNKNOWN");
+            active.taskId = taskId;
+            if (offer.input.action !== "batch") result.taskId = taskId;
+            await persist();
+          } else {
+            const snapshot = step.snapshot!;
+            // Recheck permissions and routing after preceding operations, without treating our own writes as stale preview data.
+            const current = await this.#snapshot(input, offer.owner);
+            if (
+              (!touchedTasks.has(input.taskId) &&
+                JSON.stringify(current) !== JSON.stringify(snapshot)) ||
+              current.chatId !== snapshot.chatId ||
+              current.method !== snapshot.method
+            )
+              return fail("TASK_CHANGED_SINCE_PREVIEW");
+            let params: Data = { taskId: input.taskId };
+            if (input.action === "comment")
+              params = snapshot.chatId
+                ? {
+                    DIALOG_ID: `chat${snapshot.chatId}`,
+                    MESSAGE: input.message,
+                  }
+                : { "0": input.taskId, "1": { POST_MESSAGE: input.message } };
+            if (input.action === "upload")
+              params = {
+                dialogId: `chat${snapshot.chatId}`,
+                fields: {
+                  name: file!.name,
+                  content: file!.data.toString("base64"),
+                  ...(input.message ? { message: input.message } : {}),
+                },
+              };
+            if (input.action === "deadline")
+              params.fields = { DEADLINE: input.deadline };
+            if (input.action === "reassign")
+              params.fields = { RESPONSIBLE_ID: input.responsibleId };
+            if (input.action === "update") params.fields = fields;
+            if (input.action !== "update" || Object.keys(fields!).length) {
+              const response = await write(snapshot.method, params);
+              if (input.action === "upload") {
+                const uploaded = object(response);
+                const fileId = positive(object(uploaded.file).id),
+                  messageId = positive(uploaded.messageId);
+                if (!fileId || !messageId) return fail("WRITE_RESULT_UNKNOWN");
+                active.fileId = fileId;
+                active.messageId = messageId;
+                if (offer.input.action !== "batch") {
+                  result.fileId = fileId;
+                  result.messageId = messageId;
+                }
+                await persist();
+              }
+            }
           }
-        } else {
-          const snapshot = offer.snapshot!;
-          let params: Data = { taskId: input.taskId };
-          if (input.action === "comment")
-            params = snapshot.chatId
-              ? { DIALOG_ID: `chat${snapshot.chatId}`, MESSAGE: input.message }
-              : {
-                  // Legacy comment API uses positional REST parameters.
-                  "0": input.taskId,
-                  "1": { POST_MESSAGE: input.message },
-                };
-          if (input.action === "upload")
-            params = {
-              dialogId: `chat${snapshot.chatId}`,
-              fields: {
-                name: file!.name,
-                content: file!.data.toString("base64"),
-                ...(input.message ? { message: input.message } : {}),
-              },
-            };
-          if (input.action === "deadline")
-            params.fields = { DEADLINE: input.deadline };
-          if (input.action === "reassign")
-            params.fields = { RESPONSIBLE_ID: input.responsibleId };
-          await this.#client.write(snapshot.method, params);
+          if (input.action === "create" || input.action === "update") {
+            for (const [index, title] of (input.checklist ?? []).entries()) {
+              await write("task.checklistitem.add", {
+                TASKID: active.taskId,
+                FIELDS: {
+                  TITLE: title,
+                  SORT_INDEX:
+                    index +
+                    (input.action === "update"
+                      ? this.#nextChecklistSort(step.snapshot!)
+                      : 0),
+                },
+              });
+              active.completedChecklistItems = index + 1;
+              result.completedChecklistItems =
+                Number(result.completedChecklistItems) + 1;
+              await persist();
+            }
+            if (input.action === "update")
+              for (const change of input.checklistUpdates ?? []) {
+                await write("task.checklistitem.update", {
+                  TASKID: input.taskId,
+                  ITEMID: change.id,
+                  FIELDS: {
+                    ...(change.title !== undefined
+                      ? { TITLE: change.title }
+                      : {}),
+                    ...(change.completed !== undefined
+                      ? { IS_COMPLETE: change.completed ? "Y" : "N" }
+                      : {}),
+                  },
+                });
+                active.completedChecklistUpdates =
+                  Number(active.completedChecklistUpdates) + 1;
+                await persist();
+              }
+          }
+          if (input.action === "create") {
+            const taskId = Number(active.taskId);
+            if (input.comment) {
+              const route = await this.#snapshot(
+                { action: "comment", taskId, message: input.comment },
+                offer.owner,
+              );
+              await write(
+                route.method,
+                route.chatId
+                  ? { DIALOG_ID: `chat${route.chatId}`, MESSAGE: input.comment }
+                  : { "0": taskId, "1": { POST_MESSAGE: input.comment } },
+              );
+              active.commentSent = true;
+              await persist();
+            }
+            active.files = [];
+            for (const [index, file] of uploads.entries()) {
+              const upload = input.uploads![index]!;
+              const route = await this.#snapshot(
+                { action: "upload", taskId, path: upload.path },
+                offer.owner,
+              );
+              const response = object(
+                await write(route.method, {
+                  dialogId: `chat${route.chatId}`,
+                  fields: {
+                    name: file.name,
+                    content: file.data.toString("base64"),
+                    ...(upload.message ? { message: upload.message } : {}),
+                  },
+                }),
+              );
+              const fileId = positive(object(response.file).id),
+                messageId = positive(response.messageId);
+              if (!fileId || !messageId) return fail("WRITE_RESULT_UNKNOWN");
+              (active.files as Data[]).push({
+                fileId,
+                messageId,
+                name: file.name,
+              });
+              await persist();
+            }
+          }
+          touchedTasks.add(Number(active.taskId));
+          active.state = "applied";
+          active.webUrl = this.#client.taskWebUrl(Number(active.taskId));
+          result.completedOperations = Number(result.completedOperations) + 1;
+          await persist();
         }
         result.state = "applied";
+        delete result.currentMethod;
       } catch (error) {
-        result.state =
-          result.taskId && input.action === "create"
-            ? "partial"
-            : error instanceof BitrixRequestError &&
-                error.code !== "WRITE_RESULT_UNKNOWN"
-              ? "failed"
-              : "unknown";
-        result.error =
+        const code =
           error instanceof BitrixRequestError
             ? error.code
             : "WRITE_RESULT_UNKNOWN";
+        const unknown = code === "WRITE_RESULT_UNKNOWN";
+        if (active) {
+          active.state = unknown
+            ? "unknown"
+            : Number(active.completedWrites) > 0
+              ? "partial"
+              : "failed";
+          active.error = code;
+        }
+        result.state =
+          unknown &&
+          Number(result.completedOperations) === 0 &&
+          !positive(active?.taskId)
+            ? "unknown"
+            : Number(result.completedWrites) > 0
+              ? "partial"
+              : unknown
+                ? "unknown"
+                : "failed";
+        result.error = code;
         result.doNotRetry = true;
       }
       if (positive(result.taskId))
         result.webUrl = this.#client.taskWebUrl(Number(result.taskId));
-      await this.#atomic(receiptPath, result);
+      await persist();
       await rm(join(this.#root(), "active.json"), { force: true });
       const { owner: _owner, portal: _portal, ...receipt } = result;
       return receipt;
