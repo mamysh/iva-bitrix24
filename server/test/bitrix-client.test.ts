@@ -246,3 +246,19 @@ test("write methods stay separate from read allowlist and never retry uncertain 
     assert.equal(calls, 1);
   }
 });
+
+test("only explicit checklist-update null is success; missing results and other nulls stay unknown", async () => {
+  for (const [method, envelope, success] of [
+    ["task.checklistitem.update", { result: null }, true],
+    ["task.checklistitem.update", {}, false],
+    ["task.checklistitem.update", { result: false }, false],
+    ["tasks.task.update", { result: null }, false],
+    ["im.disk.file.delete", { result: null }, false],
+  ] as const) {
+    let calls = 0;
+    const client = new BitrixClient(config, { fetch: async () => { calls++; return Response.json(envelope); } });
+    if (success) assert.equal(await client.write(method, {}), null);
+    else await assert.rejects(client.write(method, {}), /WRITE_RESULT_UNKNOWN/u);
+    assert.equal(calls, 1);
+  }
+});

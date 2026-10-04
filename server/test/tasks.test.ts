@@ -111,6 +111,7 @@ test("normalizes task semantics and embedded display names without extra scopes"
               createdBy: "43",
               creator: { id: "43", name: "Synthetic Creator" },
               groupId: "9",
+              stageId: "32",
               group: {
                 id: "9",
                 name: "Synthetic Project",
@@ -154,6 +155,7 @@ test("normalizes task semantics and embedded display names without extra scopes"
     createdBy: "43",
     createdByName: "Synthetic Creator",
     groupId: "9",
+    stageId: "32",
     groupName: "Synthetic Project",
     parentId: null,
     mark: "P",

@@ -39,6 +39,7 @@ async function connectedClient(taskReader: BitrixReaderPort = reader()) {
     apply: async (input) => ({ state: "started", input }),
     status: async () => ({ state: "never_run" }),
   }, files(), {
+    stages: async (projectId) => ({ projectId, stages: [{ id: 32, title: "Проверка", sort: 100 }], untrustedContent: true }),
     prepare: async () => ({ draftId: "00000000-0000-4000-8000-000000000001", expiresAt: "2026-10-03T12:30:00Z", approvalPrompt: { prompt: "Превью", options: [{ id: "confirm", label: "Подтвердить" }, { id: "cancel", label: "Отменить" }], allowFreeform: true }, untrustedContent: true }),
     apply: async (draftId) => ({ state: "applied", draftId }),
     cancel: async (draftId) => ({ state: "cancelled", draftId }),
@@ -73,6 +74,7 @@ test("publishes bounded task, document and update tools", async (t) => {
       "bitrix24_list_task_documents",
       "bitrix24_list_tasks",
       "bitrix24_prepare_task_action",
+      "bitrix24_project_stages",
       "bitrix24_release_task_document",
       "bitrix24_search_people",
       "bitrix24_search_projects",
@@ -371,4 +373,28 @@ test("tool discovery publishes task action fields and nested batch schemas", asy
   assert.ok(props[field], field);
  assert.match(JSON.stringify(props.actions), /batch|checklistUpdates/u);
  assert.deepEqual(schema.required, ["action"]);
+});
+
+test("MCP discovers and validates project stages and stage/chat-deletion actions", async (t) => {
+  const { client, server } = await connectedClient();
+  t.after(async () => { await client.close(); await server.close(); });
+  const stages = await client.callTool({ name: "bitrix24_project_stages", arguments: { projectId: 9 } });
+  assert.equal(stages.isError, undefined);
+  assert.match(JSON.stringify(stages.content), /Проверка/u);
+  for (const arguments_ of [
+    { action: "stage", taskId: 20, stageId: 32 },
+    { action: "delete_file", taskId: 20, fileId: 55, messageId: 66 },
+    { action: "delete_message", taskId: 20, messageId: 66 },
+  ]) {
+    const result = await client.callTool({ name: "bitrix24_prepare_task_action", arguments: arguments_ });
+    assert.notEqual(result.isError, true);
+  }
+  for (const arguments_ of [
+    { action: "stage", taskId: 20, stageId: 0 },
+    { action: "delete_file", taskId: 20, fileId: 55 },
+    { action: "delete_message", taskId: 20, messageId: 66, chatId: 999 },
+  ]) {
+    const result = await client.callTool({ name: "bitrix24_prepare_task_action", arguments: arguments_ });
+    assert.equal(result.isError, true);
+  }
 });

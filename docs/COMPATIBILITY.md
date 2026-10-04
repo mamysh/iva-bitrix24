@@ -42,3 +42,9 @@ upgrade, rollback and live read smoke tests.
 но показал отсутствие редактирования, ошибку конфигурации загрузки и отдельные подтверждения.
 Новая реализация устраняет эти причины; совместимость IM v2 upload с конкретным порталом
 требует живой проверки после установки.
+
+Prerelease 0.7.0-rc.4 adds project stages and bounded chat deletion. Synthetic tests cover
+complete checklist batches with documented null responses, portal-based reassignment,
+stage permissions and stale previews, chat/file membership, file-delete no-op detection
+and receipt replay. These changes have not been installed or live verified; validation is synthetic (132 tests and bundle discovery).
+Native approval cards use plain text; rich-replies rendering applies to reports separately.

@@ -1,6 +1,6 @@
 {
   "name": "iva-bitrix24",
-  "version": "0.7.0-rc.3",
+  "version": "0.7.0-rc.4",
   "private": true,
   "description": "Bitrix24 task and document integration for Iva with confirmed task actions.",
   "license": "MIT",

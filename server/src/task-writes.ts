@@ -123,6 +123,9 @@ const singleWriteSchema = z.discriminatedUnion("action", [
       message: text.optional(),
     })
     .strict(),
+  z.object({ action: z.literal("stage"), taskId: id, stageId: id }).strict(),
+  z.object({ action: z.literal("delete_file"), taskId: id, fileId: id, messageId: id }).strict(),
+  z.object({ action: z.literal("delete_message"), taskId: id, messageId: id }).strict(),
   z.object({ action: z.literal("complete"), taskId: id }).strict(),
   z.object({ action: z.literal("rework"), taskId: id }).strict(),
   z
@@ -153,7 +156,7 @@ for (const option of singleWriteSchema.options)
 export const taskWriteInputSchema = z.object({
   ...discoveryShape,
   deadline: date.nullable().optional(),
-  action: z.enum(["create", "update", "comment", "upload", "complete", "rework", "reassign", "deadline", "batch"]),
+  action: z.enum(["create", "update", "comment", "upload", "complete", "rework", "reassign", "deadline", "stage", "delete_file", "delete_message", "batch"]),
   actions: z.array(singleWriteSchema).min(1).max(20).optional(),
 }).strict().refine(value => taskWriteSchema.safeParse(value).success, "Invalid task action");
 
@@ -193,6 +196,7 @@ type Prepared = {
   file: FileStamp | null;
   uploads: FileStamp[];
   prompt: string;
+  displayLines: string[];
 };
 type Offer = {
   schema: 2;
@@ -205,9 +209,9 @@ type Offer = {
   prompt: string;
 };
 
-// Escape presentation only: the approved task payload retains its original values.
+// Native ask_question sends literal text, not Markdown or rich HTML. Remove invisible controls only.
 function previewText(value: string): string {
-  return value.replace(/[\\`*_{}\[\]()#+.!|<>~=$-]/gu, "\\$&");
+  return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u202A-\u202E\u2066-\u2069]/gu, "");
 }
 
 // One pending preview per webhook owner. State is private plugin data, never inside the bundle.
@@ -293,29 +297,49 @@ export class TaskWriter {
         .slice(0, 200)} (ID ${userId})`,
     };
   }
-  async #subordinate(owner: number, assignee: number) {
-    if (assignee === owner) return fail("ASSIGNEE_NOT_SUBORDINATE");
-    const { person } = await this.#person(assignee);
-    const departments = Array.isArray(person.UF_DEPARTMENT)
-      ? person.UF_DEPARTMENT
-      : [person.UF_DEPARTMENT];
-    for (const department of departments.slice(0, 20)) {
-      let current = positive(department);
-      const seen = new Set<number>();
-      for (let depth = 0; current !== null && depth < 30; depth++) {
-        if (seen.has(current)) return fail("HIERARCHY_INVALID");
-        seen.add(current);
-        const raw = await this.#client.call("department.get", { ID: current });
-        const row = (Array.isArray(raw) ? raw : [])
-          .map(object)
-          .find((d) => positive(d.ID) === current);
-        if (!row) return fail("HIERARCHY_UNAVAILABLE");
-        if (positive(row.UF_HEAD) === owner) return;
-        current = positive(row.PARENT);
+  async stages(projectId: number) {
+    id.parse(projectId);
+    const raw = await this.#client.call("task.stages.get", { entityId: projectId });
+    if (!raw || typeof raw !== "object") return fail("INVALID_RESPONSE");
+    const stages = Object.values(raw).map(object).map(row => {
+      const stageId = positive(row.ID);
+      if (!stageId || typeof row.TITLE !== "string" || positive(row.ENTITY_ID) !== projectId || row.ENTITY_TYPE !== "G")
+        return fail("INVALID_RESPONSE");
+      return { id: stageId, title: row.TITLE.slice(0, 250), sort: Number(row.SORT) || 0 };
+    }).sort((a, b) => a.sort - b.sort);
+    return { projectId, stages, untrustedContent: true };
+  }
+  async #chatTarget(chatId: number, input: Extract<TaskWrite, { action: "delete_file" | "delete_message" }>, owner: number): Promise<Data> {
+    let before: number | null = null;
+    for (let page = 0; page < 4; page++) {
+      const raw = object(await this.#client.call("im.dialog.messages.get", {
+        DIALOG_ID: `chat${chatId}`, LIMIT: 50, ...(before === null ? {} : { LAST_ID: before }),
+      }));
+      if (!Array.isArray(raw.messages)) return fail("INVALID_RESPONSE");
+      const message = raw.messages.map(object).find(m => positive(m.id) === input.messageId);
+      if (message) {
+        if (input.action === "delete_file") {
+          const ids = object(message.params).FILE_ID;
+          const files = Array.isArray(ids) ? ids : (ids !== null && typeof ids === "object" ? Object.values(object(ids)) : [ids]);
+          if (!files.some(v => positive(v) === input.fileId)) return fail("FILE_NOT_IN_TASK_CHAT");
+          // This API can return true without deleting another sender's file.
+          if (positive(message.author_id) !== owner) return fail("FILE_DELETE_NOT_ALLOWED");
+          const fileRows = Array.isArray(raw.files) ? raw.files : Object.values(object(raw.files));
+          const file = fileRows.map(object).find(f => positive(f.id) === input.fileId);
+          if (!file || typeof file.name !== "string") return fail("INVALID_RESPONSE");
+          return { messageId: input.messageId, fileId: input.fileId, name: file.name.slice(0, 250), authorId: owner, text: typeof message.text === "string" ? message.text : "" };
+        }
+        return { messageId: input.messageId, authorId: positive(message.author_id), text: typeof message.text === "string" ? message.text : "" };
       }
-      if (current !== null) return fail("HIERARCHY_LIMIT");
+      const ids = raw.messages.map(object).map(m => positive(m.id)).filter((v): v is number => v !== null);
+      if (ids.length !== raw.messages.length) return fail("INVALID_RESPONSE");
+      if (raw.messages.length < 50) break;
+      const oldest = Math.min(...ids);
+      if (before !== null && oldest >= before) return fail("CHAT_HISTORY_INCOMPLETE");
+      if (page === 3) return fail("CHAT_HISTORY_INCOMPLETE");
+      before = oldest;
     }
-    return fail("ASSIGNEE_NOT_SUBORDINATE");
+    return fail("MESSAGE_NOT_IN_TASK_CHAT");
   }
   async #snapshot(
     input: Exclude<TaskWrite, { action: "create" }>,
@@ -340,6 +364,7 @@ export class TaskWriter {
             "GROUP_ID",
             "PRIORITY",
             "TAGS",
+            "STAGE_ID",
           ],
         }),
       ).task,
@@ -349,6 +374,7 @@ export class TaskWriter {
     const status = Number(task.status);
     const rights = object(task.action);
     let method: WriteMethod;
+    let actionState: Data | undefined;
     switch (input.action) {
       case "comment":
         method = positive(task.chatId)
@@ -359,6 +385,22 @@ export class TaskWriter {
         if (!positive(task.chatId)) return fail("TASK_CHAT_UNAVAILABLE");
         method = "im.v2.File.upload";
         break;
+      case "stage": {
+        const projectId = positive(task.groupId) ?? fail("TASK_PROJECT_UNAVAILABLE");
+        const stage = (await this.stages(projectId)).stages.find(s => s.id === input.stageId);
+        if (!stage) return fail("STAGE_NOT_IN_TASK_PROJECT");
+        if (await this.#client.call("task.stages.canmovetask", { entityId: projectId, entityType: "G" }) !== true)
+          return fail("ACTION_NOT_ALLOWED");
+        actionState = { projectId, stageId: task.stageId ?? "0", destination: stage };
+        method = "task.stages.movetask";
+        break;
+      }
+      case "delete_file":
+      case "delete_message":
+        if (!positive(task.chatId)) return fail("TASK_CHAT_UNAVAILABLE");
+        actionState = await this.#chatTarget(positive(task.chatId)!, input, owner);
+        method = input.action === "delete_file" ? "im.disk.file.delete" : "im.message.delete";
+        break;
       case "update":
         if (rights.edit !== true) return fail("ACTION_NOT_ALLOWED");
         method = "tasks.task.update";
@@ -368,11 +410,6 @@ export class TaskWriter {
         method = "tasks.task.update";
         break;
       case "reassign":
-        if (rights.edit !== true) return fail("ACTION_NOT_ALLOWED");
-        await this.#subordinate(
-          owner,
-          positive(task.responsibleId) ?? fail("INVALID_RESPONSE"),
-        );
         await this.#person(input.responsibleId);
         method = "tasks.task.update";
         break;
@@ -406,6 +443,7 @@ export class TaskWriter {
       changedDate: task.changedDate,
       chatId: positive(task.chatId),
       method,
+      ...(actionState ? { editState: actionState } : {}),
       ...(input.action === "update"
         ? {
             editState: {
@@ -705,13 +743,16 @@ export class TaskWriter {
         rework: "Вернуть на доработку",
         reassign: "Изменить ответственного",
         deadline: "Изменить срок",
+        stage: "Переместить в стадию канбана",
+        delete_file: "Удалить файл из чата задачи",
+        delete_message: "Удалить сообщение из чата задачи",
       };
       lines.push(
         labels[input.action],
         `Задача №${input.taskId}: ${previewText(snapshot.title)}`,
         `Ответственный: ${previewText((await this.#person(snapshot.responsibleId)).label)}`,
         `Текущий срок: ${previewText(snapshot.deadline ?? "не задан")}`,
-        `Текущий статус: ${snapshot.status}`,
+        `Текущий статус: ${{2: "Новая", 3: "В работе", 4: "На контроле", 5: "Завершена", 6: "Отложена"}[snapshot.status] ?? snapshot.status}`,
       );
       if (input.action === "update") {
         const fields = await this.#updateFields(input, snapshot);
@@ -743,7 +784,7 @@ export class TaskWriter {
           );
         for (const change of input.checklistUpdates ?? [])
           lines.push(
-            `Правка пункта №${change.id}: ${previewText(JSON.stringify(change))}`,
+            `Правка пункта №${change.id}: ${previewText([change.title !== undefined ? `название «${change.title}»` : "", change.completed !== undefined ? (change.completed ? "выполнен" : "не выполнен") : ""].filter(Boolean).join(", "))}`,
           );
       }
       if (input.action === "comment" || input.action === "upload")
@@ -758,6 +799,12 @@ export class TaskWriter {
         lines.push(
           `Новый ответственный: ${previewText((await this.#person(input.responsibleId)).label)}`,
         );
+      if (input.action === "stage")
+        lines.push(`Новая стадия: ${previewText(String(object(snapshot.editState?.destination).title))} (ID ${input.stageId})`);
+      if (input.action === "delete_file")
+        lines.push(`Файл: ${previewText(String(snapshot.editState?.name))} (ID ${input.fileId})`, "Файл будет удалён из папки чата. Действие необратимо.");
+      if (input.action === "delete_message")
+        lines.push(`Сообщение №${input.messageId}: ${previewText(String(snapshot.editState?.text))}`, "Сообщение будет удалено из чата задачи.");
       if (input.action === "complete")
         lines.push(
           snapshot.status === 4
@@ -785,13 +832,8 @@ export class TaskWriter {
       snapshot,
       file,
       uploads,
-      prompt: lines
-        .map((line, index) =>
-          index === 0
-            ? `## ${line}`
-            : line.replace(/^([^:\n]+): /u, "**$1:** "),
-        )
-        .join("\n\n"),
+      prompt: lines.join("\n\n"),
+      displayLines: lines,
     };
   }
   async prepare(raw: TaskRequest) {
@@ -821,13 +863,13 @@ export class TaskWriter {
       const seenTasks = new Set<number>();
       const batchPrompt = steps
         .map((step, index) => {
-          const parts = step.prompt.split("\n\n");
+          const parts = [...step.displayLines];
           if (step.input.action !== "create") {
             if (seenTasks.has(step.input.taskId)) {
               parts.splice(1, 4); // Task context already appears in this same approval card.
             } else seenTasks.add(step.input.taskId);
           }
-          parts[0] = `### ${index + 1}. ${parts[0]!.slice(3)}`;
+          parts[0] = `${index + 1}. ${parts[0]!}`;
           return parts.join("\n\n");
         })
         .join("\n\n");
@@ -841,7 +883,7 @@ export class TaskWriter {
         steps,
         prompt:
           input.action === "batch"
-            ? `## Все изменения — одно подтверждение\n\n${batchPrompt}\n\nДействия выполнятся по порядку. При ошибке выполнение остановится; уже выполненное сохранится.`
+            ? `Все изменения — одно подтверждение\n\n${batchPrompt}\n\nДействия выполнятся по порядку. При ошибке выполнение остановится; уже выполненное сохранится.`
             : steps[0]!.prompt,
       };
       // Telegram cards are bounded. Refuse rather than hide/truncate any approved field.
@@ -1022,7 +1064,9 @@ export class TaskWriter {
               (!touchedTasks.has(input.taskId) &&
                 JSON.stringify(current) !== JSON.stringify(snapshot)) ||
               current.chatId !== snapshot.chatId ||
-              current.method !== snapshot.method
+              current.method !== snapshot.method ||
+              ((input.action === "delete_file" || input.action === "delete_message") && JSON.stringify(current.editState) !== JSON.stringify(snapshot.editState)) ||
+              (input.action === "stage" && (current.editState?.projectId !== snapshot.editState?.projectId || JSON.stringify(current.editState?.destination) !== JSON.stringify(snapshot.editState?.destination)))
             )
               return fail("TASK_CHANGED_SINCE_PREVIEW");
             let params: Data = { taskId: input.taskId };
@@ -1042,6 +1086,9 @@ export class TaskWriter {
                   ...(input.message ? { message: input.message } : {}),
                 },
               };
+            if (input.action === "stage") params = { id: input.taskId, stageId: input.stageId };
+            if (input.action === "delete_file") params = { CHAT_ID: snapshot.chatId, FILE_ID: input.fileId };
+            if (input.action === "delete_message") params = { MESSAGE_ID: input.messageId };
             if (input.action === "deadline")
               params.fields = { DEADLINE: input.deadline };
             if (input.action === "reassign")
@@ -1049,6 +1096,20 @@ export class TaskWriter {
             if (input.action === "update") params.fields = fields;
             if (input.action !== "update" || Object.keys(fields!).length) {
               const response = await write(snapshot.method, params);
+              if (input.action === "delete_file") {
+                // true may mean a no-op; reconcile against the same task chat.
+                try {
+                  await this.#chatTarget(snapshot.chatId!, input, offer.owner);
+                  return fail("WRITE_RESULT_UNKNOWN");
+                } catch (error) {
+                  if (!(error instanceof BitrixRequestError) || !["FILE_NOT_IN_TASK_CHAT", "MESSAGE_NOT_IN_TASK_CHAT"].includes(error.code))
+                    return fail("WRITE_RESULT_UNKNOWN");
+                }
+                active.fileId = input.fileId;
+                active.messageId = input.messageId;
+              }
+              if (input.action === "delete_message") active.messageId = input.messageId;
+              if (input.action === "stage") active.stageId = input.stageId;
               if (input.action === "upload") {
                 const uploaded = object(response);
                 const fileId = positive(object(uploaded.file).id),
