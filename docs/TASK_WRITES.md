@@ -1,4 +1,4 @@
-# Task action contract (stable 0.7.0)
+# Task action contract (prerelease 0.7.1-rc.1; stable 0.7.0)
 
 The stable 0.7.0 release is validated by synthetic tests. On 4 October 2026 the owner
 reported successful task creation and completion on the current upstream Iva in real use.
@@ -160,7 +160,7 @@ The checklist read tool marks headings as `kind: checklist` and entries as `kind
 Rich reports follow the skill; native question formatting is a host-channel capability,
 not something Markdown in a plugin prompt can enable.
 
-Pending previews use schema 4. Drafts prepared by RC5 or earlier must be prepared and confirmed
+Pending previews use schema 5 with a settings revision. Drafts prepared by stable 0.7.0, RC7 or earlier must be prepared and confirmed
 again after upgrade because the presentation/confirmation contract changed. Existing
 receipts remain readable and replay protection remains in effect.
 
@@ -186,3 +186,16 @@ No approval protocol or write payload change.
 
 Sources: [user scope fields](https://apidocs.bitrix24.com/api-reference/user/user-scope.html),
 [company structure](https://apidocs.bitrix24.com/api-reference/departments/index.html).
+
+
+## Local settings policy (0.7.1-rc.1 prerelease)
+
+Prepare validates the entire request against persisted mode/upload/deletion policy before
+any portal/file preflight. Apply rechecks policy/revision, then every mutation rechecks it.
+A setting commit uses the same task-writes/lock and deletes active.json before storing the
+new revision; it cannot interleave an in-flight batch. Stale schema4/revision previews require
+fresh prepare. Existing result receipts remain readable/replay-safe under read-only policy.
+The policy has no effect on portal rights and does not add a new unrestricted REST method.
+Employee metadata in preview follows IDs/names/work + email; activity/ID validation remains.
+Native and rich task approval protocols remain in place. Settings confirmation has its own
+10-minute offer, distinct from a task draft, and never confirms a task action.

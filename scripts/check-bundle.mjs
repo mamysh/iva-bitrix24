@@ -60,6 +60,14 @@ const client = new Client({ name: "bundle-smoke", version: "1.0.0" });
 try {
   await client.connect(transport);
   const { tools } = await client.listTools();
+  const settingsSchema = tools.find(tool => tool.name === "bitrix24_settings").inputSchema;
+  assert.equal(settingsSchema.type, "object");
+  for (const field of ["screen", "reply"]) assert.ok(settingsSchema.properties?.[field]);
+  const home = await client.callTool({ name: "bitrix24_settings", arguments: { screen: "actions" } });
+  assert.equal(home.isError, undefined);
+  const screen = JSON.parse(home.content[0].text);
+  assert.equal(screen.screen, "actions");
+  assert.match(screen.markdown, /b24s:set:/u);
   const actionSchema = tools.find(tool => tool.name === "bitrix24_prepare_task_action").inputSchema;
   assert.equal(actionSchema.type, "object");
   for (const field of ["action", "taskId", "title", "addAuditors", "uploads", "actions", "stageId", "fileId", "messageId", "checklistTitle", "checklistId", "presentation"])
@@ -84,6 +92,7 @@ try {
       "bitrix24_search_people",
       "bitrix24_search_projects",
       "bitrix24_search_task_documents",
+      "bitrix24_settings",
       "bitrix24_task_action_status",
       "bitrix24_task_checklist",
       "bitrix24_task_comments",

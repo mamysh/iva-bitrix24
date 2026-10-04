@@ -11,6 +11,9 @@ import {
   type TaskWrite,
 } from "../src/task-writes.ts";
 
+import { SettingsStore, LEGACY_POLICY, RESTRICTED_POLICY, withPolicyLock } from "../src/settings.ts";
+import { SettingsMenu } from "../src/settings-menu.ts";
+
 const create: TaskWrite = {
   action: "create",
   title: "Подготовить отчёт",
@@ -47,7 +50,7 @@ async function fixture(t: test.TestContext) {
     | ((
         method: string,
         params: Record<string, unknown>,
-      ) => Response | undefined)
+      ) => Response | undefined | Promise<Response | undefined>)
     | undefined;
   const client = new BitrixClient(
     loadConfig({
@@ -64,7 +67,7 @@ async function fixture(t: test.TestContext) {
           unknown
         >;
         calls.push({ method, params });
-        const response = intercept?.(method, params);
+        const response = await intercept?.(method, params);
         if (response) return response;
         const result =
           method === "scope"
@@ -1102,4 +1105,82 @@ test("missing or denied optional profile details never prevent preparation", asy
   assert.match(denied.approvalPrompt.prompt, /подразделение — недоступно/u);
   assert.doesNotMatch(denied.approvalPrompt.prompt, /private upstream/u);
   assert.equal(writes(f.calls).length, 0);
+});
+
+
+test("read-only, upload and deletion policy gates reject whole batches before portal reads", async t => {
+  const f = await fixture(t);
+  const settings = new SettingsStore(f.root, "synthetic", RESTRICTED_POLICY);
+  const writer = new TaskWriter(f.client, f.root, f.root, Date.now, settings);
+  await assert.rejects(writer.prepare(create), /READ_ONLY_MODE/u);
+  assert.equal(f.calls.length, 0);
+  await withPolicyLock(f.root, () => settings.commit(0, { ...RESTRICTED_POLICY, mode: "confirmed_write" }));
+  for (const input of [{ action: "upload", taskId: 20, path: "never-read.pdf" }, { ...create, uploads: [{ path: "never-read.pdf" }] }, { action: "batch", actions: [create, { action: "upload", taskId: 20, path: "never-read.pdf" }] }] as const) {
+    await assert.rejects(writer.prepare(taskWriteSchema.parse(input)), /UPLOADS_DISABLED/u);
+    assert.equal(f.calls.length, 0);
+  }
+  for (const input of [{ action: "delete_file", taskId: 20, fileId: 55, messageId: 66 }, { action: "delete_message", taskId: 20, messageId: 66 }] as const) await assert.rejects(writer.prepare(input), /DELETIONS_DISABLED/u);
+  assert.equal(f.calls.length, 0);
+});
+
+test("privacy changes invalidate an existing rich draft, receipts remain readable under read-only", async t => {
+  const f = await fixture(t);
+  const settings = new SettingsStore(f.root, "synthetic", LEGACY_POLICY);
+  const writer = new TaskWriter(f.client, f.root, f.root, Date.now, settings);
+  const p = await writer.prepare(create, "rich");
+  const menu = new SettingsMenu(settings, { configured: false });
+  const change = await menu.run({ reply: "b24s:set:0:names" });
+  assert.ok("confirmReply" in change);
+  await menu.run({ reply: change.confirmReply });
+  await assert.rejects(writer.apply(p.draftId, p.richApproval!.confirmReply), /DRAFT_SUPERSEDED/u);
+  assert.equal(writes(f.calls).length, 0);
+  const fresh = await writer.prepare(create, "rich");
+  const result = await writer.apply(fresh.draftId, fresh.richApproval!.confirmReply);
+  assert.equal(result.state, "applied");
+  await withPolicyLock(f.root, () => settings.commit(1, { ...RESTRICTED_POLICY }));
+  assert.equal((await writer.apply(fresh.draftId, fresh.richApproval!.confirmReply)).state, "applied");
+  assert.equal((await writer.status(fresh.draftId)).state, "applied");
+  assert.equal(writes(f.calls).length, 1);
+});
+
+test("minimal and names-only previews never request or expose excluded employee fields", async t => {
+  const f = await fixture(t);
+  f.intercept((method, params) => method === "scope" ? Response.json({ result: ["task", "user_basic", "department"] }) : method === "user.get" ? Response.json({ result: [{ ID: String(params.ID), ACTIVE: true, NAME: "PRIVATE_NAME", LAST_NAME: "PRIVATE_LAST", EMAIL: "private@example.test", WORK_POSITION: "PRIVATE_POSITION", UF_DEPARTMENT: [4] }] }) : undefined);
+  const settings = new SettingsStore(f.root, "synthetic", { ...RESTRICTED_POLICY, mode: "confirmed_write" });
+  const writer = new TaskWriter(f.client, f.root, f.root, Date.now, settings);
+  const first = await writer.prepare(create, "rich");
+  assert.match(first.approvalPrompt.prompt, /Ответственный: ID 7/u);
+  for (const marker of ["PRIVATE_NAME", "PRIVATE_LAST", "private@example.test", "PRIVATE_POSITION"]) assert.ok(!JSON.stringify(first).includes(marker));
+  assert.deepEqual(f.calls.find(c => c.method === "user.get")!.params.select, ["ID", "ACTIVE"]);
+  assert.equal(f.calls.some(c => c.method === "department.get"), false);
+  await withPolicyLock(f.root, () => settings.commit(0, { ...RESTRICTED_POLICY, mode: "confirmed_write", people: "names" }));
+  f.calls.length = 0;
+  const names = await writer.prepare(create, "rich");
+  assert.ok(names.approvalPrompt.prompt.includes("PRIVATE_NAME"));
+  assert.ok(!JSON.stringify(names).includes("private@example.test"));
+  assert.ok(!JSON.stringify(names).includes("PRIVATE_POSITION"));
+  const select = f.calls.find(c => c.method === "user.get")!.params.select as string[];
+  assert.ok(!select.includes("EMAIL")); assert.ok(!select.includes("WORK_POSITION")); assert.ok(!select.includes("UF_DEPARTMENT"));
+});
+
+test("settings commit during an in-flight batch fails busy; all steps finish under the approved policy", async t => {
+  const f = await fixture(t);
+  const settings = new SettingsStore(f.root, "synthetic", LEGACY_POLICY);
+  const writer = new TaskWriter(f.client, f.root, f.root, Date.now, settings);
+  const menu = new SettingsMenu(settings, { configured: false });
+  const setting = await menu.run({ reply: "b24s:set:0:read" });
+  assert.ok("confirmReply" in setting);
+  const p = await writer.prepare({ action: "batch", actions: [create, { ...create, title: "Second" }] });
+  let attempted = false;
+  f.intercept(async method => {
+    if (method === "tasks.task.add" && !attempted) {
+      attempted = true;
+      await assert.rejects(menu.run({ reply: setting.confirmReply }), /WRITE_BUSY/u);
+    }
+    return undefined;
+  });
+  await writer.apply(p.draftId);
+  assert.equal(attempted, true);
+  assert.equal(writes(f.calls).length, 2);
+  assert.equal((await settings.read()).policy.mode, "confirmed_write");
 });

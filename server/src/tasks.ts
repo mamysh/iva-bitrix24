@@ -1,5 +1,7 @@
 import { BitrixClient, BitrixRequestError } from "./bitrix-client.ts";
 
+import { legacyPolicy, type PolicyReader } from "./settings.ts";
+
 const LIST_FIELDS = [
   "ID",
   "TITLE",
@@ -372,10 +374,12 @@ export type TaskFieldsResult = {
 export class TaskReader {
   readonly #client: BitrixClient;
   readonly #now: () => Date;
+  readonly #policy: PolicyReader;
 
-  constructor(client: BitrixClient, now: () => Date = () => new Date()) {
+  constructor(client: BitrixClient, now: () => Date = () => new Date(), policy: PolicyReader = legacyPolicy) {
     this.#client = client;
     this.#now = now;
+    this.#policy = policy;
   }
 
   async connectionCheck(): Promise<ConnectionResult> {
@@ -401,6 +405,7 @@ export class TaskReader {
   }
 
   async listTasks(options: ListTaskOptions): Promise<TaskListResult> {
+    const policy = await this.#policy();
     const filter: Record<string, unknown> = {};
     if (options.scope === "mine") {
       const profile = record(await this.#client.call("profile"));
@@ -424,7 +429,7 @@ export class TaskReader {
     const page = await this.#client.callPage("tasks.task.list", {
       order: { [options.sortBy]: options.sortDirection },
       filter,
-      select: LIST_FIELDS,
+      select: policy.people === "ids" ? LIST_FIELDS.filter(field => !["CREATOR", "RESPONSIBLE"].includes(field)) : LIST_FIELDS,
       start: options.start,
     });
     const raw = record(page.result);
@@ -454,10 +459,11 @@ export class TaskReader {
   }
 
   async getTask(taskId: number): Promise<{ readonly task: NormalizedTask }> {
+    const policy = await this.#policy();
     const raw = record(
       await this.#client.call("tasks.task.get", {
         taskId,
-        select: GET_FIELDS,
+        select: policy.people === "ids" ? GET_FIELDS.filter(field => !["CREATOR", "RESPONSIBLE"].includes(field)) : GET_FIELDS,
       }),
     );
     if (!isRecordLike(raw.task)) throw new BitrixRequestError("INVALID_RESPONSE");

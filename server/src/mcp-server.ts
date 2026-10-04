@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { SettingsMenu, settingsInputSchema } from "./settings-menu.ts";
 import { z } from "zod/v4";
 import { TaskWriter, taskWriteSchema, taskWriteInputSchema } from "./task-writes.ts";
 import { BitrixRequestError } from "./bitrix-client.ts";
@@ -91,6 +92,12 @@ function failure(error: unknown) {
 }
 
 function errorDetails(code: string, retryable: boolean) {
+  if (["READ_ONLY_MODE", "UPLOADS_DISABLED", "DELETIONS_DISABLED", "PERSON_NAME_SEARCH_DISABLED", "EMAIL_REQUIRES_WORK_PROFILE"].includes(code))
+    return { category: "settings", retryable: false, action: "open_bitrix24_settings" };
+  if (["SETTINGS_CHANGED", "SETTINGS_OFFER_INVALID", "INVALID_SETTINGS_REPLY"].includes(code))
+    return { category: "confirmation", retryable: false, action: "reopen_bitrix24_settings" };
+  if (["SETTINGS_INVALID", "SETTINGS_NOT_CONFIGURED"].includes(code))
+    return { category: "configuration", retryable: false, action: "inspect_private_plugin_settings" };
   if (["DRAFT_SUPERSEDED", "DRAFT_EXPIRED", "DRAFT_OWNER_CHANGED", "TASK_CHANGED_SINCE_PREVIEW", "UPLOAD_FILE_CHANGED"].includes(code))
     return { category: "confirmation", retryable: false, action: "prepare_new_preview" };
   if (["ACTION_NOT_ALLOWED", "FILE_DELETE_NOT_ALLOWED"].includes(code))
@@ -244,13 +251,21 @@ export function registerUpdaterTools(
   );
 }
 
+export function registerSettingsTool(server: McpServer, menu: SettingsMenu) {
+  server.registerTool("bitrix24_settings", {
+    description: "Open the separate Bitrix24 settings menu (home, connection, capabilities, actions, privacy). Returns server-rendered markdown: deliver it verbatim as a final private Telegram reply. For a button pass only the actual incoming owner reply as reply; never invent confirmation or immediately apply a returned confirmReply. A setting selection prepares an expiring revision-bound confirmation; only the next exact reply commits it. Native fallback may relay confirmReply only after an actual structured ask_question confirm answer. No webhook secrets in chat. Uses the existing model-mediated approval boundary.",
+    inputSchema: settingsInputSchema,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, input => safe(() => menu.run(input)));
+}
+
 export function createMcpServer(
   reader: BitrixReaderPort,
   updater: PluginUpdaterPort | null = null,
   files: FileReaderPort | null = null,
   writer: Pick<TaskWriter, "prepare" | "apply" | "cancel" | "status" | "stages"> | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.7.0" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.7.1-rc.1" });
   registerUpdaterTools(server, updater);
   if (writer) {
     server.registerTool("bitrix24_project_stages", {
@@ -271,7 +286,7 @@ export function createMcpServer(
     server.registerTool("bitrix24_cancel_task_action", {
       description: "Cancel the prepared task preview after optionId=cancel or explicit cancellation. Makes no Bitrix24 changes.",
       inputSchema: z.object({ draftId: z.uuid() }).strict(),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     }, ({ draftId }) => safe(() => writer.cancel(draftId)));
     server.registerTool("bitrix24_task_action_status", {
       description: "Read a saved task action receipt, including unknown or partial outcomes after a process restart. Never repeat a write merely because its response was lost.",
@@ -322,7 +337,7 @@ export function createMcpServer(
       {
         description: "Delete one temporary Bitrix24 download after successful delivery or analysis. Never call after a failed delivery when the owner may retry.",
         inputSchema: z.object({ artifactId: z.uuid() }).strict(),
-        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
       },
       ({ artifactId }) => safe(() => files.release(artifactId)),
     );

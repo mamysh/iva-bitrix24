@@ -4,6 +4,7 @@
 // server/src/installer.ts
 import { open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
+import { parseEnv } from "node:util";
 import { randomUUID } from "node:crypto";
 var VARIABLE = "BITRIX24_WEBHOOK_BASE_URL";
 var MAX_RESPONSE_BYTES = 1e6;
@@ -166,10 +167,21 @@ async function readConfiguredWebhook(envPath) {
 async function writeWebhookAtomic(envPath, normalized, attachmentsRoot) {
   if (attachmentsRoot !== void 0 && (!isAbsolute(attachmentsRoot) || /[\r\n\0]/u.test(attachmentsRoot)))
     throw new InstallerError("INVALID_ATTACHMENTS_ROOT", "\u041A\u0430\u0442\u0430\u043B\u043E\u0433 \u0432\u043B\u043E\u0436\u0435\u043D\u0438\u0439 \u0418\u0432\u044B \u0434\u043E\u043B\u0436\u0435\u043D \u0431\u044B\u0442\u044C \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u044B\u043C \u0430\u0431\u0441\u043E\u043B\u044E\u0442\u043D\u044B\u043C \u043F\u0443\u0442\u0451\u043C.");
+  let defaults = "restricted";
+  try {
+    const prior = await readFile(envPath, "utf8");
+    const marker = parseEnv(prior).BITRIX24_SETTINGS_DEFAULTS;
+    if (marker !== void 0 && !["restricted", "legacy"].includes(marker))
+      throw new InstallerError("INVALID_SETTINGS_DEFAULTS", "\u041D\u0435\u043A\u043E\u0440\u0440\u0435\u043A\u0442\u043D\u044B\u0439 \u043C\u0430\u0440\u043A\u0435\u0440 \u0438\u0441\u0445\u043E\u0434\u043D\u044B\u0445 \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043A: \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043A\u043E\u043D\u0444\u0438\u0433\u0443\u0440\u0430\u0446\u0438\u044E \u0432 \u0442\u0435\u0440\u043C\u0438\u043D\u0430\u043B\u0435.");
+    defaults = marker === "restricted" ? "restricted" : "legacy";
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
   const temporary = join(dirname(envPath), `.bitrix24-read.env-${randomUUID()}.tmp`);
   const file = await open(temporary, "wx", 384);
   try {
     await file.writeFile(`${VARIABLE}=${normalized}
+BITRIX24_SETTINGS_DEFAULTS=${defaults}
 ${attachmentsRoot ? `BITRIX24_ATTACHMENTS_ROOT=${JSON.stringify(attachmentsRoot)}
 ` : ""}`, "utf8");
     await file.sync();

@@ -4,10 +4,13 @@
 
 Стабильная версия 0.7.0 предоставляет 23 инструмента Bitrix24 и 3 инструмента обслуживания.
 Включены стадии канбана и подтверждаемое удаление из чата.
+Предварительная 0.7.1-rc.1 добавляет `bitrix24_settings` (всего 27 tools при полной конфигурации);
+меню доступно и без настроенного webhook.
 Сценарии для пользователя описаны на главной; ниже — технический справочник.
 
 | MCP-инструмент | Назначение |
 | --- | --- |
+| `bitrix24_settings` | Открыть отдельное меню, проверить подключение/возможности, подготовить и подтвердить смену локальной политики |
 | `bitrix24_project_stages` | Прочитать стадии канбана доступного проекта |
 | `bitrix24_prepare_task_action` | Подготовить одно полное превью действия или пачки, включая правку существующей карточки и чек-листа |
 | `bitrix24_apply_task_action` | Выполнить фиксированный черновик после кнопки подтверждения |
@@ -64,3 +67,30 @@ Native approvalPrompt/optionId remains available for other transports.
 RC7: responsible-person preview labels additionally display account position and named
 departments if permitted; absent metadata has an explicit fallback. Tools and input schemas
 are unchanged. Rich block spacing is preserved verbatim by the skill.
+
+
+### bitrix24_settings (предварительный выпуск 0.7.1-rc.1)
+
+Вход: пустой объект для home; `screen` home/connection/capabilities/actions/privacy;
+либо `reply` — точный callback `b24s:...` из реального ответа владельца. screen и reply
+вместе запрещены. Схема экспортируется как root object; max reply 64 символа, все
+серверные callbacks также не длиннее 64 UTF-8 bytes. Tool изменяет private state,
+но не пишет в Bitrix24; diagnostics использует только metadata/profile/scope методы.
+
+Результат экрана: state=screen, screen, settings (schema/revision/policy), markdown.
+Выбор: state=confirmation_required, settings текущей политики, approvalPrompt полного
+перехода, expiresAt, confirmReply/cancelReply и markdown с двумя кнопками. Навигация не
+подтверждает изменение. Skill завершает Telegram-ход с exact markdown; новый фактический
+ответ владельца передаёт как reply. Native fallback использует structured confirm/cancel
+и только после настоящего ответа передаёт соответствующий reply. Общие «да» не применяются.
+
+Политика: mode=read_only/confirmed_write; uploads/deletions booleans; people=ids/names/work;
+email boolean (true только при work). Смена любой настройки увеличивает revision и отменяет
+pending task draft. TTL10 минут, single pending settings offer, привязка к identity/revision,
+receipt-replay задач остаётся доступным. Настройки не обеспечивают независимую авторизацию
+Telegram-нажатия. См. [ADR0010](adr/0010-plugin-settings-menu.md).
+
+Ошибки: READ_ONLY_MODE/UPLOADS_DISABLED/DELETIONS_DISABLED → открыть настройки;
+PERSON_NAME_SEARCH_DISABLED → выбрать сотрудника по ID; EMAIL_REQUIRES_WORK_PROFILE →
+сначала выбрать work. SETTINGS_CHANGED/SETTINGS_OFFER_INVALID → новое меню;
+SETTINGS_INVALID → операторская проверка; WRITE_BUSY → дождаться результата/проверить lock.
