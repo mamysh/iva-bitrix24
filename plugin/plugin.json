@@ -1,6 +1,6 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "bitrix24-read",
-  "version": "0.7.0",
-  "description": "Bitrix24 tasks and documents for Iva with confirmed task actions, card edits, Kanban stages, bounded chat deletion and one confirmation for multi-part requests."
+  "version": "0.7.1-rc.1",
+  "description": "Bitrix24 tasks and documents for Iva with confirmed actions; prerelease 0.7.1 adds a Telegram settings menu for action permissions and employee fields."
 }

@@ -70,3 +70,14 @@ RC7 was verified installed on 4 October 2026: HTTP MCP reports 0.7.0-rc.7,
 26 tools and a successful connection check; Iva doctor reports no failures.
 Stable 0.7.0 preserves RC7 behavior. This smoke does not certify the complete live
 write/button/replay matrix or new position/department rendering.
+
+## Отдельное меню настроек (предварительный выпуск 0.7.1-rc.1)
+
+Предварительный выпуск 0.7.1-rc.1 реализует отдельные rich-карточки через существующий private Telegram-poll,
+без изменений ядра. Synthetic tests проверяют навигацию, callback limits, actual MCP вызовы,
+TTL/revision/identity/replay, persistence/migration, write-policy и минимизацию полей.
+Собранный stdio MCP проверяется через listTools/callTool (27 tools).
+Все 6 карточек проверены через локальный Outbox Ивы с fake transport: exact rich delivery
+и безопасный текстовый fallback. Это не отправка в Telegram. Живой Telegram-тап, установка 0.7.1-rc.1
+и изменение задач на портале этой работой не проверены; stable 0.7.0 не получает
+меню автоматически. Native fallback использует прежний ask_question контракт.

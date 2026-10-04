@@ -1,5 +1,7 @@
 import { BitrixClient, BitrixRequestError } from "./bitrix-client.ts";
 
+import { legacyPolicy, type PolicyReader } from "./settings.ts";
+
 type RecordLike = Readonly<Record<string, unknown>>;
 
 function isRecord(value: unknown): value is RecordLike {
@@ -154,9 +156,11 @@ export type RelationsOptions = {
 
 export class ReadCapabilityReader {
   readonly #client: BitrixClient;
+  readonly #policy: PolicyReader;
 
-  constructor(client: BitrixClient) {
+  constructor(client: BitrixClient, policy: PolicyReader = legacyPolicy) {
     this.#client = client;
+    this.#policy = policy;
   }
 
   async capabilities() {
@@ -215,8 +219,8 @@ export class ReadCapabilityReader {
         taskActions: block(["task", "user_brief"], granted.has("task") && hasUsers,
           "Scope availability only; private plugin data, a fresh preview, confirmation and employee rights are also required."),
         taskChatActions: block(["task", "user_brief", "im"], granted.has("task") && hasUsers && granted.has("im")),
-        taskReassignment: block(["task", "user_brief", "department"], granted.has("task") && hasUsers && granted.has("department"),
-          "Current assignee must report directly or indirectly to the webhook owner; sharing a department does not prove this."),
+        taskReassignment: block(["task", "user_brief"], granted.has("task") && hasUsers,
+          "Reassignment is subject to employee access and portal permissions."),
         taskFiles: block(["task", "disk"], granted.has("task") && granted.has("disk")),
         checklistAndRelations: block(["task"], granted.has("task")),
       },
@@ -428,6 +432,8 @@ export class ReadCapabilityReader {
   }
 
   async searchPeople(options: PeopleSearchOptions) {
+    const policy = await this.#policy();
+    if (policy.people === "ids" && options.query !== undefined) throw new BitrixRequestError("PERSON_NAME_SEARCH_DISABLED");
     const filter = options.userId !== undefined
       ? { ID: options.userId }
       : options.departmentId !== undefined
@@ -437,15 +443,7 @@ export class ReadCapabilityReader {
       ...filter,
       sort: "ID",
       order: "ASC",
-      select: [
-        "ID",
-        "NAME",
-        "LAST_NAME",
-        "ACTIVE",
-        "WORK_POSITION",
-        "UF_DEPARTMENT",
-        "EMAIL",
-      ],
+      select: ["ID", ...(policy.people !== "ids" ? ["NAME", "LAST_NAME"] : []), "ACTIVE", ...(policy.people === "work" ? ["WORK_POSITION", "UF_DEPARTMENT"] : []), ...(policy.people === "work" && policy.email ? ["EMAIL"] : [])],
       start: options.start,
     });
     if (!Array.isArray(page.result)) throw new BitrixRequestError("INVALID_RESPONSE");

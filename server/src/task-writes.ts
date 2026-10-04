@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { mkdir, open, readFile, rename, realpath, rm } from "node:fs/promises";
+import { open, readFile, rename, realpath, rm } from "node:fs/promises";
+import { SettingsStore, LEGACY_POLICY, assertWritePolicy, withPolicyLock, type PluginPolicy } from "./settings.ts";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod/v4";
 import {
@@ -206,7 +207,8 @@ type Prepared = {
   displayLines: string[];
 };
 type Offer = {
-  schema: 4;
+  schema: 5;
+  settingsRevision: number;
   presentation: "native" | "rich";
   confirmationReply: string;
   draftId: string;
@@ -260,6 +262,8 @@ export class TaskWriter {
   readonly #data: string | undefined;
   readonly #attachments: string | undefined;
   readonly #now: () => number;
+  readonly #settings: SettingsStore | undefined;
+  #policy: Readonly<PluginPolicy> = LEGACY_POLICY;
   #emailAvailable: boolean | undefined;
   #departmentAvailable = false;
   #departmentNames = new Map<number, string | null>();
@@ -268,11 +272,13 @@ export class TaskWriter {
     data?: string,
     attachments?: string,
     now = Date.now,
+    settings?: SettingsStore,
   ) {
     this.#client = client;
     this.#data = data;
     this.#attachments = attachments;
     this.#now = now;
+    this.#settings = settings;
   }
   #root(): string {
     if (!this.#data || !isAbsolute(this.#data))
@@ -307,21 +313,15 @@ export class TaskWriter {
     }
   }
   async #locked<T>(run: () => Promise<T>): Promise<T> {
-    const root = this.#root();
-    await mkdir(root, { recursive: true, mode: 0o700 });
-    const lock = join(root, "lock");
-    try {
-      await mkdir(lock, { mode: 0o700 });
-    } catch {
-      return fail("WRITE_BUSY");
-    }
-    try {
-      return await run();
-    } finally {
-      await rm(lock, { recursive: true, force: true });
-    }
+    this.#root();
+    return withPolicyLock(this.#data, run);
   }
+
   async #person(userId: number, withDetails = false) {
+    if (this.#emailAvailable === undefined && this.#policy.people !== "work") {
+      this.#emailAvailable = false;
+      this.#departmentAvailable = false;
+    }
     if (this.#emailAvailable === undefined) {
       const scopes = await this.#client.call("scope");
       this.#departmentAvailable = Array.isArray(scopes) && scopes.some(v => typeof v === "string" && v.toLowerCase() === "department");
@@ -330,18 +330,19 @@ export class TaskWriter {
     const raw = await this.#client.call("user.get", {
       ID: userId,
       ACTIVE: true,
-      select: ["ID", "NAME", "LAST_NAME", "UF_DEPARTMENT", "ACTIVE", ...(withDetails ? ["WORK_POSITION"] : []), ...(this.#emailAvailable ? ["EMAIL"] : [])],
+      select: ["ID", "ACTIVE", ...(this.#policy.people !== "ids" ? ["NAME", "LAST_NAME"] : []), ...(withDetails && this.#policy.people === "work" ? ["UF_DEPARTMENT"] : []), ...(withDetails && this.#policy.people === "work" ? ["WORK_POSITION"] : []), ...(this.#emailAvailable && this.#policy.email ? ["EMAIL"] : [])],
     });
     const person = (Array.isArray(raw) ? raw : [])
       .map(object)
       .find((p) => positive(p.ID) === userId);
     if (!person || (person.ACTIVE !== true && person.ACTIVE !== "Y"))
       return fail("EMPLOYEE_NOT_FOUND_OR_INACTIVE");
-    const email = this.#emailAvailable && typeof person.EMAIL === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(person.EMAIL.trim())
+    const email = this.#policy.email && this.#emailAvailable && typeof person.EMAIL === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(person.EMAIL.trim())
       ? person.EMAIL.trim().slice(0, 320) : null;
+    if (this.#policy.people === "ids") return { person, label: `ID ${userId}` };
     const label = `${[person.NAME, person.LAST_NAME]
-      .filter((s) => typeof s === "string").join(" ").slice(0, 200)} (${email ?? `ID ${userId}; почта недоступна`})`;
-    if (!withDetails) return { person, label };
+      .filter((s) => typeof s === "string").join(" ").slice(0, 200)} (${email ?? `ID ${userId}${this.#policy.email ? "; почта недоступна" : ""}`})`;
+    if (!withDetails || this.#policy.people !== "work") return { person, label };
     const position = typeof person.WORK_POSITION === "string" && person.WORK_POSITION.trim()
       ? person.WORK_POSITION.trim().replace(/\s+/gu, " ").slice(0, 300) : "не указана";
     const departments = [...new Set((Array.isArray(person.UF_DEPARTMENT) ? person.UF_DEPARTMENT : [])
@@ -926,6 +927,9 @@ export class TaskWriter {
     if (presentation !== "native" && presentation !== "rich") return fail("INVALID_PRESENTATION");
     const input = taskWriteSchema.parse(raw);
     return this.#locked(async () => {
+      const settings = this.#settings ? await this.#settings.read() : { revision: 0, policy: LEGACY_POLICY };
+      this.#policy = settings.policy;
+      for (const action of input.action === "batch" ? input.actions : [input]) assertWritePolicy(this.#policy, action);
       this.#emailAvailable = undefined;
       this.#departmentNames.clear();
       const owner = await this.#owner();
@@ -963,7 +967,8 @@ export class TaskWriter {
         })
         .join("\n\n");
       const offer: Offer = {
-        schema: 4,
+        schema: 5,
+        settingsRevision: settings.revision,
         presentation,
         confirmationReply: `Подтвердить ${randomUUID()}`,
         draftId: randomUUID(),
@@ -1007,10 +1012,13 @@ export class TaskWriter {
   }
   async #offer(draftId: string): Promise<Offer> {
     if (!z.uuid().safeParse(draftId).success) return fail("INVALID_DRAFT_ID");
-    const raw = object(
-      JSON.parse(await readFile(join(this.#root(), "active.json"), "utf8")),
-    );
-    if (raw.schema !== 4 || raw.draftId !== draftId)
+    let raw: Data;
+    try { raw = object(JSON.parse(await readFile(join(this.#root(), "active.json"), "utf8"))); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return fail("DRAFT_SUPERSEDED");
+      return fail("INVALID_DRAFT_ID");
+    }
+    if (raw.schema !== 5 || raw.draftId !== draftId)
       return fail("DRAFT_SUPERSEDED");
     const offer = raw as Offer;
     const age = this.#now() - offer.createdAt;
@@ -1062,6 +1070,10 @@ export class TaskWriter {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
       const offer = await this.#offer(draftId);
+      const settings = this.#settings ? await this.#settings.read() : { revision: 0, policy: LEGACY_POLICY };
+      if (settings.revision !== offer.settingsRevision) return fail("SETTINGS_CHANGED");
+      this.#policy = settings.policy;
+      for (const step of offer.steps) assertWritePolicy(this.#policy, step.input);
       if (offer.presentation === "rich" && confirmationReply !== offer.confirmationReply)
         return fail("CONFIRMATION_MISMATCH");
       const prepared: {
@@ -1129,6 +1141,9 @@ export class TaskWriter {
         await this.#atomic(receiptPath, result);
       };
       const write = async (method: WriteMethod, params: Data) => {
+        const current = this.#settings ? await this.#settings.read() : { revision: 0, policy: LEGACY_POLICY };
+        if (current.revision !== offer.settingsRevision) return fail("SETTINGS_CHANGED");
+        assertWritePolicy(current.policy, { action: method === "im.v2.File.upload" ? "upload" : method === "im.disk.file.delete" ? "delete_file" : method === "im.message.delete" ? "delete_message" : "write" });
         result.currentMethod = method;
         if (active) active.state = "unknown";
         await persist(); // The pending method remains unknown after a crash, never replayed.

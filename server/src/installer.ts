@@ -1,5 +1,6 @@
 import { open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
+import { parseEnv } from "node:util";
 import { randomUUID } from "node:crypto";
 
 const VARIABLE = "BITRIX24_WEBHOOK_BASE_URL";
@@ -191,10 +192,20 @@ export async function readConfiguredWebhook(envPath: string): Promise<string | n
 export async function writeWebhookAtomic(envPath: string, normalized: string, attachmentsRoot?: string): Promise<void> {
   if (attachmentsRoot !== undefined && (!isAbsolute(attachmentsRoot) || /[\r\n\0]/u.test(attachmentsRoot)))
     throw new InstallerError("INVALID_ATTACHMENTS_ROOT", "Каталог вложений Ивы должен быть безопасным абсолютным путём.");
+  // Existing installations without a marker keep their previous policy; fresh
+  // setup explicitly selects restricted defaults. Preserve the marker on rerun.
+  let defaults = "restricted";
+  try {
+    const prior = await readFile(envPath, "utf8");
+    const marker = parseEnv(prior).BITRIX24_SETTINGS_DEFAULTS;
+    if (marker !== undefined && !["restricted", "legacy"].includes(marker))
+      throw new InstallerError("INVALID_SETTINGS_DEFAULTS", "Некорректный маркер исходных настроек: проверьте конфигурацию в терминале.");
+    defaults = marker === "restricted" ? "restricted" : "legacy";
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   const temporary = join(dirname(envPath), `.bitrix24-read.env-${randomUUID()}.tmp`);
   const file = await open(temporary, "wx", 0o600);
   try {
-    await file.writeFile(`${VARIABLE}=${normalized}\n${attachmentsRoot ? `BITRIX24_ATTACHMENTS_ROOT=${JSON.stringify(attachmentsRoot)}\n` : ""}`, "utf8");
+    await file.writeFile(`${VARIABLE}=${normalized}\nBITRIX24_SETTINGS_DEFAULTS=${defaults}\n${attachmentsRoot ? `BITRIX24_ATTACHMENTS_ROOT=${JSON.stringify(attachmentsRoot)}\n` : ""}`, "utf8");
     await file.sync();
   } finally {
     await file.close();

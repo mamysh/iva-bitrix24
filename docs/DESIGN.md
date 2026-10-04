@@ -173,3 +173,15 @@ Batch фиксирует 1–20 действий в одном черновик�
 Каталог вложений старой установки восстанавливается по verifiedIvaPath: CLI должен указывать
 на тот же data directory и существующий current. Из .env используются только настройки vault;
 полный конфиг не возвращается модели. Явный каталог оператора имеет приоритет.
+
+
+## Separate settings menu (0.7.1-rc.1 prerelease)
+
+`bitrix24_settings` renders private rich cards; Iva delivers the final markdown and its
+existing Telegram-poll bridge forwards the next button reply as a normal owner message.
+There is no core menu registration, extra sender or Telegram token in the MCP server.
+SettingsStore persists schema1/revision/policy, settings offer TTL is 10 minutes. TaskWriter
+and settings commits share a lock; mutation and output boundaries enforce current policy.
+Backward defaults are explicit via installer env marker; stored settings win across updates.
+Free-text anonymization and independent human-click authentication are outside this contract.
+See [ADR0010](adr/0010-plugin-settings-menu.md) and [SETUP](SETUP.md#меню-настроек-плагина).

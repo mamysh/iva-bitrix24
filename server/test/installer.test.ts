@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -110,7 +110,7 @@ test("writes the env atomically with mode 0600", async () => {
   const directory = await mkdtemp(join(tmpdir(), "iva-bitrix24-installer-"));
   const envPath = join(directory, "bitrix24-read.env");
   await writeWebhookAtomic(envPath, secret);
-  assert.equal(await readFile(envPath, "utf8"), `BITRIX24_WEBHOOK_BASE_URL=${secret}\n`);
+  assert.equal(await readFile(envPath, "utf8"), `BITRIX24_WEBHOOK_BASE_URL=${secret}\nBITRIX24_SETTINGS_DEFAULTS=restricted\n`);
   assert.equal((await stat(envPath)).mode & 0o777, 0o600);
 });
 
@@ -121,4 +121,31 @@ test("stores the configured Iva attachments directory without exposing it throug
     await writeWebhookAtomic(envPath, "https://example.test/rest/1/secret", "/srv/iva/vault/attachments");
     assert.match(await readFile(envPath, "utf8"), /BITRIX24_ATTACHMENTS_ROOT="\/srv\/iva\/vault\/attachments"/u);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("setup preserves legacy upgrades and restricted onboarding marker on rerun", async t => {
+  const root = await mkdtemp(join(tmpdir(), "bitrix-settings-migration-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const legacy = join(root, "legacy.env");
+  await writeFile(legacy, `BITRIX24_WEBHOOK_BASE_URL=${secret}\n`);
+  await writeWebhookAtomic(legacy, secret);
+  assert.match(await readFile(legacy, "utf8"), /BITRIX24_SETTINGS_DEFAULTS=legacy/u);
+  const fresh = join(root, "fresh.env");
+  await writeWebhookAtomic(fresh, secret);
+  await writeWebhookAtomic(fresh, secret);
+  assert.match(await readFile(fresh, "utf8"), /BITRIX24_SETTINGS_DEFAULTS=restricted/u);
+});
+
+
+test("installer reads quoted defaults without silently expanding permissions", async t => {
+  const root = await mkdtemp(join(tmpdir(), "bitrix-settings-env-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const env = join(root, "test.env");
+  await writeFile(env, `BITRIX24_WEBHOOK_BASE_URL=${secret}\nBITRIX24_SETTINGS_DEFAULTS = "restricted"\n`);
+  await writeWebhookAtomic(env, secret);
+  assert.match(await readFile(env, "utf8"), /BITRIX24_SETTINGS_DEFAULTS=restricted/u);
+  const invalid = `BITRIX24_SETTINGS_DEFAULTS=unknown\n`;
+  await writeFile(env, invalid);
+  await assert.rejects(writeWebhookAtomic(env, secret), /маркер/u);
+  assert.equal(await readFile(env, "utf8"), invalid);
 });
