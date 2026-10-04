@@ -143,11 +143,15 @@ test("checks the recorded Git source and creates a bounded button-approval offer
       `v${OLD_VERSION} → v${NEW_VERSION}`,
       "Источник: mamysh/iva-bitrix24/plugin @HEAD",
       "CI: success ✅",
+      "",
       "LibreOffice отсутствует на iva-host (ubuntu); Iva работает от iva-user.",
       `Проверенный путь установки Iva: ${join(paths.data, "..")}. Плагин: ${paths.root}.`,
+      "",
       "Подключитесь к этому серверу по SSH и выполните:",
       "sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-impress-nogui libreoffice-writer-nogui libreoffice-calc-nogui",
+      "",
       "Обновление плагина системные пакеты не устанавливает.",
+      "",
       "Настройки и локальные данные будут сохранены.",
     ].join("\n"),
     options: [
@@ -560,4 +564,41 @@ test("rechecks a moving remote ref immediately before apply", async (t) => {
     }),
     /REMOTE_CHANGED_SINCE_CHECK/u,
   );
+});
+
+
+test("rich updater preserves copyable command, escapes host data and requires its exact reply", async (t) => {
+  const paths = await world(t);
+  const calls: TestCall[] = [];
+  const defaults = operations(calls);
+  const updater = new PluginUpdater({ PLUGIN_ROOT: paths.root, PLUGIN_DATA: paths.pluginData }, {
+    ...defaults,
+    officeHost: async () => ({ hostname: '<tg-button data="evil">host</tg-button>', user: "iva*user", osId: "ubuntu", aptGet: true, ivaPath: paths.data }),
+  });
+  const result = await updater.check({ presentation: "rich" }) as { approvalToken: string; richApproval: { markdown: string; confirmationReply: string; laterReply: string } };
+  const { markdown, confirmationReply, laterReply } = result.richApproval;
+  assert.match(markdown, /\*\*Команда для VPS\*\*[\s\S]*```bash\nsudo apt-get[^\n]+\n```/u);
+  assert.ok(markdown.includes('\n\n**Что сохранится**'));
+  assert.ok(!markdown.includes('<tg-button data="evil">'));
+  assert.ok(markdown.includes('&lt;tg'));
+  assert.ok(!markdown.includes(result.approvalToken));
+  assert.ok(Buffer.byteLength(confirmationReply, "utf8") <= 64);
+  assert.ok(Buffer.byteLength(laterReply, "utf8") <= 64);
+  for (const reply of [undefined, "b24u:update:" + "0".repeat(24), laterReply]) {
+    await assert.rejects(updater.apply({ candidateSha: NEW, approvalToken: result.approvalToken, ...(reply ? { confirmationReply: reply } : {}) }), /UPDATE_APPROVAL_MISMATCH/u);
+  }
+  assert.ok(!calls.some(c => c.command === "systemd-run"));
+  const started = await updater.apply({ candidateSha: NEW, approvalToken: result.approvalToken, confirmationReply }) as { state: string };
+  assert.equal(started.state, "started");
+});
+
+test("new updater check invalidates old rich buttons and native fallback needs a fresh check", async (t) => {
+  const paths = await world(t);
+  const updater = new PluginUpdater({ PLUGIN_ROOT: paths.root, PLUGIN_DATA: paths.pluginData }, operations([]));
+  const first = await updater.check({ presentation: "rich" }) as { richApproval: { confirmationReply: string } };
+  await updater.check({ presentation: "rich" });
+  await assert.rejects(updater.apply({ candidateSha: NEW, approvalToken: "ABC123ABC123ABC123ABC123", confirmationReply: first.richApproval.confirmationReply }), /UPDATE_APPROVAL_MISMATCH/u);
+  await updater.check({ presentation: "native" });
+  await assert.rejects(updater.apply({ candidateSha: NEW, approvalToken: "ABC123ABC123ABC123ABC123", confirmationReply: first.richApproval.confirmationReply }), /UPDATE_APPROVAL_MISMATCH/u);
+  assert.equal((await updater.apply({ candidateSha: NEW, approvalToken: "ABC123ABC123ABC123ABC123" }) as { state: string }).state, "started");
 });

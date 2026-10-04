@@ -60,6 +60,8 @@ const client = new Client({ name: "bundle-smoke", version: "1.0.0" });
 try {
   await client.connect(transport);
   const { tools } = await client.listTools();
+  assert.ok(tools.find(tool => tool.name === "iva_bitrix24_update_check").inputSchema.properties?.presentation);
+  assert.ok(tools.find(tool => tool.name === "iva_bitrix24_update_apply").inputSchema.properties?.confirmationReply);
   const settingsSchema = tools.find(tool => tool.name === "bitrix24_settings").inputSchema;
   assert.equal(settingsSchema.type, "object");
   for (const field of ["screen", "reply"]) assert.ok(settingsSchema.properties?.[field]);

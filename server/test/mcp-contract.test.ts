@@ -35,7 +35,7 @@ function reader(): BitrixReaderPort {
 
 async function connectedClient(taskReader: BitrixReaderPort = reader()) {
   const server = createMcpServer(taskReader, {
-    check: async () => ({ state: "current" }),
+    check: async (input) => ({ state: "current", input }),
     apply: async (input) => ({ state: "started", input }),
     status: async () => ({ state: "never_run" }),
   }, files(), {
@@ -415,4 +415,23 @@ test("MCP forwards rich presentation and the actual confirmation reply separatel
   } });
   assert.ok(!applied.isError);
   assert.equal(JSON.parse((applied.content as Array<{ text: string }>)[0]!.text).confirmationReply, p.richApproval.confirmReply);
+});
+
+
+test("MCP forwards rich update presentation and exact reply without widening apply inputs", async t => {
+  const { client, server } = await connectedClient();
+  t.after(async () => { await client.close(); await server.close(); });
+  const tools = (await client.listTools()).tools;
+  assert.ok(tools.find(tool => tool.name === "iva_bitrix24_update_check")!.inputSchema.properties?.presentation);
+  assert.ok(tools.find(tool => tool.name === "iva_bitrix24_update_apply")!.inputSchema.properties?.confirmationReply);
+  const check = await client.callTool({ name: "iva_bitrix24_update_check", arguments: { presentation: "rich" } });
+  assert.equal(check.isError, undefined);
+  assert.deepEqual(JSON.parse((check.content as { text: string }[])[0]!.text).input, { presentation: "rich" });
+  const input = { candidateSha: "a".repeat(40), approvalToken: "A".repeat(24), confirmationReply: "b24u:update:" + "b".repeat(24) };
+  const apply = await client.callTool({ name: "iva_bitrix24_update_apply", arguments: input });
+  assert.equal(apply.isError, undefined);
+  assert.deepEqual(JSON.parse((apply.content as { text: string }[])[0]!.text).input, input);
+  for (const invalid of [{ ...input, command: "unsafe" }, { ...input, confirmationReply: "yes" }]) {
+    assert.equal((await client.callTool({ name: "iva_bitrix24_update_apply", arguments: invalid })).isError, true);
+  }
 });
