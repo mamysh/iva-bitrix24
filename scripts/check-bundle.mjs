@@ -60,6 +60,11 @@ const client = new Client({ name: "bundle-smoke", version: "1.0.0" });
 try {
   await client.connect(transport);
   const { tools } = await client.listTools();
+  const actionSchema = tools.find(tool => tool.name === "bitrix24_prepare_task_action").inputSchema;
+  assert.equal(actionSchema.type, "object");
+  for (const field of ["action", "taskId", "title", "addAuditors", "uploads", "actions"])
+    assert.ok(actionSchema.properties?.[field], `missing action schema field: ${field}`);
+  assert.match(JSON.stringify(actionSchema.properties.actions), /checklistUpdates/u);
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [

@@ -143,6 +143,20 @@ export const taskWriteSchema = z.discriminatedUnion("action", [
     .strict(),
 ]);
 export type TaskRequest = z.infer<typeof taskWriteSchema>;
+
+// MCP SDK exports JSON Schema only for an object at the tool's root. Preserve
+// every action field for discovery, then enforce the same discriminated contract.
+const discoveryShape: Record<string, z.ZodType> = {};
+for (const option of singleWriteSchema.options)
+  for (const [key, field] of Object.entries(option.shape))
+    if (key !== "action") discoveryShape[key] = field.optional();
+export const taskWriteInputSchema = z.object({
+  ...discoveryShape,
+  deadline: date.nullable().optional(),
+  action: z.enum(["create", "update", "comment", "upload", "complete", "rework", "reassign", "deadline", "batch"]),
+  actions: z.array(singleWriteSchema).min(1).max(20).optional(),
+}).strict().refine(value => taskWriteSchema.safeParse(value).success, "Invalid task action");
+
 type Data = Record<string, unknown>;
 const object = (value: unknown): Data =>
   value !== null && typeof value === "object" && !Array.isArray(value)
