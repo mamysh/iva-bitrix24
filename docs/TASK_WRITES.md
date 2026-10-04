@@ -1,6 +1,6 @@
-# Task action contract (prerelease 0.7.0-rc.7; stable 0.6.0)
+# Task action contract (stable 0.7.0)
 
-The stable 0.6.0 release is validated by synthetic tests. On 4 October 2026 the owner
+The stable 0.7.0 release is validated by synthetic tests. On 4 October 2026 the owner
 reported successful task creation and completion on the current upstream Iva in real use.
 The exact installed Iva version was not recorded; other operations have no separate live
 verification claim. Existing read tools keep their contract. No Iva core changes or public backend are required.
