@@ -36442,6 +36442,7 @@ var singleWriteSchema = external_exports.discriminatedUnion("action", [
     accomplices: people.optional(),
     projectId: id2.optional(),
     checklist: external_exports.array(external_exports.string().trim().min(1).max(500)).max(50).optional(),
+    checklistTitle: external_exports.string().trim().min(1).max(250).optional(),
     priority: external_exports.enum(["0", "1", "2"]).optional(),
     parentId: id2.optional(),
     tags: external_exports.array(external_exports.string().trim().min(1).max(100)).max(30).optional(),
@@ -36460,7 +36461,7 @@ var singleWriteSchema = external_exports.discriminatedUnion("action", [
         external_exports.array(external_exports.union([external_exports.string().max(500), external_exports.number().finite()])).max(50)
       ])
     ).optional()
-  }).strict(),
+  }).strict().refine((v) => v.checklistTitle === void 0 || Boolean(v.checklist?.length)),
   external_exports.object({
     action: external_exports.literal("update"),
     taskId: id2,
@@ -36475,6 +36476,8 @@ var singleWriteSchema = external_exports.discriminatedUnion("action", [
     priority: external_exports.enum(["0", "1", "2"]).optional(),
     tags: external_exports.array(external_exports.string().trim().min(1).max(100)).max(30).optional(),
     checklist: external_exports.array(external_exports.string().trim().min(1).max(500)).max(50).optional(),
+    checklistTitle: external_exports.string().trim().min(1).max(250).optional(),
+    checklistId: id2.optional(),
     checklistUpdates: external_exports.array(
       external_exports.object({
         id: id2,
@@ -36482,7 +36485,7 @@ var singleWriteSchema = external_exports.discriminatedUnion("action", [
         completed: external_exports.boolean().optional()
       }).strict().refine((v) => v.title !== void 0 || v.completed !== void 0)
     ).max(50).optional()
-  }).strict().refine(
+  }).strict().refine((v) => v.checklistTitle === void 0 && v.checklistId === void 0 || Boolean(v.checklist?.length)).refine((v) => v.checklistTitle === void 0 || v.checklistId === void 0).refine(
     (v) => Object.entries(v).some(
       ([k, value]) => !["action", "taskId"].includes(k) && value !== void 0 && (!Array.isArray(value) || value.length > 0 || ["auditors", "accomplices", "tags"].includes(k))
     )
@@ -36538,11 +36541,19 @@ var FILE_LIMIT = 50 * 1024 * 1024;
 function previewText(value) {
   return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u202A-\u202E\u2066-\u2069]/gu, "");
 }
+function previewDate(value) {
+  if (!value) return "\u043D\u0435 \u0437\u0430\u0434\u0430\u043D";
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})(:\d{2}(?:\.\d+)?)(Z|[+-]\d{2}:\d{2})$/u.exec(value);
+  if (!match) return previewText(value);
+  const [, year, month, day, time3, seconds, zone] = match;
+  return `${day}.${month}.${year}, ${time3}${seconds === ":00" ? "" : seconds} (UTC${zone === "Z" ? "+00:00" : zone})`;
+}
 var TaskWriter = class {
   #client;
   #data;
   #attachments;
   #now;
+  #emailAvailable;
   constructor(client, data, attachments, now = Date.now) {
     this.#client = client;
     this.#data = data;
@@ -36594,17 +36605,22 @@ var TaskWriter = class {
     }
   }
   async #person(userId) {
+    if (this.#emailAvailable === void 0) {
+      const scopes = await this.#client.call("scope");
+      this.#emailAvailable = Array.isArray(scopes) && scopes.some((v) => typeof v === "string" && ["user_basic", "user"].includes(v.toLowerCase()));
+    }
     const raw = await this.#client.call("user.get", {
       ID: userId,
       ACTIVE: true,
-      select: ["ID", "NAME", "LAST_NAME", "UF_DEPARTMENT", "ACTIVE"]
+      select: ["ID", "NAME", "LAST_NAME", "UF_DEPARTMENT", "ACTIVE", ...this.#emailAvailable ? ["EMAIL"] : []]
     });
     const person = (Array.isArray(raw) ? raw : []).map(object4).find((p) => positive(p.ID) === userId);
     if (!person || person.ACTIVE !== true && person.ACTIVE !== "Y")
       return fail("EMPLOYEE_NOT_FOUND_OR_INACTIVE");
+    const email3 = this.#emailAvailable && typeof person.EMAIL === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(person.EMAIL.trim()) ? person.EMAIL.trim().slice(0, 320) : null;
     return {
       person,
-      label: `${[person.NAME, person.LAST_NAME].filter((s) => typeof s === "string").join(" ").slice(0, 200)} (ID ${userId})`
+      label: `${[person.NAME, person.LAST_NAME].filter((s) => typeof s === "string").join(" ").slice(0, 200)} (${email3 ?? `ID ${userId}; \u043F\u043E\u0447\u0442\u0430 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430`})`
     };
   }
   async stages(projectId) {
@@ -36891,7 +36907,10 @@ var TaskWriter = class {
       ))
         return fail("PROJECT_NOT_FOUND_OR_DENIED");
     }
-    if (input2.checklist?.length) this.#nextChecklistSort(snapshot);
+    if (input2.checklist?.length) {
+      this.#nextChecklistSort(snapshot);
+      this.#checklistTarget(input2, snapshot);
+    }
     const checklist = snapshot.editState?.checklist;
     if (input2.checklistUpdates?.length) {
       if (!Array.isArray(checklist)) return fail("INVALID_RESPONSE");
@@ -36902,6 +36921,19 @@ var TaskWriter = class {
         return fail("CHECKLIST_ITEM_NOT_FOUND");
     }
     return fields;
+  }
+  #checklistTarget(input2, snapshot) {
+    const rows = snapshot.editState?.checklist;
+    if (!Array.isArray(rows)) return fail("INVALID_RESPONSE");
+    if (input2.checklistTitle) return { id: null, title: input2.checklistTitle };
+    const roots = rows.map(object4).filter((row) => Number(row.PARENT_ID ?? row.parentId) === 0);
+    const root = input2.checklistId ? roots.find((row) => positive(row.ID ?? row.id) === input2.checklistId) : roots[0];
+    if (input2.checklistId && !root) return fail("CHECKLIST_ITEM_NOT_FOUND");
+    if (!input2.checklistId && roots.length > 1) return fail("CHECKLIST_SELECTION_REQUIRED");
+    if (!root) return { id: null, title: "\u0427\u0435\u043A-\u043B\u0438\u0441\u0442" };
+    const rootId = positive(root.ID ?? root.id);
+    if (!rootId || typeof (root.TITLE ?? root.title) !== "string") return fail("INVALID_RESPONSE");
+    return { id: rootId, title: String(root.TITLE ?? root.title) };
   }
   #nextChecklistSort(snapshot) {
     const list = snapshot.editState?.checklist;
@@ -36925,7 +36957,7 @@ var TaskWriter = class {
         `\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435: ${previewText(input2.title)}`,
         `\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435: ${previewText(input2.description)}`,
         `\u041E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0439: ${previewText((await this.#person(input2.responsibleId)).label)}`,
-        `\u0421\u0440\u043E\u043A: ${input2.deadline}`
+        `\u0421\u0440\u043E\u043A: ${previewDate(input2.deadline)}`
       );
       for (const [key, label] of [
         ["auditors", "\u041D\u0430\u0431\u043B\u044E\u0434\u0430\u0442\u0435\u043B\u0438"],
@@ -36948,8 +36980,8 @@ var TaskWriter = class {
       }
       if (input2.checklist?.length)
         lines.push(
-          "\u0427\u0435\u043A-\u043B\u0438\u0441\u0442:",
-          ...input2.checklist.map((item, i) => `${i + 1}. ${previewText(item)}`)
+          `\u0427\u0435\u043A-\u043B\u0438\u0441\u0442 \xAB${previewText(input2.checklistTitle ?? "\u0427\u0435\u043A-\u043B\u0438\u0441\u0442")}\xBB:`,
+          ...input2.checklist.map((item) => `\u2610 ${previewText(item)}`)
         );
       const extras = Object.fromEntries(
         Object.entries(input2).filter(
@@ -36963,6 +36995,7 @@ var TaskWriter = class {
             "accomplices",
             "projectId",
             "checklist",
+            "checklistTitle",
             "comment",
             "uploads"
           ].includes(key)
@@ -36982,7 +37015,7 @@ var TaskWriter = class {
       };
       for (const [key, value] of Object.entries(extras))
         lines.push(
-          `${labels[key]}: ${typeof value === "boolean" ? value ? "\u0434\u0430" : "\u043D\u0435\u0442" : previewText(JSON.stringify(value))}`
+          `${labels[key]}: ${["startDatePlan", "endDatePlan"].includes(key) ? previewDate(String(value)) : typeof value === "boolean" ? value ? "\u0434\u0430" : "\u043D\u0435\u0442" : previewText(JSON.stringify(value))}`
         );
       if (input2.comment)
         lines.push(
@@ -37018,7 +37051,7 @@ var TaskWriter = class {
         labels[input2.action],
         `\u0417\u0430\u0434\u0430\u0447\u0430 \u2116${input2.taskId}: ${previewText(snapshot.title)}`,
         `\u041E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0439: ${previewText((await this.#person(snapshot.responsibleId)).label)}`,
-        `\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0441\u0440\u043E\u043A: ${previewText(snapshot.deadline ?? "\u043D\u0435 \u0437\u0430\u0434\u0430\u043D")}`,
+        `\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0441\u0440\u043E\u043A: ${previewDate(snapshot.deadline)}`,
         `\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0441\u0442\u0430\u0442\u0443\u0441: ${{ 2: "\u041D\u043E\u0432\u0430\u044F", 3: "\u0412 \u0440\u0430\u0431\u043E\u0442\u0435", 4: "\u041D\u0430 \u043A\u043E\u043D\u0442\u0440\u043E\u043B\u0435", 5: "\u0417\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u0430", 6: "\u041E\u0442\u043B\u043E\u0436\u0435\u043D\u0430" }[snapshot.status] ?? snapshot.status}`
       );
       if (input2.action === "update") {
@@ -37035,6 +37068,7 @@ var TaskWriter = class {
         };
         for (const [key, value] of Object.entries(fields)) {
           let display = typeof value === "string" ? value : JSON.stringify(value);
+          if (key === "DEADLINE") display = previewDate(typeof value === "string" ? value : null);
           if (["AUDITORS", "ACCOMPLICES"].includes(key)) {
             const names = [];
             for (const person of value)
@@ -37045,13 +37079,17 @@ var TaskWriter = class {
         }
         if (input2.checklist?.length)
           lines.push(
-            "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0432 \u0447\u0435\u043A-\u043B\u0438\u0441\u0442:",
-            ...input2.checklist.map((v, i) => `${i + 1}. ${previewText(v)}`)
+            `${input2.checklistTitle ? "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u0447\u0435\u043A-\u043B\u0438\u0441\u0442" : "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0432 \u0447\u0435\u043A-\u043B\u0438\u0441\u0442"} \xAB${previewText(this.#checklistTarget(input2, snapshot).title)}\xBB:`,
+            ...input2.checklist.map((v) => `\u2610 ${previewText(v)}`)
           );
-        for (const change of input2.checklistUpdates ?? [])
-          lines.push(
-            `\u041F\u0440\u0430\u0432\u043A\u0430 \u043F\u0443\u043D\u043A\u0442\u0430 \u2116${change.id}: ${previewText([change.title !== void 0 ? `\u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \xAB${change.title}\xBB` : "", change.completed !== void 0 ? change.completed ? "\u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D" : "\u043D\u0435 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D" : ""].filter(Boolean).join(", "))}`
-          );
+        for (const change of input2.checklistUpdates ?? []) {
+          const rows = snapshot.editState.checklist;
+          const item = object4(rows.find((v) => positive(object4(v).ID ?? object4(v).id) === change.id));
+          const title = String(item.TITLE ?? item.title ?? `\u041F\u0443\u043D\u043A\u0442 \u2116${change.id}`);
+          const duplicates = rows.filter((v) => (object4(v).TITLE ?? object4(v).title) === title).length > 1;
+          const details = [change.title !== void 0 ? `\u043F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u0442\u044C \u0432 \xAB${change.title}\xBB` : "", change.completed !== void 0 ? change.completed ? "\u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D" : "\u043D\u0435 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D" : ""].filter(Boolean).join(", ");
+          lines.push(`${change.completed === true ? "\u2611" : "\u2610"} ${previewText(title)}${duplicates ? ` (\u043F\u0443\u043D\u043A\u0442 \u2116${change.id})` : ""}: ${previewText(details)}`);
+        }
       }
       if (input2.action === "comment" || input2.action === "upload")
         lines.push(`\u0422\u0435\u043A\u0441\u0442: ${previewText(input2.message ?? "\u0431\u0435\u0437 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F")}`);
@@ -37060,7 +37098,7 @@ var TaskWriter = class {
           `\u041A\u0443\u0434\u0430: ${snapshot.chatId ? "\u0447\u0430\u0442 \u0437\u0430\u0434\u0430\u0447\u0438" : "\u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0438 \u0437\u0430\u0434\u0430\u0447\u0438"}`
         );
       if (input2.action === "deadline")
-        lines.push(`\u041D\u043E\u0432\u044B\u0439 \u0441\u0440\u043E\u043A: ${input2.deadline}`);
+        lines.push(`\u041D\u043E\u0432\u044B\u0439 \u0441\u0440\u043E\u043A: ${previewDate(input2.deadline)}`);
       if (input2.action === "reassign")
         lines.push(
           `\u041D\u043E\u0432\u044B\u0439 \u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0439: ${previewText((await this.#person(input2.responsibleId)).label)}`
@@ -37094,13 +37132,14 @@ var TaskWriter = class {
       snapshot,
       file: file2,
       uploads,
-      prompt: lines.join("\n\n"),
+      prompt: [lines[0], lines.slice(1).join("\n")].join("\n\n"),
       displayLines: lines
     };
   }
   async prepare(raw) {
     const input2 = taskWriteSchema.parse(raw);
     return this.#locked(async () => {
+      this.#emailAvailable = void 0;
       const owner = await this.#owner();
       const actions = input2.action === "batch" ? input2.actions : [input2];
       const updates = actions.filter((v) => v.action === "update").map((v) => v.taskId);
@@ -37123,10 +37162,10 @@ var TaskWriter = class {
           } else seenTasks.add(step.input.taskId);
         }
         parts[0] = `${index + 1}. ${parts[0]}`;
-        return parts.join("\n\n");
+        return parts.join("\n");
       }).join("\n\n");
       const offer = {
-        schema: 2,
+        schema: 3,
         draftId: randomUUID2(),
         owner,
         portal: this.#client.taskWebUrl(1),
@@ -37161,7 +37200,7 @@ ${batchPrompt}
     const raw = object4(
       JSON.parse(await readFile2(join2(this.#root(), "active.json"), "utf8"))
     );
-    if (raw.schema !== 2 || raw.draftId !== draftId)
+    if (raw.schema !== 3 || raw.draftId !== draftId)
       return fail("DRAFT_SUPERSEDED");
     const offer = raw;
     const age = this.#now() - offer.createdAt;
@@ -37340,11 +37379,27 @@ ${batchPrompt}
             }
           }
           if (input2.action === "create" || input2.action === "update") {
+            let checklistId = null;
+            if (input2.checklist?.length) {
+              const target = input2.action === "update" ? this.#checklistTarget(input2, step.snapshot) : { id: null, title: input2.checklistTitle ?? "\u0427\u0435\u043A-\u043B\u0438\u0441\u0442" };
+              checklistId = target.id;
+              if (!checklistId) {
+                const response = await write("task.checklistitem.add", {
+                  TASKID: active.taskId,
+                  FIELDS: { TITLE: target.title, PARENT_ID: 0, SORT_INDEX: input2.action === "update" ? this.#nextChecklistSort(step.snapshot) : 0 }
+                });
+                checklistId = positive(response);
+                if (!checklistId) return fail("WRITE_RESULT_UNKNOWN");
+                active.checklistId = checklistId;
+                await persist();
+              }
+            }
             for (const [index, title] of (input2.checklist ?? []).entries()) {
               await write("task.checklistitem.add", {
                 TASKID: active.taskId,
                 FIELDS: {
                   TITLE: title,
+                  PARENT_ID: checklistId,
                   SORT_INDEX: index + (input2.action === "update" ? this.#nextChecklistSort(step.snapshot) : 0)
                 }
               });
@@ -37893,7 +37948,7 @@ function errorDetails(code, retryable) {
       retryable: false,
       action: "use_returned_cursor"
     };
-  if (["DUPLICATE_TASK_UPDATE", "CHECKLIST_ITEM_NOT_FOUND", "TOO_MANY_AUDITORS"].includes(code))
+  if (["DUPLICATE_TASK_UPDATE", "CHECKLIST_ITEM_NOT_FOUND", "CHECKLIST_SELECTION_REQUIRED", "TOO_MANY_AUDITORS"].includes(code))
     return { category: "input", retryable: false, action: "revise_task_request" };
   if (code === "TASK_CHAT_UNAVAILABLE")
     return {
@@ -37976,7 +38031,7 @@ function registerUpdaterTools(server2, updater) {
   );
 }
 function createMcpServer(reader, updater = null, files = null, writer = null) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.4" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.5" });
   registerUpdaterTools(server2, updater);
   if (writer) {
     server2.registerTool("bitrix24_project_stages", {
@@ -39339,6 +39394,7 @@ var ReadCapabilityReader = class {
       id: identifier2(item.ID),
       taskId: identifier2(item.TASK_ID),
       parentId: identifier2(item.PARENT_ID),
+      kind: Number(item.PARENT_ID) === 0 ? "checklist" : "item",
       createdBy: identifier2(item.CREATED_BY),
       title: text3(item.TITLE, 2e3),
       sortIndex: integer3(item.SORT_INDEX),
@@ -39464,7 +39520,7 @@ async function resolveAttachmentsRoot(env, wrapper = join4(env.HOME || homedir2(
 
 // server/src/main.ts
 function unavailableServer(error61, updater) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.3" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.5" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",

@@ -67,7 +67,9 @@ async function fixture(t: test.TestContext) {
         const response = intercept?.(method, params);
         if (response) return response;
         const result =
-          method === "profile"
+          method === "scope"
+            ? ["task", "user_brief"]
+            : method === "profile"
             ? { ID: "123" }
             : method === "user.get"
               ? [
@@ -91,7 +93,9 @@ async function fixture(t: test.TestContext) {
                         ? [{ ID: "9", NAME: "Проект" }]
                         : method === "task.checklistitem.getlist"
                           ? []
-                          : method === "im.v2.File.upload"
+                          : method === "task.checklistitem.add"
+                            ? 88
+                            : method === "im.v2.File.upload"
                             ? { file: { id: "55" }, messageId: "66" }
                             : true;
         return Response.json({ result });
@@ -177,7 +181,7 @@ test("preview creates no portal writes; application freezes fields and replay us
   const result = await f.writer.apply(preview.draftId);
   assert.equal(result.state, "applied");
   assert.equal(result.taskId, 21);
-  assert.equal(writes(f.calls).length, 3);
+  assert.equal(writes(f.calls).length, 4);
   assert.deepEqual(writes(f.calls)[0]?.params.fields, {
     TITLE: create.title,
     DESCRIPTION: create.description,
@@ -191,7 +195,7 @@ test("preview creates no portal writes; application freezes fields and replay us
     UF_TEST: "текст",
   });
   assert.deepEqual(await f.writer.apply(preview.draftId), result);
-  assert.equal(writes(f.calls).length, 3);
+  assert.equal(writes(f.calls).length, 4);
 });
 
 test("cancellation, correction and expiration prevent using an old preview", async (t) => {
@@ -506,12 +510,13 @@ test("one preview approves card changes, a comment and a file, and replay never 
     [
       "tasks.task.update",
       "task.checklistitem.add",
+      "task.checklistitem.add",
       "im.message.add",
       "im.v2.File.upload",
     ],
   );
   assert.deepEqual(await f.writer.apply(p.draftId), r);
-  assert.equal(writes(f.calls).length, 4);
+  assert.equal(writes(f.calls).length, 5);
 });
 
 test("batch validates every file and snapshot before any write; cancel cancels the whole request", async (t) => {
@@ -719,6 +724,7 @@ test("creation with checklist, comment and file uses one preview and only the re
     [
       "tasks.task.add",
       "task.checklistitem.add",
+      "task.checklistitem.add",
       "im.message.add",
       "im.v2.File.upload",
     ],
@@ -732,7 +738,7 @@ test("creation with checklist, comment and file uses one preview and only the re
     { fileId: 55, messageId: 66, name: "report.txt" },
   ]);
   await f.writer.apply(p.draftId);
-  assert.equal(writes(f.calls).length, 4);
+  assert.equal(writes(f.calls).length, 5);
 });
 
 test("creation checks every attached file before creating and preserves the new task if its chat fails", async (t) => {
@@ -897,4 +903,108 @@ test("an incomplete chat scan cannot prove file removal", async (t) => {
   assert.equal(r.error, "WRITE_RESULT_UNKNOWN");
   assert.notEqual(r.state, "applied");
   assert.equal(writes(f.calls).length, 1);
+});
+
+
+test("compact approval uses account email and readable dates without changing the frozen payload", async t => {
+  const f = await fixture(t);
+  f.intercept((method, params) => method === "scope" ? Response.json({result: ["task", "user_basic"]}) : method === "user.get" ? Response.json({result: [{ID: params.ID, NAME: "Иван", LAST_NAME: "Тестов", ACTIVE: true, EMAIL: "ivan@example.invalid"}]}) : undefined);
+  const preview = await f.writer.prepare({action: "batch", actions: [{action: "update", taskId: 20, deadline: "2026-10-06T14:35:00+03:00", addAuditors: [8]}, {action: "comment", taskId: 20, message: "Готово"}]});
+  const prompt = preview.approvalPrompt.prompt;
+  assert.match(prompt, /Иван Тестов \(ivan@example.invalid\)/u);
+  assert.doesNotMatch(prompt, /ID 7|ID 8|T14:35|\n\nОтветственный/u);
+  assert.match(prompt, /Новый срок: 06\.10\.2026, 14:35 \(UTC\+03:00\)/u);
+  assert.equal(prompt.match(/Задача №20/gu)?.length, 1);
+  await f.writer.apply(preview.draftId);
+  assert.equal((writes(f.calls)[0]!.params.fields as Record<string, unknown>).DEADLINE, "2026-10-06T14:35:00+03:00");
+});
+
+test("checklist approval shows original item titles, including renames, and resolves identical names", async t => {
+  const f = await fixture(t);
+  f.intercept(method => method === "task.checklistitem.getlist" ? Response.json({result: [{ID: 10, TITLE: "Проверка", PARENT_ID: 0}, {ID: 101, TITLE: "Проверить макет", PARENT_ID: 10}, {ID: 102, TITLE: "Отправить", PARENT_ID: 10}, {ID: 103, TITLE: "Отправить", PARENT_ID: 10}]}) : undefined);
+  const p = await f.writer.prepare({action: "update", taskId: 20, checklistUpdates: [{id: 101, completed: true, title: "Макет проверен"}, {id: 102, completed: false}]});
+  assert.match(p.approvalPrompt.prompt, /☑ Проверить макет: переименовать в «Макет проверен», выполнен/u);
+  assert.doesNotMatch(p.approvalPrompt.prompt, /№101/u);
+  assert.match(p.approvalPrompt.prompt, /☐ Отправить \(пункт №102\): не выполнен/u);
+});
+
+test("named checklist creates an explicit root and binds every child to its returned ID; replay never creates another root", async t => {
+  const f = await fixture(t);
+  const p = await f.writer.prepare({...create, checklistTitle: "Проверка отчёта", checklist: ["Собрать", "Отправить"]});
+  const r = await f.writer.apply(p.draftId);
+  assert.equal(r.state, "applied");
+  const calls = writes(f.calls).filter(c => c.method === "task.checklistitem.add");
+  assert.deepEqual(calls[0]!.params, {TASKID: 21, FIELDS: {TITLE: "Проверка отчёта", PARENT_ID: 0, SORT_INDEX: 0}});
+  for (const child of calls.slice(1)) assert.equal((child.params.FIELDS as Record<string, unknown>).PARENT_ID, 88);
+  assert.equal(r.completedChecklistItems, 2);
+  await f.writer.apply(p.draftId);
+  assert.equal(writes(f.calls).length, 4);
+});
+
+test("append keeps an existing named checklist and requires an explicit selection when several exist", async t => {
+  const f = await fixture(t);
+  let rows = [{ID: 50, TITLE: "Приёмка", PARENT_ID: 0}];
+  f.intercept(method => method === "task.checklistitem.getlist" ? Response.json({result: rows}) : undefined);
+  const p = await f.writer.prepare({action: "update", taskId: 20, checklist: ["Проверить"]});
+  assert.match(p.approvalPrompt.prompt, /Добавить в чек-лист «Приёмка»/u);
+  await f.writer.apply(p.draftId);
+  assert.equal(writes(f.calls).length, 1);
+  assert.equal((writes(f.calls)[0]!.params.FIELDS as Record<string, unknown>).PARENT_ID, 50);
+  rows = [...rows, {ID: 60, TITLE: "Доставка", PARENT_ID: 0}];
+  await assert.rejects(f.writer.prepare({action: "update", taskId: 20, checklist: ["Проверить"]}), /CHECKLIST_SELECTION_REQUIRED/u);
+  await assert.rejects(f.writer.prepare({action: "update", taskId: 20, checklistId: 99, checklist: ["Проверить"]}), /CHECKLIST_ITEM_NOT_FOUND/u);
+  const selected = await f.writer.prepare({action: "update", taskId: 20, checklistId: 60, checklist: ["Проверить"]});
+  assert.match(selected.approvalPrompt.prompt, /«Доставка»/u);
+});
+
+test("unknown checklist root creation stops before children and retains the task without replay", async t => {
+  const f = await fixture(t);
+  f.intercept(method => method === "task.checklistitem.add" ? Response.json({result: true}) : undefined);
+  const p = await f.writer.prepare({...create, checklist: ["Проверить"]});
+  const r = await f.writer.apply(p.draftId);
+  assert.equal(r.state, "partial");
+  assert.equal(r.error, "WRITE_RESULT_UNKNOWN");
+  assert.equal(r.taskId, 21);
+  assert.equal(r.completedChecklistItems, 0);
+  await f.writer.apply(p.draftId);
+  assert.equal(writes(f.calls).length, 2);
+});
+
+
+test("email fallback never requests unavailable fields or guesses an address", async t => {
+  const f = await fixture(t);
+  const p = await f.writer.prepare(create);
+  assert.match(p.approvalPrompt.prompt, /Иван Тестов \(ID 7; почта недоступна\)/u);
+  for (const call of f.calls.filter(c => c.method === "user.get")) assert.equal((call.params.select as string[]).includes("EMAIL"), false);
+});
+
+test("readable deadlines preserve negative offsets, UTC and nonzero seconds", async t => {
+  const f = await fixture(t);
+  for (const [iso, display] of [["2026-10-10T18:00:23-04:30", "10.10.2026, 18:00:23 (UTC-04:30)"], ["2026-10-10T18:00:00Z", "10.10.2026, 18:00 (UTC+00:00)"]] as const) {
+    const p = await f.writer.prepare({...create, deadline: iso});
+    assert.ok(p.approvalPrompt.prompt.includes(display!));
+  }
+});
+
+test("a created root is persisted when a child fails; replay preserves the exact partial result", async t => {
+  const f = await fixture(t);
+  f.intercept((method, params) => method === "task.checklistitem.add" && (params.FIELDS as Record<string, unknown>).PARENT_ID !== 0 ? Response.json({error: "ACCESS_DENIED"}) : undefined);
+  const p = await f.writer.prepare({...create, checklist: ["Проверить"]});
+  const r = await f.writer.apply(p.draftId);
+  assert.equal(r.state, "partial");
+  assert.equal((r.operations as Record<string, unknown>[])[0]?.checklistId, 88);
+  assert.deepEqual(await f.writer.apply(p.draftId), r);
+  assert.equal(writes(f.calls).length, 3);
+});
+
+
+test("a preview made before explicit checklist roots must be prepared again after upgrading", async t => {
+  const f = await fixture(t);
+  const p = await f.writer.prepare({...create, checklist: ["Проверить"]});
+  const path = join(f.root, "task-writes", "active.json");
+  const old = JSON.parse(await readFile(path, "utf8"));
+  old.schema = 2;
+  await writeFile(path, JSON.stringify(old));
+  await assert.rejects(f.writer.apply(p.draftId), /DRAFT_SUPERSEDED/u);
+  assert.equal(writes(f.calls).length, 0);
 });

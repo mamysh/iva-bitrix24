@@ -48,3 +48,9 @@ complete checklist batches with documented null responses, portal-based reassign
 stage permissions and stale previews, chat/file membership, file-delete no-op detection
 and receipt replay. These changes have not been installed or live verified; validation is synthetic (132 tests and bundle discovery).
 Native approval cards use plain text; rich-replies rendering applies to reports separately.
+
+Prerelease 0.7.0-rc.5 adds compact previews, account-email labels, readable dates and explicit
+named checklist roots. Validation covers 141 synthetic tests and real stdio MCP discovery.
+Live formatting and checklist writes have not been verified for this release.
+Native question rich formatting remains a host-channel dependency; ordinary rich reports
+follow the plugin skill. Older pending drafts require fresh confirmation after upgrade.

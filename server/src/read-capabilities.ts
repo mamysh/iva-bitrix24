@@ -603,6 +603,7 @@ export class ReadCapabilityReader {
         id: identifier(item.ID),
         taskId: identifier(item.TASK_ID),
         parentId: identifier(item.PARENT_ID),
+        kind: Number(item.PARENT_ID) === 0 ? "checklist" : "item",
         createdBy: identifier(item.CREATED_BY),
         title: text(item.TITLE, 2_000),
         sortIndex: integer(item.SORT_INDEX),
