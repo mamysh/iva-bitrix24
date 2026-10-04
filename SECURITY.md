@@ -87,7 +87,7 @@ Allowlist чтения остаётся отдельным от allowlist зап
 типизированную задачу или действие, фиксирует payload и перед записью проверяет владельца,
 портал, права и снимок задачи. Делегирование ограничено правами Битрикс24, без локального фильтра подчинённости. Один pending-черновик на webhook-владельца;
 другой prepare отменяет прежний. UUID не является доказательством нажатия кнопки: как и для
-updater, native structured answer передаётся apply через модель. При компрометации модели
+updater, native structured answer или точный ответ rich-кнопки передаётся apply через модель. При компрометации модели
 этот workflow сам по себе не обеспечивает независимый human-approval gate.
 
 State хранится в private PLUGIN_DATA с режимами 0700/0600. Активный черновик содержит рабочий
@@ -121,3 +121,10 @@ Approval labels also request account EMAIL only under user_basic or user, never 
 contact fields. Without returned email they keep an explicit name/ID fallback. Named checklist
 roots and their child IDs are persisted before subsequent writes; old pending draft schemas
 require a fresh preview after upgrade. Existing receipts are preserved.
+
+RC6: rich-превью экранирует данные задач; только сервер добавляет кнопки. Rich apply требует
+отдельный случайный ответ текущего offer, а не один draftId. Это связывает сообщение с
+черновиком и предотвращает случайный выбор старой кнопки, но модель видит ожидаемый ответ:
+независимого доказательства нажатия нет. Skill разрешает apply только после соответствующего
+входящего сообщения владельца. Allowlist отправителя применяет существующий Telegram-poll
+Ивы; plugin не получает Telegram credentials и не создаёт собственный callback endpoint.

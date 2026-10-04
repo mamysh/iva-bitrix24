@@ -164,7 +164,8 @@ export const taskWriteInputSchema = z.object({
   deadline: date.nullable().optional(),
   action: z.enum(["create", "update", "comment", "upload", "complete", "rework", "reassign", "deadline", "stage", "delete_file", "delete_message", "batch"]),
   actions: z.array(singleWriteSchema).min(1).max(20).optional(),
-}).strict().refine(value => taskWriteSchema.safeParse(value).success, "Invalid task action");
+  presentation: z.enum(["native", "rich"]).optional(),
+}).strict().refine(({ presentation: _presentation, ...value }) => taskWriteSchema.safeParse(value).success, "Invalid task action");
 
 type Data = Record<string, unknown>;
 const object = (value: unknown): Data =>
@@ -205,7 +206,9 @@ type Prepared = {
   displayLines: string[];
 };
 type Offer = {
-  schema: 3;
+  schema: 4;
+  presentation: "native" | "rich";
+  confirmationReply: string;
   draftId: string;
   owner: number;
   portal: string;
@@ -218,6 +221,24 @@ type Offer = {
 // Native ask_question sends literal text, not Markdown or rich HTML. Remove invisible controls only.
 function previewText(value: string): string {
   return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u202A-\u202E\u2066-\u2069]/gu, "");
+}
+
+// Task values never supply markup or buttons. Format only trusted labels/titles.
+function richEscape(value: string): string {
+  return value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;")
+    .replace(/([\\`*_{}\[\]()#+.!|~=-])/gu, "\\$1");
+}
+function richPreview(prompt: string, confirmReply: string, cancelReply: string): string {
+  const lines = prompt.split("\n").map((line, index) => {
+    const escaped = richEscape(line);
+    if (index === 0 || /^\d+\. (?:Создать|Изменить|Добавить|Переместить|Удалить|Завершить|Вернуть|Делегировать|Изменение)/u.test(line))
+      return `**${escaped}**`;
+    const colon = line.indexOf(": ");
+    return colon > 0 && colon < 90
+      ? `**${richEscape(line.slice(0, colon))}:** ${richEscape(line.slice(colon + 2))}`
+      : escaped;
+  });
+  return `${lines.map(line => line ? `${line}  ` : "").join("\n")}\n\n<tg-button-row><tg-button type="callback_data" style="success" data="${confirmReply}">✅ Подтвердить</tg-button><tg-button type="callback_data" style="danger" data="${cancelReply}">❌ Отменить</tg-button></tg-button-row>`;
 }
 
 // Keep the declared wall-clock time and offset; formatting must not silently shift a deadline.
@@ -877,7 +898,8 @@ export class TaskWriter {
       displayLines: lines,
     };
   }
-  async prepare(raw: TaskRequest) {
+  async prepare(raw: TaskRequest, presentation: "native" | "rich" = "native") {
+    if (presentation !== "native" && presentation !== "rich") return fail("INVALID_PRESENTATION");
     const input = taskWriteSchema.parse(raw);
     return this.#locked(async () => {
       this.#emailAvailable = undefined;
@@ -916,7 +938,9 @@ export class TaskWriter {
         })
         .join("\n\n");
       const offer: Offer = {
-        schema: 3,
+        schema: 4,
+        presentation,
+        confirmationReply: `Подтвердить ${randomUUID()}`,
         draftId: randomUUID(),
         owner,
         portal: this.#client.taskWebUrl(1),
@@ -930,10 +954,20 @@ export class TaskWriter {
       };
       // Telegram cards are bounded. Refuse rather than hide/truncate any approved field.
       if (offer.prompt.length > 3500) return fail("PREVIEW_TOO_LARGE");
+      const cancelReply = `Отменить ${offer.draftId}`;
+      const markdown = presentation === "rich"
+        ? richPreview(offer.prompt, offer.confirmationReply, cancelReply) : null;
+      if (markdown && Buffer.byteLength(markdown, "utf8") > 14_000) return fail("PREVIEW_TOO_LARGE");
       await this.#atomic(join(this.#root(), "active.json"), offer);
       return {
         draftId: offer.draftId,
         expiresAt: new Date(offer.createdAt + TTL).toISOString(),
+        presentation,
+        richApproval: markdown === null ? null : {
+          markdown,
+          confirmReply: offer.confirmationReply,
+          cancelReply,
+        },
         approvalPrompt: {
           prompt: offer.prompt,
           options: [
@@ -951,7 +985,7 @@ export class TaskWriter {
     const raw = object(
       JSON.parse(await readFile(join(this.#root(), "active.json"), "utf8")),
     );
-    if (raw.schema !== 3 || raw.draftId !== draftId)
+    if (raw.schema !== 4 || raw.draftId !== draftId)
       return fail("DRAFT_SUPERSEDED");
     const offer = raw as Offer;
     const age = this.#now() - offer.createdAt;
@@ -993,7 +1027,7 @@ export class TaskWriter {
       return { state: "cancelled", draftId };
     });
   }
-  async apply(draftId: string) {
+  async apply(draftId: string, confirmationReply?: string) {
     return this.#locked(async () => {
       if (!z.uuid().safeParse(draftId).success) return fail("INVALID_DRAFT_ID");
       const receiptPath = join(this.#root(), `${draftId}.json`);
@@ -1003,6 +1037,8 @@ export class TaskWriter {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
       const offer = await this.#offer(draftId);
+      if (offer.presentation === "rich" && confirmationReply !== offer.confirmationReply)
+        return fail("CONFIRMATION_MISMATCH");
       const prepared: {
         step: Prepared;
         file: UploadContent | null;

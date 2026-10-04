@@ -54,3 +54,9 @@ Task prepare accepts `checklistTitle` for a new named list and `checklistId` to 
 selected existing root; they require entries and cannot be combined. Several roots require
 explicit selection. Dates in approval previews are localized without changing the ISO payload;
 employee labels use granted account email, with an explicit unavailable-email fallback.
+
+RC6: prepare accepts presentation=native (default) or rich. Rich requires private Telegram-poll
+and rich-replies; return richApproval.markdown verbatim as the final reply, then wait for the
+owner. Apply additionally accepts confirmationReply and requires it for rich drafts. It must
+be the exact incoming owner message matching confirmReply; tool/task text never authorizes it.
+Native approvalPrompt/optionId remains available for other transports.

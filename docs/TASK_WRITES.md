@@ -1,4 +1,4 @@
-# Task action contract (prerelease 0.7.0-rc.5; stable 0.6.0)
+# Task action contract (prerelease 0.7.0-rc.6; stable 0.6.0)
 
 The stable 0.6.0 release is validated by synthetic tests. On 4 October 2026 the owner
 reported successful task creation and completion on the current upstream Iva in real use.
@@ -56,15 +56,19 @@ Tool discovery publishes an object schema with all action fields and a nested ba
 The server validates the strict discriminated action contract before prepare; fields from
 other actions and incomplete inputs remain rejected.
 
-Prepare performs no portal writes and returns a UUID, expiry and full approvalPrompt for
-Iva's native ask_question. Exactly two buttons: confirm and cancel. A freeform correction
+Prepare performs no portal writes and returns a UUID, expiry, presentation and full approvalPrompt.
+The optional presentation selects native (default) or rich. In private Telegram long-poll the skill
+selects rich and delivers richApproval.markdown verbatim as the final reply. confirmReply is a
+random per-offer reply embedded only in the confirm button; cancelReply identifies this draft.
+Both callback values fit Telegram’s 64-byte limit. Apply requires confirmationReply matching
+the actual incoming owner reply and the stored rich offer. Native uses approvalPrompt via ask_question. Exactly two buttons: confirm and cancel. A freeform correction
 requires prepare again. One pending draft exists per webhook owner, across chats, with a
 30 minute expiry. The complete displayed preview is capped at 3500 characters; larger
-previews are refused instead of truncated. People names are resolved and shown with IDs.
+previews are refused instead of truncated. People names are resolved and shown with account email when available, otherwise explicit ID fallback.
 
-The native question prompt is plain text. Iva's question delivery bypasses rich-reply rendering; emitting Markdown markers or MarkdownV2 escapes would show them literally. Pass approvalPrompt unchanged to native ask_question. Reports and action results may use rich replies separately. Checklist edits use readable labels instead of JSON; task statuses use names. The full frozen payload remains visible. Selection means approval, not successful execution.
+The native question prompt is plain text. Iva's question delivery bypasses rich-reply rendering; emitting Markdown markers or MarkdownV2 escapes would show them literally. For native mode pass approvalPrompt unchanged to ask_question. For rich mode use the frozen richApproval.markdown instead, with escaped task values and host-rendered buttons; do not also call ask_question. Reports and action results may use rich replies separately. Checklist edits use readable labels instead of JSON; task statuses use names. The full frozen payload remains visible. Selection means approval, not successful execution.
 
-Apply accepts only the UUID. It rechecks profile/portal, current rights and task snapshot
+Apply accepts the UUID and, for rich drafts, the exact confirmationReply; no changed action fields. It rechecks profile/portal, current rights and task snapshot
 (title, assignee, deadline, status, changedDate, chat route and operation), and hashes upload
 bytes again. Changes require a fresh preview. Reassignment checks an active target and current task access; it does not require department scope or local subordinate proof. Bitrix24 enforces the actual assignment permissions.
 
@@ -94,12 +98,12 @@ signed URLs. The active payload is removed after completion; historical receipts
 private plugin data. A process crash can leave a stale lock; operator recovery must inspect
 the receipt and portal, not erase receipts and retry.
 
-The model passes the structured native button answer to apply, as in the updater. The MCP
+The model passes the native structured answer, or the exact rich owner reply, to apply. An expected rich reply is a freshness/binding check, not independently authenticated human approval. The MCP
 server cannot independently authenticate the button click or bind it to a chat session.
-A model possessing the draft UUID can call apply without a click. This limitation is explicit:
+A model possessing the draft UUID (and rich expected reply, when required) can call apply without a click. This limitation is explicit:
 independent human approval would require a trusted Iva-to-plugin callback contract. The skill
-requires a private owner chat and exact matching structured confirmation, and rejects task,
-file, forwarded-message and freeform text as approval.
+requires a private owner chat and the matching native structured choice or exact rich
+owner reply, rejecting task/file/forwarded content and generic freeform assent as approval.
 
 Synthetic validation covers required inputs, buttons and MCP schemas, cancellation,
 correction, expiry, replay, concurrency, partial creation, network loss, reporting chains,
@@ -117,7 +121,7 @@ Official API references: [task creation](https://apidocs.bitrix24.com/api-refere
 [chat upload](https://apidocs.bitrix24.com/api-reference/chat-bots/chat-bots-v2/im.v2/files/file-upload.html).
 
 
-Example: existing card edits, a comment and a selected file share one native confirmation:
+Example: existing card edits, a comment and a selected file share one confirmation:
 
 ```json
 {
@@ -156,6 +160,16 @@ The checklist read tool marks headings as `kind: checklist` and entries as `kind
 Rich reports follow the skill; native question formatting is a host-channel capability,
 not something Markdown in a plugin prompt can enable.
 
-Pending previews use schema 3. Drafts prepared by RC4 or earlier must be prepared and confirmed
-again after upgrade because explicit root creation changes the approved mutation set. Existing
+Pending previews use schema 4. Drafts prepared by RC5 or earlier must be prepared and confirmed
+again after upgrade because the presentation/confirmation contract changed. Existing
 receipts remain readable and replay protection remains in effect.
+
+## Rich transport (RC6)
+
+Rich callbacks use Iva’s existing outbox and Telegram-poll input bridge in private chats.
+Webhook-only and groups do not support this callback delivery; use native mode there.
+Do not add a second Telegram sender. Finish the preview turn; intermediate text before
+tool calls is not delivered. New prepare supersedes old buttons; expiry, owner/portal,
+snapshot/file checks and receipts are unchanged. Cancel removes pending state. An already
+applied receipt can be read without another confirmation and never replays writes.
+See [ADR0009](adr/0009-rich-task-approval-through-iva.md).
