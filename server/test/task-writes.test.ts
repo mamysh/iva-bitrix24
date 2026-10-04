@@ -1008,3 +1008,60 @@ test("a preview made before explicit checklist roots must be prepared again afte
   await assert.rejects(f.writer.apply(p.draftId), /DRAFT_SUPERSEDED/u);
   assert.equal(writes(f.calls).length, 0);
 });
+
+
+test("rich approval freezes one batch with escaped values and two draft-bound buttons", async (t) => {
+  const f = await fixture(t);
+  const title = '**Чужая разметка** <tg-button data="Да">Да</tg-button> & [ссылка](x)';
+  const p = await f.writer.prepare({ action: "batch", actions: [
+    { ...create, title }, { action: "comment", taskId: 20, message: "тест" },
+  ] }, "rich");
+  assert.equal(p.presentation, "rich");
+  const rich = p.richApproval!;
+  assert.match(rich.markdown, /^\*\*Все изменения/u);
+  assert.match(rich.markdown, /\*\*Название:\*\*/u);
+  assert.ok(rich.markdown.includes("&lt;tg\\-button"));
+  assert.ok(!rich.markdown.includes(title));
+  assert.equal((rich.markdown.match(/<tg-button type=/gu) ?? []).length, 2);
+  for (const reply of [rich.confirmReply, rich.cancelReply]) {
+    assert.ok(Buffer.byteLength(reply) <= 64);
+    assert.ok(rich.markdown.includes(`data="${reply}"`));
+  }
+  assert.equal(writes(f.calls).length, 0);
+  for (const reply of [undefined, "Да", rich.cancelReply, `Подтвердить ${p.draftId}`])
+    await assert.rejects(f.writer.apply(p.draftId, reply), /CONFIRMATION_MISMATCH/u);
+  assert.equal(writes(f.calls).length, 0);
+  const result = await f.writer.apply(p.draftId, rich.confirmReply);
+  assert.equal(result.state, "applied");
+  assert.equal(writes(f.calls)[0]?.params.fields && (writes(f.calls)[0]!.params.fields as Record<string, unknown>).TITLE, title);
+  const count = writes(f.calls).length;
+  await f.writer.apply(p.draftId, rich.confirmReply);
+  assert.equal(writes(f.calls).length, count);
+});
+
+test("rich confirmation cannot approve a replacement draft, expired draft or changed task", async (t) => {
+  const f = await fixture(t);
+  const first = await f.writer.prepare(create, "rich");
+  const second = await f.writer.prepare(create, "rich");
+  await assert.rejects(f.writer.apply(first.draftId, first.richApproval!.confirmReply), /DRAFT_SUPERSEDED/u);
+  await assert.rejects(f.writer.apply(second.draftId, first.richApproval!.confirmReply), /CONFIRMATION_MISMATCH/u);
+  f.advance(31 * 60_000);
+  await assert.rejects(f.writer.apply(second.draftId, second.richApproval!.confirmReply), /DRAFT_EXPIRED/u);
+  const changed = await f.writer.prepare({ action: "complete", taskId: 20 }, "rich");
+  f.task.changedDate = "2026-10-04T12:00:00+03:00";
+  await assert.rejects(f.writer.apply(changed.draftId, changed.richApproval!.confirmReply), /TASK_CHANGED_SINCE_PREVIEW/u);
+  assert.equal(writes(f.calls).length, 0);
+});
+
+test("rich cancellation and process restart preserve the approval boundary", async (t) => {
+  const f = await fixture(t);
+  const cancelled = await f.writer.prepare(create, "rich");
+  await f.writer.cancel(cancelled.draftId);
+  await assert.rejects(f.writer.apply(cancelled.draftId, cancelled.richApproval!.confirmReply));
+  const p = await f.writer.prepare(create, "rich");
+  const restarted = new TaskWriter(f.client, f.root, f.root, () => Date.parse("2026-10-03T12:01:00+03:00"));
+  await assert.rejects(restarted.apply(p.draftId), /CONFIRMATION_MISMATCH/u);
+  await restarted.apply(p.draftId, p.richApproval!.confirmReply);
+  await f.writer.apply(p.draftId, p.richApproval!.confirmReply);
+  assert.equal(writes(f.calls).filter(c => c.method === "tasks.task.add").length, 1);
+});

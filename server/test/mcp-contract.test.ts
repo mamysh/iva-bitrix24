@@ -40,8 +40,8 @@ async function connectedClient(taskReader: BitrixReaderPort = reader()) {
     status: async () => ({ state: "never_run" }),
   }, files(), {
     stages: async (projectId) => ({ projectId, stages: [{ id: 32, title: "Проверка", sort: 100 }], untrustedContent: true }),
-    prepare: async () => ({ draftId: "00000000-0000-4000-8000-000000000001", expiresAt: "2026-10-03T12:30:00Z", approvalPrompt: { prompt: "Превью", options: [{ id: "confirm", label: "Подтвердить" }, { id: "cancel", label: "Отменить" }], allowFreeform: true }, untrustedContent: true }),
-    apply: async (draftId) => ({ state: "applied", draftId }),
+    prepare: async (_input, presentation = "native") => ({ draftId: "00000000-0000-4000-8000-000000000001", expiresAt: "2026-10-03T12:30:00Z", presentation, richApproval: presentation === "rich" ? { markdown: "**Превью**", confirmReply: "Подтвердить тест", cancelReply: "Отменить тест" } : null, approvalPrompt: { prompt: "Превью", options: [{ id: "confirm", label: "Подтвердить" }, { id: "cancel", label: "Отменить" }], allowFreeform: true }, untrustedContent: true }),
+    apply: async (draftId, confirmationReply) => ({ state: "applied", draftId, confirmationReply }),
     cancel: async (draftId) => ({ state: "cancelled", draftId }),
     status: async (draftId) => ({ state: "unknown", draftId }),
   });
@@ -397,4 +397,22 @@ test("MCP discovers and validates project stages and stage/chat-deletion actions
     const result = await client.callTool({ name: "bitrix24_prepare_task_action", arguments: arguments_ });
     assert.equal(result.isError, true);
   }
+});
+
+
+test("MCP forwards rich presentation and the actual confirmation reply separately from frozen action", async t => {
+  const { client, server } = await connectedClient();
+  t.after(async () => { await client.close(); await server.close(); });
+  const result = await client.callTool({ name: "bitrix24_prepare_task_action", arguments: {
+    action: "complete", taskId: 20, presentation: "rich",
+  } });
+  assert.ok(!result.isError);
+  const p = JSON.parse((result.content as Array<{ text: string }>)[0]!.text);
+  assert.equal(p.presentation, "rich");
+  assert.ok(p.richApproval.markdown);
+  const applied = await client.callTool({ name: "bitrix24_apply_task_action", arguments: {
+    draftId: p.draftId, confirmationReply: p.richApproval.confirmReply,
+  } });
+  assert.ok(!applied.isError);
+  assert.equal(JSON.parse((applied.content as Array<{ text: string }>)[0]!.text).confirmationReply, p.richApproval.confirmReply);
 });

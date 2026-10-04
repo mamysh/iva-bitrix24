@@ -54,3 +54,10 @@ named checklist roots. Validation covers 141 synthetic tests and real stdio MCP 
 Live formatting and checklist writes have not been verified for this release.
 Native question rich formatting remains a host-channel dependency; ordinary rich reports
 follow the plugin skill. Older pending drafts require fresh confirmation after upgrade.
+
+Prerelease 0.7.0-rc.6 adds rich task approval through existing Iva rich-replies/outbox and
+private Telegram-poll callbacks. Local Iva 0.4.11 source confirms this route; this is distinct
+from native HITL and is not claimed for webhook-only or groups (use native there).
+Validation includes 145 synthetic tests, real bundle MCP discovery and a plugin-preview
+round-trip through actual Iva outbox with a fake transport. Binding, escaping, cancellation,
+expiry, snapshot and replay are covered; a complete live model/Telegram button/portal write is not yet verified.
