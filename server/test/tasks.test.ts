@@ -421,3 +421,13 @@ test("field metadata is restricted to fields used by the public task contract", 
   assert.deepEqual(result.fields.map(({ name }) => name), ["ID", "STATUS"]);
   assert.equal(result.truncated, false);
 });
+
+test("zero group and parent represent unassigned task relations without false warnings", async () => {
+  for (const groupId of [0, "0", null, "broken"]) {
+    const client = new BitrixClient(config, { fetch: async () => Response.json({result: {task: {id: "7", groupId, parentId: "0"}}}) });
+    const task = await new TaskReader(client).getTask(7);
+    const raw = JSON.stringify(task);
+    assert.equal(raw.includes("invalid_group_id"), groupId === "broken");
+    assert.equal(raw.includes("invalid_parent_id"), false);
+  }
+});

@@ -9,7 +9,7 @@
         "path": "plugin",
         "ref": "stable"
       },
-      "description": "Bitrix24 tasks and documents for Iva, with task actions through preview and confirmation."
+      "description": "Bitrix24 tasks and documents for Iva with confirmed task actions; prerelease 0.7 adds existing-task edits and one confirmation for multi-part requests."
     }
   ]
 }

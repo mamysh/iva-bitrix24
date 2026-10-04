@@ -223,8 +223,8 @@ function normalizeTask(
     warnings.push("invalid_responsible_id");
   if (hasValue(rawCreatedBy) && createdBy === null)
     warnings.push("invalid_created_by");
-  if (hasValue(rawGroupId) && groupId === null) warnings.push("invalid_group_id");
-  if (hasValue(rawParentId) && parentId === null) warnings.push("invalid_parent_id");
+  if (hasValue(rawGroupId) && rawGroupId !== 0 && rawGroupId !== "0" && groupId === null) warnings.push("invalid_group_id");
+  if (hasValue(rawParentId) && rawParentId !== 0 && rawParentId !== "0" && parentId === null) warnings.push("invalid_parent_id");
   return {
     id,
     webUrl: id === null ? null : taskWebUrl(id),
