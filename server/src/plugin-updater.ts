@@ -45,6 +45,7 @@ type Offer = {
   readonly source: string;
   readonly sourceBase: string;
   readonly ref: string;
+  readonly confirmationReply?: string | undefined;
 };
 
 export type CommandResult = {
@@ -135,9 +136,34 @@ function officeRenderer(available: boolean, root: string, host: Awaited<ReturnTy
   };
 }
 
+const escapeRich = (value: string) => value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;").replace(/([\\`*_{}\[\]()#+.!|~=-])/gu, "\\$1");
+const richLines = (values: string[]) => values.map(escapeRich).join("  \n");
+
+function updateMarkdown(current: string, candidate: string, source: string, ref: string, renderer: ReturnType<typeof officeRenderer>, reply: string): string {
+  const blocks = [
+    "**⬆️ Доступно обновление плагина Bitrix24**",
+    "**Версия и источник**  \n" + richLines([`v${current} → v${candidate}`, `Источник: ${source} @${ref}`, "CI: success ✅"]),
+  ];
+  if (!renderer.available) {
+    const host = renderer.server!;
+    blocks.push("**Для работы с документами**  \n" + richLines([
+      `LibreOffice отсутствует на ${host.hostname} (${host.osId}).`,
+      `Ива работает от пользователя ${host.user}.`,
+      ...(host.ivaPath ? [`Путь установки Ивы: ${host.ivaPath}`, `Плагин: ${host.pluginPath}`] : ["Путь установки Ивы не удалось подтвердить."]),
+    ]));
+    blocks.push(renderer.command
+      ? "**Команда для VPS**  \nПодключитесь к указанному серверу по SSH и выполните:\n\n```bash\n" + renderer.command + "\n```"
+      : "**Установка LibreOffice**  \nКоманда для этой системы не проверена; обратитесь к администратору сервера.");
+  }
+  blocks.push("**Что сохранится**  \nНастройки и локальные данные будут сохранены. Обновление плагина не устанавливает системные пакеты.");
+  blocks.push(`<tg-button-row><tg-button type="callback_data" style="success" data="${reply}">⬆️ Обновить</tg-button><tg-button type="callback_data" data="${reply.replace("b24u:update:", "b24u:later:")}">Позже</tg-button></tg-button-row>`);
+  return blocks.join("\n\n");
+}
+
 export type ApplyUpdateInput = {
   readonly candidateSha: string;
   readonly approvalToken: string;
+  readonly confirmationReply?: string | undefined;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -397,7 +423,7 @@ export class PluginUpdater {
       : "failure";
   }
 
-  async check(): Promise<unknown> {
+  async check(input: { presentation?: "native" | "rich" | undefined } = {}): Promise<unknown> {
     const renderer = officeRenderer(await this.#operations.hasLibreOffice(), this.#root, await this.#operations.officeHost(this.#dataDir));
     const entry = await this.#entry();
     const source = sourceFromEntry(entry);
@@ -448,6 +474,7 @@ export class PluginUpdater {
     const approvalToken = this.#operations.token();
     if (!/^[A-F0-9]{24}$/u.test(approvalToken))
       throw new Error("UPDATE_APPROVAL_TOKEN_INVALID");
+    const confirmationReply = input.presentation === "rich" ? `b24u:update:${randomBytes(12).toString("hex")}` : undefined;
     const offer: Offer = {
       schema: "iva-bitrix24-update-offer/v3",
       createdAt: this.#operations.now().toISOString(),
@@ -459,6 +486,7 @@ export class PluginUpdater {
       source: entry.source as string,
       sourceBase: source.base,
       ref: source.ref,
+      ...(confirmationReply ? { confirmationReply } : {}),
     };
     await mkdir(this.#data, { recursive: true, mode: 0o700 });
     if (ci === "success") await atomicJson(this.#offer, offer);
@@ -477,6 +505,7 @@ export class PluginUpdater {
       ...(ci === "success"
         ? {
             approvalToken,
+            ...(confirmationReply ? { richApproval: { markdown: updateMarkdown(currentVersion, candidateVersion, source.label, source.ref, renderer, confirmationReply), confirmationReply, laterReply: confirmationReply.replace("b24u:update:", "b24u:later:") } } : {}),
             approvalPrompt: {
               prompt: [
                 "⬆️ Доступно обновление плагина Bitrix24",
@@ -484,14 +513,16 @@ export class PluginUpdater {
                 `v${currentVersion} → v${candidateVersion}`,
                 `Источник: ${source.label} @${source.ref}`,
                 "CI: success ✅",
+                "",
                 ...(!renderer.available
                   ? [
                     `LibreOffice отсутствует на ${renderer.server!.hostname} (${renderer.server!.osId}); Iva работает от ${renderer.server!.user}.`,
                     ...(renderer.server!.ivaPath ? [`Проверенный путь установки Iva: ${renderer.server!.ivaPath}. Плагин: ${renderer.server!.pluginPath}.`] : ["Путь установки Iva не удалось подтвердить."]),
-                    ...(renderer.command ? ["Подключитесь к этому серверу по SSH и выполните:", renderer.command] : ["Команда установки для этой системы не проверена; обратитесь к администратору сервера."]),
+                    ...(renderer.command ? ["", "Подключитесь к этому серверу по SSH и выполните:", renderer.command, ""] : ["Команда установки для этой системы не проверена; обратитесь к администратору сервера."]),
                     "Обновление плагина системные пакеты не устанавливает.",
                   ]
                   : []),
+                "",
                 "Настройки и локальные данные будут сохранены.",
               ].join("\n"),
               options: [
@@ -536,7 +567,9 @@ export class PluginUpdater {
       throw new Error("UPDATE_OFFER_EXPIRED");
     if (
       input.candidateSha !== offer.candidateSha ||
-      input.approvalToken !== offer.approvalToken
+      input.approvalToken !== offer.approvalToken ||
+      (offer.confirmationReply !== undefined && (typeof offer.confirmationReply !== "string" || !/^b24u:update:[a-f0-9]{24}$/u.test(offer.confirmationReply) || input.confirmationReply !== offer.confirmationReply)) ||
+      (offer.confirmationReply === undefined && input.confirmationReply !== undefined)
     )
       throw new Error("UPDATE_APPROVAL_MISMATCH");
     const entry = await this.#entry();

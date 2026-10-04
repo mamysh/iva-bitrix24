@@ -117,10 +117,11 @@ Read MCP-tools и их read-only семантика составляют сов�
 ## Контур обновлений
 
 Check читает безопасные поля `source/ref/sha` текущей записи `bitrix24-read`, разрешает remote
-SHA через `git ls-remote` и проверяет GitHub Actions. Он не меняет сервер. Skill вызывает
-встроенный `ask_question` с двумя кнопками. Eve паркует ход и возвращает структурированный выбор.
-После «Обновить» apply принимает только SHA и одноразовый token свежего локального offer; имя, URL,
-ref и CLI-аргументы отсутствуют.
+SHA через `git ls-remote` и проверяет GitHub Actions. Он не меняет сервер. В личном
+Telegram-poll skill передаёт rich-карточку и ждёт точного случайного ответа её кнопки;
+в остальных каналах вызывает встроенный ask_question со структурированным выбором.
+После «Обновить» apply принимает SHA, одноразовый token свежего offer и обязательный
+confirmationReply для rich. Имя, URL, ref и CLI-аргументы отсутствуют.
 
 Worker запускается через `systemd-run --user --no-block` с явно восстановленным адресом
 user-systemd bus, потому что MCP-процесс намеренно получает урезанное окружение. Перед первым
@@ -185,3 +186,7 @@ and settings commits share a lock; mutation and output boundaries enforce curren
 Backward defaults are explicit via installer env marker; stored settings win across updates.
 Free-text anonymization and independent human-click authentication are outside this contract.
 See [ADR0010](adr/0010-plugin-settings-menu.md) and [SETUP](SETUP.md#меню-настроек-плагина).
+
+
+В 0.7.1-rc.2 подтверждение обновления использует rich/native presentation;
+контракт и границы описаны в [ADR0011](adr/0011-rich-plugin-update-card.md).

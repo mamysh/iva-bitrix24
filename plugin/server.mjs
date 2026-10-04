@@ -38379,18 +38379,19 @@ function registerUpdaterTools(server, updater) {
     "iva_bitrix24_update_check",
     {
       description: "Check installed and candidate iva-bitrix24 versions, Git source, CI and LibreOffice availability. This does not change the server.",
-      inputSchema: external_exports.object({}).strict(),
+      inputSchema: external_exports.object({ presentation: external_exports.enum(["native", "rich"]).optional() }).strict(),
       annotations: readOnly
     },
-    () => safe(() => updater.check())
+    (input2) => safe(() => updater.check(input2))
   );
   server.registerTool(
     "iva_bitrix24_update_apply",
     {
-      description: "Start the fresh iva-bitrix24 update only after the owner chose the Update option in Iva's structured ask_question prompt in this private conversation.",
+      description: "Start the fresh iva-bitrix24 update only after the owner chose its native Update option or sent the exact server-generated rich confirmation reply in this private conversation.",
       inputSchema: external_exports.object({
         candidateSha: external_exports.string().regex(/^[a-f0-9]{40}$/u),
-        approvalToken: external_exports.string().regex(/^[A-F0-9]{24}$/u)
+        approvalToken: external_exports.string().regex(/^[A-F0-9]{24}$/u),
+        confirmationReply: external_exports.string().regex(/^b24u:update:[a-f0-9]{24}$/u).optional()
       }).strict(),
       annotations: {
         readOnlyHint: false,
@@ -38419,7 +38420,7 @@ function registerSettingsTool(server, menu) {
   }, (input2) => safe(() => menu.run(input2)));
 }
 function createMcpServer(reader, updater = null, files = null, writer = null) {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.7.1-rc.1" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.7.1-rc.2" });
   registerUpdaterTools(server, updater);
   if (writer) {
     server.registerTool("bitrix24_project_stages", {
@@ -38802,6 +38803,26 @@ function officeRenderer(available, root, host) {
     } : {}
   };
 }
+var escapeRich = (value) => value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;").replace(/([\\`*_{}\[\]()#+.!|~=-])/gu, "\\$1");
+var richLines = (values2) => values2.map(escapeRich).join("  \n");
+function updateMarkdown(current, candidate, source, ref, renderer, reply) {
+  const blocks = [
+    "**\u2B06\uFE0F \u0414\u043E\u0441\u0442\u0443\u043F\u043D\u043E \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u043F\u043B\u0430\u0433\u0438\u043D\u0430 Bitrix24**",
+    "**\u0412\u0435\u0440\u0441\u0438\u044F \u0438 \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A**  \n" + richLines([`v${current} \u2192 v${candidate}`, `\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A: ${source} @${ref}`, "CI: success \u2705"])
+  ];
+  if (!renderer.available) {
+    const host = renderer.server;
+    blocks.push("**\u0414\u043B\u044F \u0440\u0430\u0431\u043E\u0442\u044B \u0441 \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u0430\u043C\u0438**  \n" + richLines([
+      `LibreOffice \u043E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442 \u043D\u0430 ${host.hostname} (${host.osId}).`,
+      `\u0418\u0432\u0430 \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u043E\u0442 \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F ${host.user}.`,
+      ...host.ivaPath ? [`\u041F\u0443\u0442\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0418\u0432\u044B: ${host.ivaPath}`, `\u041F\u043B\u0430\u0433\u0438\u043D: ${host.pluginPath}`] : ["\u041F\u0443\u0442\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0418\u0432\u044B \u043D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044C."]
+    ]));
+    blocks.push(renderer.command ? "**\u041A\u043E\u043C\u0430\u043D\u0434\u0430 \u0434\u043B\u044F VPS**  \n\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0438\u0442\u0435\u0441\u044C \u043A \u0443\u043A\u0430\u0437\u0430\u043D\u043D\u043E\u043C\u0443 \u0441\u0435\u0440\u0432\u0435\u0440\u0443 \u043F\u043E SSH \u0438 \u0432\u044B\u043F\u043E\u043B\u043D\u0438\u0442\u0435:\n\n```bash\n" + renderer.command + "\n```" : "**\u0423\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0430 LibreOffice**  \n\u041A\u043E\u043C\u0430\u043D\u0434\u0430 \u0434\u043B\u044F \u044D\u0442\u043E\u0439 \u0441\u0438\u0441\u0442\u0435\u043C\u044B \u043D\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u0430; \u043E\u0431\u0440\u0430\u0442\u0438\u0442\u0435\u0441\u044C \u043A \u0430\u0434\u043C\u0438\u043D\u0438\u0441\u0442\u0440\u0430\u0442\u043E\u0440\u0443 \u0441\u0435\u0440\u0432\u0435\u0440\u0430.");
+  }
+  blocks.push("**\u0427\u0442\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0441\u044F**  \n\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0438 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 \u0431\u0443\u0434\u0443\u0442 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u044B. \u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u043F\u043B\u0430\u0433\u0438\u043D\u0430 \u043D\u0435 \u0443\u0441\u0442\u0430\u043D\u0430\u0432\u043B\u0438\u0432\u0430\u0435\u0442 \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0435 \u043F\u0430\u043A\u0435\u0442\u044B.");
+  blocks.push(`<tg-button-row><tg-button type="callback_data" style="success" data="${reply}">\u2B06\uFE0F \u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C</tg-button><tg-button type="callback_data" data="${reply.replace("b24u:update:", "b24u:later:")}">\u041F\u043E\u0437\u0436\u0435</tg-button></tg-button-row>`);
+  return blocks.join("\n\n");
+}
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -39027,7 +39048,7 @@ var PluginUpdater = class {
     if (runs.some((run2) => run2.status !== "completed")) return "pending";
     return runs.length > 0 && runs.every((run2) => run2.conclusion === "success") ? "success" : "failure";
   }
-  async check() {
+  async check(input2 = {}) {
     const renderer = officeRenderer(await this.#operations.hasLibreOffice(), this.#root, await this.#operations.officeHost(this.#dataDir));
     const entry = await this.#entry();
     const source = sourceFromEntry(entry);
@@ -39077,6 +39098,7 @@ var PluginUpdater = class {
     const approvalToken = this.#operations.token();
     if (!/^[A-F0-9]{24}$/u.test(approvalToken))
       throw new Error("UPDATE_APPROVAL_TOKEN_INVALID");
+    const confirmationReply = input2.presentation === "rich" ? `b24u:update:${randomBytes(12).toString("hex")}` : void 0;
     const offer = {
       schema: "iva-bitrix24-update-offer/v3",
       createdAt: this.#operations.now().toISOString(),
@@ -39087,7 +39109,8 @@ var PluginUpdater = class {
       approvalToken,
       source: entry.source,
       sourceBase: source.base,
-      ref: source.ref
+      ref: source.ref,
+      ...confirmationReply ? { confirmationReply } : {}
     };
     await mkdir3(this.#data, { recursive: true, mode: 448 });
     if (ci === "success") await atomicJson(this.#offer, offer);
@@ -39105,6 +39128,7 @@ var PluginUpdater = class {
       officeRenderer: renderer,
       ...ci === "success" ? {
         approvalToken,
+        ...confirmationReply ? { richApproval: { markdown: updateMarkdown(currentVersion, candidateVersion, source.label, source.ref, renderer, confirmationReply), confirmationReply, laterReply: confirmationReply.replace("b24u:update:", "b24u:later:") } } : {},
         approvalPrompt: {
           prompt: [
             "\u2B06\uFE0F \u0414\u043E\u0441\u0442\u0443\u043F\u043D\u043E \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u043F\u043B\u0430\u0433\u0438\u043D\u0430 Bitrix24",
@@ -39112,12 +39136,14 @@ var PluginUpdater = class {
             `v${currentVersion} \u2192 v${candidateVersion}`,
             `\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A: ${source.label} @${source.ref}`,
             "CI: success \u2705",
+            "",
             ...!renderer.available ? [
               `LibreOffice \u043E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442 \u043D\u0430 ${renderer.server.hostname} (${renderer.server.osId}); Iva \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u043E\u0442 ${renderer.server.user}.`,
               ...renderer.server.ivaPath ? [`\u041F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u043D\u044B\u0439 \u043F\u0443\u0442\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 Iva: ${renderer.server.ivaPath}. \u041F\u043B\u0430\u0433\u0438\u043D: ${renderer.server.pluginPath}.`] : ["\u041F\u0443\u0442\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 Iva \u043D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044C."],
-              ...renderer.command ? ["\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0438\u0442\u0435\u0441\u044C \u043A \u044D\u0442\u043E\u043C\u0443 \u0441\u0435\u0440\u0432\u0435\u0440\u0443 \u043F\u043E SSH \u0438 \u0432\u044B\u043F\u043E\u043B\u043D\u0438\u0442\u0435:", renderer.command] : ["\u041A\u043E\u043C\u0430\u043D\u0434\u0430 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0434\u043B\u044F \u044D\u0442\u043E\u0439 \u0441\u0438\u0441\u0442\u0435\u043C\u044B \u043D\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u0430; \u043E\u0431\u0440\u0430\u0442\u0438\u0442\u0435\u0441\u044C \u043A \u0430\u0434\u043C\u0438\u043D\u0438\u0441\u0442\u0440\u0430\u0442\u043E\u0440\u0443 \u0441\u0435\u0440\u0432\u0435\u0440\u0430."],
+              ...renderer.command ? ["", "\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0438\u0442\u0435\u0441\u044C \u043A \u044D\u0442\u043E\u043C\u0443 \u0441\u0435\u0440\u0432\u0435\u0440\u0443 \u043F\u043E SSH \u0438 \u0432\u044B\u043F\u043E\u043B\u043D\u0438\u0442\u0435:", renderer.command, ""] : ["\u041A\u043E\u043C\u0430\u043D\u0434\u0430 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0434\u043B\u044F \u044D\u0442\u043E\u0439 \u0441\u0438\u0441\u0442\u0435\u043C\u044B \u043D\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u0430; \u043E\u0431\u0440\u0430\u0442\u0438\u0442\u0435\u0441\u044C \u043A \u0430\u0434\u043C\u0438\u043D\u0438\u0441\u0442\u0440\u0430\u0442\u043E\u0440\u0443 \u0441\u0435\u0440\u0432\u0435\u0440\u0430."],
               "\u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u043F\u043B\u0430\u0433\u0438\u043D\u0430 \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0435 \u043F\u0430\u043A\u0435\u0442\u044B \u043D\u0435 \u0443\u0441\u0442\u0430\u043D\u0430\u0432\u043B\u0438\u0432\u0430\u0435\u0442."
             ] : [],
+            "",
             "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0438 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 \u0431\u0443\u0434\u0443\u0442 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u044B."
           ].join("\n"),
           options: [
@@ -39155,7 +39181,7 @@ var PluginUpdater = class {
     const age = this.#operations.now().getTime() - Date.parse(offer.createdAt);
     if (!Number.isFinite(age) || age < 0 || age > OFFER_TTL_MS)
       throw new Error("UPDATE_OFFER_EXPIRED");
-    if (input2.candidateSha !== offer.candidateSha || input2.approvalToken !== offer.approvalToken)
+    if (input2.candidateSha !== offer.candidateSha || input2.approvalToken !== offer.approvalToken || offer.confirmationReply !== void 0 && (typeof offer.confirmationReply !== "string" || !/^b24u:update:[a-f0-9]{24}$/u.test(offer.confirmationReply) || input2.confirmationReply !== offer.confirmationReply) || offer.confirmationReply === void 0 && input2.confirmationReply !== void 0)
       throw new Error("UPDATE_APPROVAL_MISMATCH");
     const entry = await this.#entry();
     if (safeSha(entry.sha) !== offer.currentSha)
@@ -39904,7 +39930,7 @@ async function resolveAttachmentsRoot(env, wrapper = join5(env.HOME || homedir2(
 
 // server/src/main.ts
 function unavailableServer(error61, updater, settings) {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.7.1-rc.1" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.7.1-rc.2" });
   registerUpdaterTools(server, updater);
   registerSettingsTool(server, new SettingsMenu(settings, { configured: false }));
   server.registerTool(

@@ -81,3 +81,11 @@ TTL/revision/identity/replay, persistence/migration, write-policy и миним�
 и безопасный текстовый fallback. Это не отправка в Telegram. Живой Telegram-тап, установка 0.7.1-rc.1
 и изменение задач на портале этой работой не проверены; stable 0.7.0 не получает
 меню автоматически. Native fallback использует прежний ask_question контракт.
+
+
+## Карточка обновления (0.7.1-rc.2)
+
+Rich update tests проверяют escaped host data, copyable command, callback limits и
+exact reply guards/replacement/native fallback. Проверяется actual MCP schema/forwarding.
+Установка и живое Telegram-нажатие RC2 этой работой не выполнялись. Оформление первой
+карточки обновления определяется установленной прежней версией, а не candidate bundle.

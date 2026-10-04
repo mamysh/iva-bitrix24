@@ -94,3 +94,13 @@ Telegram-нажатия. См. [ADR0010](adr/0010-plugin-settings-menu.md).
 PERSON_NAME_SEARCH_DISABLED → выбрать сотрудника по ID; EMAIL_REQUIRES_WORK_PROFILE →
 сначала выбрать work. SETTINGS_CHANGED/SETTINGS_OFFER_INVALID → новое меню;
 SETTINGS_INVALID → операторская проверка; WRITE_BUSY → дождаться результата/проверить lock.
+
+
+### Оформление обновления (0.7.1-rc.2)
+
+`iva_bitrix24_update_check` принимает optional `presentation: rich|native` (по умолчанию native).
+При успешном CI rich возвращает server-rendered `richApproval.markdown`, `confirmationReply`
+и `laterReply`; native сохраняет `approvalPrompt`. `iva_bitrix24_update_apply` принимает
+optional confirmationReply и требует точное совпадение для rich offer, вместе с прежними
+candidateSha/hidden approvalToken. Новый check заменяет offer. TTL15min/CI/source/SHA/job
+и worker recovery не меняются. VPS command не выполняется MCP: она в fenced code block.

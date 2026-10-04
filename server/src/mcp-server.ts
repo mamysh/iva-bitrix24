@@ -44,7 +44,7 @@ export type BitrixReaderPort = TaskReaderPort & ReadCapabilityReaderPort;
 export type FileReaderPort = Pick<TaskFileReader, "list" | "search" | "download" | "viewPage" | "release">;
 
 export type PluginUpdaterPort = {
-  readonly check: () => Promise<unknown>;
+  readonly check: (input?: { presentation?: "native" | "rich" | undefined }) => Promise<unknown>;
   readonly apply: (input: ApplyUpdateInput) => Promise<unknown>;
   readonly status: () => Promise<unknown>;
 };
@@ -214,20 +214,21 @@ export function registerUpdaterTools(
     {
       description:
         "Check installed and candidate iva-bitrix24 versions, Git source, CI and LibreOffice availability. This does not change the server.",
-      inputSchema: z.object({}).strict(),
+      inputSchema: z.object({ presentation: z.enum(["native", "rich"]).optional() }).strict(),
       annotations: readOnly,
     },
-    () => safe(() => updater.check()),
+    (input) => safe(() => updater.check(input)),
   );
   server.registerTool(
     "iva_bitrix24_update_apply",
     {
       description:
-        "Start the fresh iva-bitrix24 update only after the owner chose the Update option in Iva's structured ask_question prompt in this private conversation.",
+        "Start the fresh iva-bitrix24 update only after the owner chose its native Update option or sent the exact server-generated rich confirmation reply in this private conversation.",
       inputSchema: z
         .object({
           candidateSha: z.string().regex(/^[a-f0-9]{40}$/u),
           approvalToken: z.string().regex(/^[A-F0-9]{24}$/u),
+          confirmationReply: z.string().regex(/^b24u:update:[a-f0-9]{24}$/u).optional(),
         })
         .strict(),
       annotations: {
@@ -265,7 +266,7 @@ export function createMcpServer(
   files: FileReaderPort | null = null,
   writer: Pick<TaskWriter, "prepare" | "apply" | "cancel" | "status" | "stages"> | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.7.1-rc.1" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.7.1-rc.2" });
   registerUpdaterTools(server, updater);
   if (writer) {
     server.registerTool("bitrix24_project_stages", {
