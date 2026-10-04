@@ -118,3 +118,29 @@ test("the final MCP projection rechecks a policy changed during an upstream read
   assert.equal(invalid.error, "SETTINGS_INVALID");
   assert.equal(f.calls.length, before);
 });
+
+test("Bridge screen schema returns structured navigation and preserves confirmation guards", async t => {
+  const f = await fixture(t, false);
+  const tools = await f.client.listTools();
+  assert.ok(tools.tools.find(tool => tool.name === "bitrix24_screen")?.inputSchema.properties?.event);
+  const call = async (event: Record<string, unknown>) => parsed(await f.client.callTool({ name: "bitrix24_screen", arguments: { event } }));
+  const home = await call({ type: "open", eventId: "open" });
+  assert.equal(home.type, "show");
+  const view = home.view as { markdown: string; rows: { id: string; label: string }[][] };
+  assert.doesNotMatch(view.markdown, /<tg-button/u);
+  assert.ok(view.rows.flat().some(button => button.id === "b24s:open:privacy"));
+  const context = { type: "action", screen: "a".repeat(32), revision: 0, eventId: "select" };
+  const confirmation = await call({ ...context, actionId: "b24s:set:0:names" });
+  const confirmView = confirmation.view as typeof view;
+  const confirm = confirmView.rows.flat().find(button => button.id.startsWith("b24s:confirm:"))!;
+  assert.ok(confirm);
+  assert.equal((await f.store.read()).policy.people, "ids");
+  const applied = await call({ ...context, revision: 1, eventId: "apply", actionId: confirm.id });
+  assert.equal(applied.type, "show");
+  assert.equal((await f.store.read()).policy.people, "names");
+  const repeated = await f.client.callTool({ name: "bitrix24_screen", arguments: { event: { ...context, actionId: confirm.id } } });
+  assert.equal(repeated.isError, true);
+  assert.equal((await call({ ...context, actionId: "close" })).type, "close");
+  // The conversational fallback stays usable on unpatched Iva.
+  assert.equal((await f.client.callTool({ name: "bitrix24_settings", arguments: {} })).isError, undefined);
+});

@@ -1,6 +1,6 @@
 {
   "name": "iva-bitrix24",
-  "version": "0.7.1-rc.2",
+  "version": "0.9.0-rc.1",
   "private": true,
   "description": "Bitrix24 task and document integration for Iva with confirmed actions and Telegram policy settings.",
   "license": "MIT",

@@ -393,7 +393,7 @@ native ask_question после выбора, а не пытается восст
 Для новой установки выберите точный RC под пользователем Ивы:
 
 ```bash
-iva plugin add mamysh/iva-bitrix24/plugin@v0.7.1-rc.2
+iva plugin add mamysh/iva-bitrix24/plugin@v0.9.0-rc.1
 iva plugin trust bitrix24-read
 iva doctor
 ```
@@ -403,7 +403,7 @@ iva doctor
 
 ```bash
 iva plugin remove bitrix24-read
-iva plugin add mamysh/iva-bitrix24/plugin@v0.7.1-rc.2
+iva plugin add mamysh/iva-bitrix24/plugin@v0.9.0-rc.1
 iva plugin trust bitrix24-read
 iva doctor
 ```
@@ -429,3 +429,11 @@ schema5 с revision настроек. Завершённые квитанции 
 Обычные диагностические ответы и статус обновления также используют жирные заголовки,
 пустые строки между блоками и блоки кода для команд. Живой Telegram-render этого RC
 здесь не проверен; см. [COMPATIBILITY](COMPATIBILITY.md).
+
+
+## Прямое меню /bitrix
+
+Кандидат 0.9.0-rc.1 добавляет MCP `bitrix24_screen` (28 tools при полной конфигурации).
+Прямая команда `/bitrix` требует экспериментального API Ивы; штатная 0.4.11 его не содержит.
+Прежний `bitrix24_settings`/skill остаётся fallback после возврата на штатное ядро.
+Контракт, проверки владельца/ревизии и ограничения: [PLUGIN_SCREENS](PLUGIN_SCREENS.md).
