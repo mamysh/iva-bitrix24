@@ -51,6 +51,10 @@ const queue = [pluginRoot];
 while (queue.length > 0) {
   const directory = queue.pop();
   for (const entry of await readdir(directory, { withFileTypes: true })) {
+    assert.ok(
+      !/ [0-9]+(?:\.[^.]+)?$/u.test(entry.name) && !entry.name.endsWith(".icloud"),
+      `unexpected copied artifact: ${relative(root, resolve(directory, entry.name))}`,
+    );
     const path = resolve(directory, entry.name);
     const info = await lstat(path);
     assert.equal(info.isSymbolicLink(), false, `${relative(root, path)} is a symlink`);

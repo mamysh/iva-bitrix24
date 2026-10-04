@@ -9,6 +9,24 @@ import { TaskFileReader } from "../src/file-capabilities.ts";
 
 const config = loadConfig({ BITRIX24_WEBHOOK_BASE_URL: "https://example.test/rest/1/secret" });
 
+test("malformed tasks still consume the bounded document search budget", async () => {
+  let pages = 0;
+  const reader = makeReader(tmpdir(), (method) => {
+    if (method === "profile") return { result: { ID: "1" } };
+    if (method === "tasks.task.list") {
+      pages += 1;
+      assert.ok(pages <= 1, "search must stop after the first five malformed tasks");
+      return { result: { tasks: Array.from({ length: 50 }, () => ({ id: "invalid" })) }, next: 50 };
+    }
+    assert.fail(`unexpected method: ${method}`);
+  });
+  const result = await reader.search({ query: "report", scope: "mine", phase: "open" });
+  assert.equal(result.scannedTasks, 5);
+  assert.equal(result.partial, true);
+  assert.equal(result.nextCursor, "0:5");
+  assert.deepEqual(result.matches, []);
+});
+
 function makeReader(root: string, handler: (method: string, params: Record<string, unknown>) => unknown, download?: (url: URL) => Response) {
   const client = new BitrixClient(config, { fetch: async (input, init) => {
     const url = new URL(String(input));

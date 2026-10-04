@@ -149,17 +149,26 @@ function safeSha(value: unknown): string {
 }
 
 function safeVersion(value: unknown): string {
-  return typeof value === "string" && value.length <= 100 && SEMVER.test(value)
-    ? value
-    : "";
+  if (typeof value !== "string" || value.length > 100 || !SEMVER.test(value))
+    return "";
+  const coreAndPrerelease = value.split("+", 1)[0]!;
+  const separator = coreAndPrerelease.indexOf("-");
+  if (
+    separator !== -1 &&
+    coreAndPrerelease.slice(separator + 1).split(".")
+      .some((part) => /^0[0-9]+$/u.test(part))
+  ) return "";
+  return value;
 }
 
 function compareVersions(left: string, right: string): number {
   const parts = (version: string) => {
     const withoutBuild = version.split("+", 1)[0]!;
-    const [core, prerelease] = withoutBuild.split("-", 2);
+    const separator = withoutBuild.indexOf("-");
+    const core = separator === -1 ? withoutBuild : withoutBuild.slice(0, separator);
+    const prerelease = separator === -1 ? undefined : withoutBuild.slice(separator + 1);
     return {
-      core: core!.split(".").map((part) => BigInt(part)),
+      core: core.split(".").map((part) => BigInt(part)),
       prerelease: prerelease?.split(".") ?? null,
     };
   };
