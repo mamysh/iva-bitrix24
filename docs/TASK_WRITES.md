@@ -1,4 +1,4 @@
-# Task action contract (prerelease 0.7.0-rc.1; stable 0.6.0)
+# Task action contract (prerelease 0.7.0-rc.2; stable 0.6.0)
 
 The stable 0.6.0 release is validated by synthetic tests. On 4 October 2026 the owner
 reported successful task creation and completion on the current upstream Iva in real use.
@@ -45,6 +45,10 @@ has one pair of confirm/cancel buttons. Task context is displayed once per exist
 all requested edits/messages/files stay visible. One update per task prevents stale observer
 delta calculations; merge edits before prepare. Batch is sequential, not an upstream database
 transaction. On the first failure it stops; already performed changes are preserved.
+
+Tool discovery publishes an object schema with all action fields and a nested batch schema.
+The server validates the strict discriminated action contract before prepare; fields from
+other actions and incomplete inputs remain rejected.
 
 Prepare performs no portal writes and returns a UUID, expiry and full approvalPrompt for
 Iva's native ask_question. Exactly two buttons: confirm and cancel. A freeform correction

@@ -351,8 +351,24 @@ test("MCP accepts one update/comment/upload batch and rejects empty edits and ne
     ],
   }});
   assert.notEqual(valid.isError, true);
+  const clear = await client.callTool({name: "bitrix24_prepare_task_action", arguments: {action: "update", taskId: 20, deadline: null}});
+  assert.notEqual(clear.isError, true);
   for (const args of [{action: "update", taskId: 20}, {action: "batch", actions: [{action: "batch", actions: []}]}]) {
     const invalid = await client.callTool({name: "bitrix24_prepare_task_action", arguments: args});
     assert.equal(invalid.isError, true);
   }
+});
+
+
+test("tool discovery publishes task action fields and nested batch schemas", async t => {
+ const {client, server} = await connectedClient();
+ t.after(async () => {await client.close(); await server.close();});
+ const tools = (await client.listTools()).tools;
+ const schema = tools.find(t => t.name === "bitrix24_prepare_task_action")!.inputSchema;
+ assert.equal(schema.type, "object");
+ const props = schema.properties as Record<string, unknown>;
+ for (const field of ["action", "title", "description", "taskId", "addAuditors", "checklistUpdates", "uploads", "actions"])
+  assert.ok(props[field], field);
+ assert.match(JSON.stringify(props.actions), /batch|checklistUpdates/u);
+ assert.deepEqual(schema.required, ["action"]);
 });
