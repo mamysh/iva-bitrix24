@@ -38088,7 +38088,7 @@ function registerUpdaterTools(server2, updater) {
   );
 }
 function createMcpServer(reader, updater = null, files = null, writer = null) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.7" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0" });
   registerUpdaterTools(server2, updater);
   if (writer) {
     server2.registerTool("bitrix24_project_stages", {
@@ -39577,7 +39577,7 @@ async function resolveAttachmentsRoot(env, wrapper = join4(env.HOME || homedir2(
 
 // server/src/main.ts
 function unavailableServer(error61, updater) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.7" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",

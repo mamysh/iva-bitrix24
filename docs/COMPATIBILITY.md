@@ -12,7 +12,7 @@ explicit live smoke test.
 | Bitrix24 Tasks REST | current task, comment, checklist and attachment APIs | official contract review and synthetic contract tests | supported for documented read-only tools |
 | Bitrix24 new task card | module `tasks 25.700.0+` discussion model | `CHAT_ID` discovery, official `im.dialog.messages.get` contract, synthetic system-event test and owner live canary | supported for bounded discussion and change-event reading |
 | Bitrix24 task documents | current task/chat/comment/checklist file APIs | official contracts and synthetic list, search and download tests | supported contract; live file transfer pending |
-| Bitrix24 task writes | 0.6.0: established Tasks REST plus IM v2 upload | synthetic tests; owner reported live creation and completion on 2026-10-04 | stable; other write/upload live scenarios not separately verified |
+| Bitrix24 task writes | 0.7.0: established Tasks REST plus IM v2 upload | synthetic tests; owner reported live creation and completion on 2026-10-04 | stable; other write/upload live scenarios not separately verified |
 | Iva file delivery plugin | existing `iva-file-delivery` MCP tools | checked local plugin contract and 50 MiB/path limits | required for Telegram document delivery |
 | PDF and Office rendering | `pdftoppm`, plus LibreOffice for Office files | PDF binary available in development; Office renderer not present there | optional server dependencies; Office visual rendering pending live check |
 | Bitrix24 REST 3.0 | `/rest/api/...` | official docs review at `b24restdocs@de91707`; task list filtering is documented only for `id` | evaluated and deliberately not selected for the current read contract |
@@ -66,4 +66,7 @@ RC7 refines rich preview block spacing and adds position/department context for 
 people. Synthetic tests cover block continuations, department deduplication and unavailable
 metadata fallback. Names require granted department scope; it is optional for task writes.
 The owner’s RC6 screenshot confirms rendered rich task approval, not a full apply/replay audit.
-RC7 has not yet been installed or live checked.
+RC7 was verified installed on 4 October 2026: HTTP MCP reports 0.7.0-rc.7,
+26 tools and a successful connection check; Iva doctor reports no failures.
+Stable 0.7.0 preserves RC7 behavior. This smoke does not certify the complete live
+write/button/replay matrix or new position/department rendering.
