@@ -113,7 +113,7 @@ test("menu buttons navigate all sections, fit Telegram callbacks and diagnose me
   for (const callback of buttons) assert.ok(Buffer.byteLength(callback, "utf8") <= 64);
   assert.deepEqual(calls, ["connection", "connection", "scope"]);
   assert.match(all[0]!, /Webhook: работает/u);
-  assert.match(all[2]!, /проверка scopes/u);
+  assert.match(all[2]!, /Права webhook не доказывают/u);
   assert.match(all[4]!, /не обезличивает/u);
   await assert.rejects(f.menu.run({ screen: "actions", reply: "b24s:open:home" }));
 });

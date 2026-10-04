@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SettingsMenu, settingsInputSchema } from "./settings-menu.ts";
+import { SettingsMenu, settingsInputSchema, screenEventSchema } from "./settings-menu.ts";
 import { z } from "zod/v4";
 import { TaskWriter, taskWriteSchema, taskWriteInputSchema } from "./task-writes.ts";
 import { BitrixRequestError } from "./bitrix-client.ts";
@@ -253,6 +253,12 @@ export function registerUpdaterTools(
 }
 
 export function registerSettingsTool(server: McpServer, menu: SettingsMenu) {
+  server.registerTool("bitrix24_screen", {
+    description: "Experimental Iva Bridge screen handler. Returns structured pages for /bitrix without a model turn. The host binds actions to private owner, message and revision. Use bitrix24_settings for normal conversational settings; never invent or replay screen action events.",
+    inputSchema: z.object({ event: screenEventSchema }).strict(),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, input => safe(() => menu.screen(input.event)));
+
   server.registerTool("bitrix24_settings", {
     description: "Open the separate Bitrix24 settings menu (home, connection, capabilities, actions, privacy). Returns server-rendered markdown: deliver it verbatim as a final private Telegram reply. For a button pass only the actual incoming owner reply as reply; never invent confirmation or immediately apply a returned confirmReply. A setting selection prepares an expiring revision-bound confirmation; only the next exact reply commits it. Native fallback may relay confirmReply only after an actual structured ask_question confirm answer. No webhook secrets in chat. Uses the existing model-mediated approval boundary.",
     inputSchema: settingsInputSchema,
@@ -266,7 +272,7 @@ export function createMcpServer(
   files: FileReaderPort | null = null,
   writer: Pick<TaskWriter, "prepare" | "apply" | "cancel" | "status" | "stages"> | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.7.1-rc.2" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.9.0-rc.1" });
   registerUpdaterTools(server, updater);
   if (writer) {
     server.registerTool("bitrix24_project_stages", {

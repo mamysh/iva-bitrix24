@@ -190,3 +190,11 @@ See [ADR0010](adr/0010-plugin-settings-menu.md) and [SETUP](SETUP.md#меню-н
 
 В 0.7.1-rc.2 подтверждение обновления использует rich/native presentation;
 контракт и границы описаны в [ADR0011](adr/0011-rich-plugin-update-card.md).
+
+
+## Host-owned screen navigation
+
+Кандидат 0.9.0-rc.1 добавляет MCP `bitrix24_screen` (28 tools при полной конфигурации).
+Прямая команда `/bitrix` требует экспериментального API Ивы; штатная 0.4.11 его не содержит.
+Прежний `bitrix24_settings`/skill остаётся fallback после возврата на штатное ядро.
+Контракт, проверки владельца/ревизии и ограничения: [PLUGIN_SCREENS](PLUGIN_SCREENS.md).

@@ -65,6 +65,13 @@ try {
   const settingsSchema = tools.find(tool => tool.name === "bitrix24_settings").inputSchema;
   assert.equal(settingsSchema.type, "object");
   for (const field of ["screen", "reply"]) assert.ok(settingsSchema.properties?.[field]);
+  const screenTool = tools.find(tool => tool.name === "bitrix24_screen");
+  assert.ok(screenTool.inputSchema.properties?.event);
+  const opened = await client.callTool({ name: "bitrix24_screen", arguments: { event: { type: "action", screen: "a".repeat(32), revision: 0, eventId: "bundle", actionId: "b24s:open:actions" } } });
+  assert.equal(opened.isError, undefined);
+  const page = JSON.parse(opened.content[0].text);
+  assert.equal(page.type, "show");
+  assert.doesNotMatch(page.view.markdown, /<tg-button/u);
   const home = await client.callTool({ name: "bitrix24_settings", arguments: { screen: "actions" } });
   assert.equal(home.isError, undefined);
   const screen = JSON.parse(home.content[0].text);
@@ -91,7 +98,8 @@ try {
       "bitrix24_prepare_task_action",
       "bitrix24_project_stages",
       "bitrix24_release_task_document",
-      "bitrix24_search_people",
+      "bitrix24_screen",
+    "bitrix24_search_people",
       "bitrix24_search_projects",
       "bitrix24_search_task_documents",
       "bitrix24_settings",

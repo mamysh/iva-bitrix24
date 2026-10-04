@@ -10,6 +10,12 @@ owner's Bitrix24.
 
 ## Separate Bitrix24 settings menu
 
+Experimental direct `/bitrix` screens belong to the Iva Bridge when the host supports
+`sh.iva.telegramScreen`. Released Iva 0.4.11 does not. Keep the conversational fallback
+below. Never call `bitrix24_screen` with invented/replayed action events or process
+`iva_screen:` callback data as a settings confirmation. Host version alone is not
+proof of support; the plugin cannot install or activate the host API.
+
 For “настройки Битрикс”, “меню Битрикс”, connection/capability screens, read-only/write
 mode or employee data preferences, use `bitrix24_settings`. This is the plugin's own
 menu, not Iva's `/menu`. Do not edit Iva, env files, plugin data or owner rules to change

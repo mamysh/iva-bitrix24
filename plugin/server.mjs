@@ -5719,7 +5719,7 @@ var require_contains = __commonJS({
           const count = gen.let("count", 0);
           validateItems(schValid, () => gen.if(schValid, () => checkLimits(count)));
         }
-        function validateItems(_valid, block) {
+        function validateItems(_valid, block2) {
           gen.forRange("i", 0, len, (i) => {
             cxt.subschema({
               keyword: "contains",
@@ -5727,7 +5727,7 @@ var require_contains = __commonJS({
               dataPropType: util_1.Type.Num,
               compositeRule: true
             }, _valid);
-            block();
+            block2();
           });
         }
         function checkLimits(count) {
@@ -36535,11 +36535,32 @@ function minimizeResult(value, policy, context = "") {
 // server/src/settings-menu.ts
 var screens = ["home", "connection", "capabilities", "actions", "privacy"];
 var settingsInputSchema = external_exports.object({ screen: external_exports.enum(screens).optional(), reply: external_exports.string().min(1).max(64).optional() }).strict().refine((input2) => !(input2.screen && input2.reply));
+var screenEventSchema = external_exports.discriminatedUnion("type", [
+  external_exports.object({ type: external_exports.literal("open"), eventId: external_exports.string().min(1).max(128) }).strict(),
+  external_exports.object({ type: external_exports.literal("action"), eventId: external_exports.string().min(1).max(128), screen: external_exports.string().regex(/^[a-f0-9]{32}$/u), revision: external_exports.number().int().nonnegative(), actionId: external_exports.string().min(1).max(64) }).strict()
+]);
+function settingsScreenView(markdown) {
+  const rows = [];
+  const text4 = markdown.replace(/<tg-button-row>([\s\S]*?)<\/tg-button-row>/gu, (_row, inner) => {
+    const buttons = [...inner.matchAll(/<tg-button\b([^>]*)>([^<]+)<\/tg-button>/gu)].flatMap((match) => {
+      const id3 = /\bdata="([^"]+)"/u.exec(match[1])?.[1];
+      const style = /\bstyle="(success|danger)"/u.exec(match[1])?.[1];
+      return id3 ? [{ id: id3, label: match[2], ...style ? { style } : {} }] : [];
+    });
+    if (buttons.length) rows.push(buttons);
+    return "";
+  }).replace(/\n{3,}/gu, "\n\n").trim();
+  rows.push([{ id: "close", label: "\u2715 \u0417\u0430\u043A\u0440\u044B\u0442\u044C", style: "danger" }]);
+  return { markdown: text4, rows };
+}
 var offerSchema = external_exports.object({ schema: external_exports.literal(1), identity: external_exports.string(), revision: external_exports.number().int().min(0), policy: policySchema, screen: external_exports.enum(screens), createdAt: external_exports.number().finite(), token: external_exports.uuid() }).strict();
 var TTL = 10 * 6e4;
 var escape2 = (value) => value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;").replace(/([\\`*_{}\[\]()#+.!|~=-])/gu, "\\$1");
 var richText = (value) => escape2(value).split("\n").map((line) => line ? `${line}  ` : "").join("\n");
 var button = (label, reply, style) => `<tg-button-row><tg-button type="callback_data"${style ? ` style="${style}"` : ""} data="${reply}">${label}</tg-button></tg-button-row>`;
+var row = (...buttons) => `<tg-button-row>${buttons.map((value) => value.replace(/<\/?tg-button-row>/gu, "")).join("")}</tg-button-row>`;
+var block = (title, text4) => `**${title}**
+${text4}`;
 var nav = (label, screen) => button(label, `b24s:open:${screen}`);
 var modeLabel = (p) => p.mode === "read_only" ? "\u0422\u043E\u043B\u044C\u043A\u043E \u0447\u0442\u0435\u043D\u0438\u0435" : "\u0417\u0430\u043F\u0438\u0441\u044C \u0441 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435\u043C";
 var peopleLabel = (p) => ({ ids: "\u0422\u043E\u043B\u044C\u043A\u043E ID", names: "ID \u0438 \u0438\u043C\u0435\u043D\u0430", work: "\u0420\u0430\u0431\u043E\u0447\u0438\u0439 \u043F\u0440\u043E\u0444\u0438\u043B\u044C" })[p.people];
@@ -36601,6 +36622,13 @@ var SettingsMenu = class {
     this.#diagnostics = diagnostics;
     this.#now = now;
   }
+  async screen(raw) {
+    const event = screenEventSchema.parse(raw);
+    if (event.type === "action" && event.actionId === "close")
+      return { type: "close", markdown: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 Bitrix24 \u0437\u0430\u043A\u0440\u044B\u0442\u044B." };
+    const result = await this.run(event.type === "open" ? { screen: "home" } : { reply: event.actionId });
+    return { type: "show", view: settingsScreenView(result.markdown) };
+  }
   async run(raw) {
     const input2 = settingsInputSchema.parse(raw);
     if (input2.reply) {
@@ -36637,13 +36665,7 @@ ${summary(current.policy)}
 ${summary(policy)}
 
 \u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u0435 \u043F\u0440\u0435\u0432\u044C\u044E \u0437\u0430\u0434\u0430\u0447\u0438 \u0441\u0442\u0430\u043D\u0435\u0442 \u043D\u0435\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u043C. \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043D\u0435 \u043C\u0435\u043D\u044F\u044E\u0442 \u043F\u0440\u0430\u0432\u0430 webhook \u0432 Bitrix24.`;
-      return { state: "confirmation_required", settings: current, expiresAt: new Date(offer.createdAt + TTL).toISOString(), confirmReply, cancelReply, approvalPrompt: prompt, markdown: `**\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 Bitrix24**
-
-${richText(prompt)}
-
-${button("\u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044C", confirmReply, "success")}
-
-${button("\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C", cancelReply, "danger")}` };
+      return { state: "confirmation_required", settings: current, expiresAt: new Date(offer.createdAt + TTL).toISOString(), confirmReply, cancelReply, approvalPrompt: prompt, markdown: [`# \u2699\uFE0F \u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438`, block("\u0421\u0435\u0439\u0447\u0430\u0441", richText(summary(current.policy))), block("\u041F\u043E\u0441\u043B\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u044F", richText(summary(policy))), block("\u0427\u0442\u043E \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u0441\u044F", "\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u0435 \u043F\u0440\u0435\u0432\u044C\u044E \u0437\u0430\u0434\u0430\u0447\u0438 \u0441\u0442\u0430\u043D\u0435\u0442 \u043D\u0435\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u043C. \u041F\u0440\u0430\u0432\u0430 webhook \u0432 Bitrix24 \u043E\u0441\u0442\u0430\u044E\u0442\u0441\u044F \u043F\u0440\u0435\u0436\u043D\u0438\u043C\u0438."), row(button("\u2713 \u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044C", confirmReply, "success"), button("\u2715 \u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C", cancelReply, "danger"))].join("\n\n") };
     });
   }
   async #resolve(confirm, token) {
@@ -36665,54 +36687,89 @@ ${button("\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C", cancelReply, "dange
   async #render(screen, notice) {
     const settings = await this.#store.read();
     const p = settings.policy;
-    const lines = ["**Bitrix24 \xB7 \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438**"];
-    if (notice) lines.push(escape2(notice));
+    const titles = { home: "\u2699\uFE0F \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 Bitrix24", connection: "\u{1F517} \u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435", capabilities: "\u{1F9E9} \u0412\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u0438", actions: "\u270D\uFE0F \u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F", privacy: "\u{1F6E1}\uFE0F \u041F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435" };
+    const lines = [`# ${titles[screen]}`];
+    if (notice) lines.push(block("\u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442", escape2(notice)));
     const select = (label, choice) => button(label, `b24s:set:${settings.revision}:${choice}`);
     if (screen === "home") {
       let connection = "\u043D\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043D";
       if (this.#diagnostics.configured) {
         try {
           await this.#diagnostics.connectionCheck();
-          connection = "\u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442; \u0434\u043E\u0441\u0442\u0443\u043F \u043A \u043C\u0435\u0442\u043E\u0434\u0430\u043C \u0437\u0430\u0434\u0430\u0447 \u043F\u0440\u043E\u0432\u0435\u0440\u0435\u043D";
+          connection = "\u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442";
         } catch (error61) {
-          connection = `\u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u043D\u0435 \u043F\u0440\u043E\u0448\u043B\u0430 (${error61 instanceof BitrixRequestError ? error61.code : "CHECK_FAILED"}); \u043E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0440\u0430\u0437\u0434\u0435\u043B \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u044F`;
+          connection = `\u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u043D\u0435 \u043F\u0440\u043E\u0448\u043B\u0430 (${error61 instanceof BitrixRequestError ? error61.code : "CHECK_FAILED"})`;
         }
       }
-      lines.push(escape2(`Webhook: ${connection}`), richText(summary(p)), nav("\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435", "connection"), nav("\u0412\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u0438", "capabilities"), nav("\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F", "actions"), nav("\u041F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435", "privacy"));
-      if (!this.#store.data) lines.push("\u041F\u0440\u0438\u0432\u0430\u0442\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 \u043F\u043B\u0430\u0433\u0438\u043D\u0430 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B: \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043A \u0438 \u0437\u0430\u043F\u0438\u0441\u044C \u0437\u0430\u043A\u0440\u044B\u0442\u044B. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0443 \u0418\u0432\u044B.");
-      if (settings.revision === 0) lines.push("\u041F\u0435\u0440\u0432\u044B\u0439 \u0437\u0430\u043F\u0443\u0441\u043A \u043C\u0435\u043D\u044E: \u043F\u043E\u043A\u0430\u0437\u0430\u043D\u044B \u0438\u0441\u0445\u043E\u0434\u043D\u044B\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438. \u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u043D\u0443\u0436\u043D\u044B\u0439 \u0440\u0435\u0436\u0438\u043C \u0432 \u0440\u0430\u0437\u0434\u0435\u043B\u0430\u0445 \u043D\u0438\u0436\u0435.");
+      lines.push(
+        block("\u0421\u0435\u0439\u0447\u0430\u0441", richText(`Webhook: ${connection}
+\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F: ${modeLabel(p)}
+\u0421\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0438: ${peopleLabel(p)}
+Email: ${on(p.email)}`)),
+        row(nav("\u{1F517} \u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435", "connection"), nav("\u{1F9E9} \u0412\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u0438", "capabilities")),
+        "**\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435** \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C webhook.  \n**\u0412\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u0438** \u2014 \u043F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u0432\u044B\u0434\u0430\u043D\u043D\u044B\u0435 \u043F\u0440\u0430\u0432\u0430.",
+        row(nav("\u270D\uFE0F \u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F", "actions"), nav("\u{1F6E1}\uFE0F \u0414\u0430\u043D\u043D\u044B\u0435", "privacy")),
+        "**\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F** \u2014 \u0432\u044B\u0431\u0440\u0430\u0442\u044C \u0447\u0442\u0435\u043D\u0438\u0435 \u0438\u043B\u0438 \u0437\u0430\u043F\u0438\u0441\u044C.  \n**\u0414\u0430\u043D\u043D\u044B\u0435** \u2014 \u0432\u044B\u0431\u0440\u0430\u0442\u044C \u043F\u043E\u043B\u044F \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432."
+      );
+      if (!this.#store.data) lines.push(block("\u041D\u0443\u0436\u043D\u0430 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438", "\u041F\u0440\u0438\u0432\u0430\u0442\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 \u043F\u043B\u0430\u0433\u0438\u043D\u0430 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B. \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043A \u0438 \u0437\u0430\u043F\u0438\u0441\u044C \u0437\u0430\u043A\u0440\u044B\u0442\u044B."));
+      if (settings.revision === 0) lines.push(block("\u041F\u0435\u0440\u0432\u044B\u0439 \u0437\u0430\u043F\u0443\u0441\u043A", "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u044B \u0438\u0441\u0445\u043E\u0434\u043D\u044B\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438. \u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0438 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u043D\u0443\u0436\u043D\u044B\u0439 \u0440\u0435\u0436\u0438\u043C \u0432 \u0440\u0430\u0437\u0434\u0435\u043B\u0430\u0445 \u0432\u044B\u0448\u0435."));
     } else if (screen === "connection" || screen === "capabilities") {
-      lines.push(screen === "connection" ? "**\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435**" : "**\u0412\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u0438**");
-      if (!this.#diagnostics.configured) lines.push("Webhook \u043D\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043D. \u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0449\u0438\u043A \u0432 \u0442\u0435\u0440\u043C\u0438\u043D\u0430\u043B\u0435 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u0418\u0432\u044B; \u0441\u0435\u043A\u0440\u0435\u0442 \u0432 \u0447\u0430\u0442 \u043D\u0435 \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0439\u0442\u0435.");
+      if (!this.#diagnostics.configured) lines.push(block("Webhook \u043D\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043D", "\u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0449\u0438\u043A \u0432 \u0442\u0435\u0440\u043C\u0438\u043D\u0430\u043B\u0435 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u0418\u0432\u044B. \u0421\u0435\u043A\u0440\u0435\u0442 \u0432 \u0447\u0430\u0442 \u043D\u0435 \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0439\u0442\u0435."));
       else {
         try {
           if (screen === "connection") {
             await this.#diagnostics.connectionCheck();
-            lines.push("\u0421\u043E\u0435\u0434\u0438\u043D\u0435\u043D\u0438\u0435 \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442. \u0414\u043E\u0441\u0442\u0443\u043F \u043A \u043C\u0435\u0442\u043E\u0434\u0430\u043C \u0437\u0430\u0434\u0430\u0447 \u043F\u0440\u043E\u0432\u0435\u0440\u0435\u043D; \u0437\u0430\u0434\u0430\u0447\u0438 \u0438 \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u044B \u043D\u0435 \u0447\u0438\u0442\u0430\u043B\u0438\u0441\u044C.");
+            lines.push(block("\u2705 \u0421\u043E\u0435\u0434\u0438\u043D\u0435\u043D\u0438\u0435 \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442", "\u0414\u043E\u0441\u0442\u0443\u043F \u043A \u043C\u0435\u0442\u043E\u0434\u0430\u043C \u0437\u0430\u0434\u0430\u0447 \u043F\u0440\u043E\u0432\u0435\u0440\u0435\u043D. \u0417\u0430\u0434\u0430\u0447\u0438 \u0438 \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u044B \u043D\u0435 \u0447\u0438\u0442\u0430\u043B\u0438\u0441\u044C."));
           } else {
             const result = await this.#diagnostics.capabilities();
             const scopes = new Set(result.grantedScopes ?? []);
             const hasPeople = ["user_brief", "user_basic", "user"].some((value) => scopes.has(value));
-            for (const [label, available] of [["\u0417\u0430\u0434\u0430\u0447\u0438 \u0438 \u0447\u0435\u043A-\u043B\u0438\u0441\u0442\u044B", scopes.has("task")], ["\u041E\u0431\u0441\u0443\u0436\u0434\u0435\u043D\u0438\u044F \u043D\u043E\u0432\u043E\u0433\u043E \u0447\u0430\u0442\u0430", scopes.has("task") && scopes.has("im")], ["\u041F\u0440\u043E\u0435\u043A\u0442\u044B", scopes.has("sonet_group")], ["\u0421\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0438", hasPeople], ["\u041F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0435\u043D\u0438\u044F", scopes.has("department")], ["\u0412\u043B\u043E\u0436\u0435\u043D\u0438\u044F \u0437\u0430\u0434\u0430\u0447", scopes.has("task") && scopes.has("disk")], ["\u041C\u0435\u0442\u043E\u0434\u044B \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439", scopes.has("task") && hasPeople]]) lines.push(`${label}: ${available ? "\u043F\u0440\u0430\u0432\u0430 webhook \u0435\u0441\u0442\u044C" : "\u043D\u0443\u0436\u043D\u044B\u0445 \u043F\u0440\u0430\u0432 webhook \u043D\u0435\u0442"}`);
-            lines.push(`Email: ${scopes.has("user_basic") || scopes.has("user") ? "\u043F\u0440\u0430\u0432\u0430 webhook \u0435\u0441\u0442\u044C" : "\u043D\u0443\u0436\u0435\u043D user_basic"}; ${p.email ? "\u0440\u0430\u0437\u0440\u0435\u0448\u0451\u043D \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u043E\u0439" : "\u0441\u043A\u0440\u044B\u0442 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u043E\u0439"}.`, `\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0432 \u043F\u043B\u0430\u0433\u0438\u043D\u0435: ${modeLabel(p)}.`, "\u042D\u0442\u043E \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 scopes, \u0430 \u043D\u0435 \u0434\u043E\u043A\u0430\u0437\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u043E \u0434\u043E\u0441\u0442\u0443\u043F\u0430 \u043A\u043E \u0432\u0441\u0435\u043C \u043E\u0431\u044A\u0435\u043A\u0442\u0430\u043C \u0438\u043B\u0438 \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u0438 \u0437\u0430\u043F\u0438\u0441\u0438. \u041F\u0440\u0430\u0432\u0430 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u044E\u0442\u0441\u044F \u0434\u043B\u044F \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u043E\u0433\u043E \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F.", "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u043F\u0440\u0430\u0432\u0430: Bitrix24 \u2192 \u041F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u044F \u2192 \u0420\u0435\u0441\u0443\u0440\u0441\u044B \u0440\u0430\u0437\u0440\u0430\u0431\u043E\u0442\u0447\u0438\u043A\u0430 \u2192 webhook \u2192 \u041F\u0440\u0430\u0432\u0430 \u0434\u043E\u0441\u0442\u0443\u043F\u0430.");
+            const features = [["\u0417\u0430\u0434\u0430\u0447\u0438 \u0438 \u0447\u0435\u043A-\u043B\u0438\u0441\u0442\u044B", scopes.has("task")], ["\u041E\u0431\u0441\u0443\u0436\u0434\u0435\u043D\u0438\u044F \u043D\u043E\u0432\u043E\u0433\u043E \u0447\u0430\u0442\u0430", scopes.has("task") && scopes.has("im")], ["\u041F\u0440\u043E\u0435\u043A\u0442\u044B", scopes.has("sonet_group")], ["\u0421\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0438", hasPeople], ["\u041F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0435\u043D\u0438\u044F", scopes.has("department")], ["\u0412\u043B\u043E\u0436\u0435\u043D\u0438\u044F \u0437\u0430\u0434\u0430\u0447", scopes.has("task") && scopes.has("disk")], ["\u041C\u0435\u0442\u043E\u0434\u044B \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439", scopes.has("task") && hasPeople]];
+            lines.push(
+              block("\u041F\u0440\u0430\u0432\u0430 webhook", features.map(([label, available]) => `${available ? "\u2705" : "\u25CB"} ${label}: ${available ? "\u0435\u0441\u0442\u044C" : "\u043D\u0435\u0442"}`).join("  \n")),
+              block("\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F \u043F\u043B\u0430\u0433\u0438\u043D\u0430", richText(`\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F: ${modeLabel(p)}
+Email: ${p.email ? "\u0440\u0430\u0437\u0440\u0435\u0448\u0451\u043D \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u043E\u0439" : "\u0441\u043A\u0440\u044B\u0442 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u043E\u0439"}
+\u041F\u0440\u0430\u0432\u043E \u043D\u0430 email: ${scopes.has("user_basic") || scopes.has("user") ? "\u0435\u0441\u0442\u044C" : "\u043D\u0443\u0436\u0435\u043D user_basic"}`)),
+              block("\u041A\u0430\u043A \u043F\u043E\u043D\u0438\u043C\u0430\u0442\u044C \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443", "\u041F\u0440\u0430\u0432\u0430 webhook \u043D\u0435 \u0434\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442 \u0434\u043E\u0441\u0442\u0443\u043F \u043A\u043E \u0432\u0441\u0435\u043C \u043E\u0431\u044A\u0435\u043A\u0442\u0430\u043C \u0438\u043B\u0438 \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u044C \u0437\u0430\u043F\u0438\u0441\u0438. \u041F\u0440\u0430\u0432\u0430 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u044E\u0442\u0441\u044F \u0434\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0433\u043E \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F."),
+              block("\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u043F\u0440\u0430\u0432\u0430", "Bitrix24 \u2192 \u041F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u044F \u2192 \u0420\u0435\u0441\u0443\u0440\u0441\u044B \u0440\u0430\u0437\u0440\u0430\u0431\u043E\u0442\u0447\u0438\u043A\u0430 \u2192 webhook \u2192 \u041F\u0440\u0430\u0432\u0430 \u0434\u043E\u0441\u0442\u0443\u043F\u0430.")
+            );
           }
-          lines.push(`\u041F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u043E: ${escape2(new Date(this.#now()).toISOString())}`);
+          const timestamp2 = new Date(this.#now()).toISOString().replace("T", " ").replace(/\.\d{3}Z$/u, " UTC");
+          lines.push(block("\u041F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u043E", escape2(timestamp2)));
         } catch (error61) {
           const code = error61 instanceof BitrixRequestError ? error61.code : "CHECK_FAILED";
-          const hint = ["NO_AUTH_FOUND", "INVALID_CREDENTIALS"].includes(code) ? "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0438\u043B\u0438 \u0437\u0430\u043C\u0435\u043D\u0438\u0442\u0435 webhook \u0447\u0435\u0440\u0435\u0437 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0449\u0438\u043A." : ["ACCESS_DENIED", "INSUFFICIENT_SCOPE"].includes(code) ? "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043F\u0440\u0430\u0432\u0430 webhook \u0438 \u0435\u0433\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F \u0432 Bitrix24." : "\u041F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443; \u043F\u0440\u0438 \u043F\u043E\u0432\u0442\u043E\u0440\u043D\u043E\u0439 \u043E\u0448\u0438\u0431\u043A\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0441\u0435\u0442\u044C \u0438 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0443 webhook.";
-          lines.push(`\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u043D\u0435 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u0430: ${escape2(code)}. ${hint}`);
+          const hint = ["NO_AUTH_FOUND", "INVALID_CREDENTIALS"].includes(code) ? "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0438\u043B\u0438 \u0437\u0430\u043C\u0435\u043D\u0438\u0442\u0435 webhook \u0447\u0435\u0440\u0435\u0437 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0449\u0438\u043A." : ["ACCESS_DENIED", "INSUFFICIENT_SCOPE"].includes(code) ? "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043F\u0440\u0430\u0432\u0430 webhook \u0438 \u0435\u0433\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F \u0432 Bitrix24." : "\u041F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443. \u041F\u0440\u0438 \u043F\u043E\u0432\u0442\u043E\u0440\u043D\u043E\u0439 \u043E\u0448\u0438\u0431\u043A\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0441\u0435\u0442\u044C \u0438 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0443 webhook.";
+          lines.push(block("\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u043D\u0435 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u0430", `${escape2(code)}
+${hint}`));
         }
       }
-      lines.push(nav("\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0441\u043D\u043E\u0432\u0430", screen));
+      lines.push(nav("\u21BB \u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0441\u043D\u043E\u0432\u0430", screen));
     } else if (screen === "actions") {
-      lines.push("**\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F**", richText(summary(p)), "\u0427\u0442\u0435\u043D\u0438\u0435 \u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442 \u0432\u0441\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043D\u0430 \u043F\u043E\u0440\u0442\u0430\u043B\u0435. \u0412 \u0440\u0435\u0436\u0438\u043C\u0435 \u0437\u0430\u043F\u0438\u0441\u0438 \u043A\u0430\u0436\u0434\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043F\u043E-\u043F\u0440\u0435\u0436\u043D\u0435\u043C\u0443 \u0442\u0440\u0435\u0431\u0443\u0435\u0442 \u043F\u0440\u0435\u0432\u044C\u044E \u0438 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u044F.", select(p.mode === "read_only" ? "\u2713 \u0422\u043E\u043B\u044C\u043A\u043E \u0447\u0442\u0435\u043D\u0438\u0435" : "\u0422\u043E\u043B\u044C\u043A\u043E \u0447\u0442\u0435\u043D\u0438\u0435", "read"), select(p.mode === "confirmed_write" ? "\u2713 \u0417\u0430\u043F\u0438\u0441\u044C \u0441 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435\u043C" : "\u0417\u0430\u043F\u0438\u0441\u044C \u0441 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435\u043C", "write"), select(p.uploads ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0443 \u0432 Bitrix" : "\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0443 \u0432 Bitrix", p.uploads ? "upload_off" : "upload_on"), select(p.deletions ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435" : "\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435", p.deletions ? "delete_off" : "delete_on"), "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0443\u044E\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u0438 \u0432\u043A\u043B\u044E\u0447\u0451\u043D\u043D\u043E\u0439 \u0437\u0430\u043F\u0438\u0441\u0438. \u0421\u043A\u0430\u0447\u0438\u0432\u0430\u043D\u0438\u0435 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B\u0445 \u0444\u0430\u0439\u043B\u043E\u0432 \u043E\u0442\u043D\u043E\u0441\u0438\u0442\u0441\u044F \u043A \u0447\u0442\u0435\u043D\u0438\u044E. \u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u0441\u0430\u043C\u043E\u0433\u043E \u043F\u043B\u0430\u0433\u0438\u043D\u0430 \u2014 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u0430\u044F \u043F\u0440\u043E\u0446\u0435\u0434\u0443\u0440\u0430.");
+      lines.push(
+        block("\u0420\u0435\u0436\u0438\u043C \u0440\u0430\u0431\u043E\u0442\u044B", escape2(modeLabel(p))),
+        row(select(p.mode === "read_only" ? "\u0427\u0442\u0435\u043D\u0438\u0435 \u2713" : "\u0427\u0442\u0435\u043D\u0438\u0435", "read"), select(p.mode === "confirmed_write" ? "\u0417\u0430\u043F\u0438\u0441\u044C \u2713" : "\u0417\u0430\u043F\u0438\u0441\u044C", "write")),
+        "**\u0427\u0442\u0435\u043D\u0438\u0435** \u2014 \u0431\u0435\u0437 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0430 \u043F\u043E\u0440\u0442\u0430\u043B\u0435.  \n**\u0417\u0430\u043F\u0438\u0441\u044C** \u2014 \u043A\u0430\u0436\u0434\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u0447\u0435\u0440\u0435\u0437 \u043F\u0440\u0435\u0432\u044C\u044E \u0438 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435.",
+        block("\u0424\u0430\u0439\u043B\u044B \u0438 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F", richText(`\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0432 Bitrix: ${on(p.uploads)}
+\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0438\u0437 \u0447\u0430\u0442\u0430 \u0437\u0430\u0434\u0430\u0447\u0438: ${on(p.deletions)}`)),
+        row(select(p.uploads ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u2713" : "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u25CB", p.uploads ? "upload_off" : "upload_on"), select(p.deletions ? "\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u2713" : "\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u25CB", p.deletions ? "delete_off" : "delete_on")),
+        "**\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430** \u2014 \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0442\u044C \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0435 \u0444\u0430\u0439\u043B\u044B \u0432 Bitrix.  \n**\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435** \u2014 \u0443\u0434\u0430\u043B\u044F\u0442\u044C \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0438 \u0444\u0430\u0439\u043B\u044B \u0447\u0430\u0442\u0430.",
+        block("\u041A\u043E\u0433\u0434\u0430 \u0434\u0435\u0439\u0441\u0442\u0432\u0443\u044E\u0442 \u0440\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u044F", "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B \u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u0440\u0435\u0436\u0438\u043C\u0435 \u0437\u0430\u043F\u0438\u0441\u0438. \u0421\u043A\u0430\u0447\u0438\u0432\u0430\u043D\u0438\u0435 \u043E\u0442\u043D\u043E\u0441\u0438\u0442\u0441\u044F \u043A \u0447\u0442\u0435\u043D\u0438\u044E. \u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u0441\u0430\u043C\u043E\u0433\u043E \u043F\u043B\u0430\u0433\u0438\u043D\u0430 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0430\u0435\u0442\u0441\u044F \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E.")
+      );
     } else {
-      lines.push("**\u041F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435**", richText(`\u0414\u0430\u043D\u043D\u044B\u0435 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432: ${peopleLabel(p)}
-Email: ${on(p.email)}`), select(p.people === "ids" ? "\u2713 \u0422\u043E\u043B\u044C\u043A\u043E ID" : "\u0422\u043E\u043B\u044C\u043A\u043E ID", "ids"), "\u0418\u043C\u0435\u043D\u0430 \u0441\u043A\u0440\u044B\u0442\u044B; \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432 \u0432\u044B\u0431\u0438\u0440\u0430\u0439\u0442\u0435 \u043F\u043E ID. \u041F\u043E\u0438\u0441\u043A \u043F\u043E \u0438\u043C\u0435\u043D\u0438 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D.", select(p.people === "names" ? "\u2713 ID \u0438 \u0438\u043C\u0435\u043D\u0430" : "ID \u0438 \u0438\u043C\u0435\u043D\u0430", "names"), "\u0411\u0435\u0437 \u0434\u043E\u043B\u0436\u043D\u043E\u0441\u0442\u0435\u0439, \u043F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0435\u043D\u0438\u0439 \u0438 email \u043F\u0440\u043E\u0444\u0438\u043B\u044F.", select(p.people === "work" ? "\u2713 \u0420\u0430\u0431\u043E\u0447\u0438\u0439 \u043F\u0440\u043E\u0444\u0438\u043B\u044C" : "\u0420\u0430\u0431\u043E\u0447\u0438\u0439 \u043F\u0440\u043E\u0444\u0438\u043B\u044C", "work"), "\u0418\u043C\u0435\u043D\u0430, \u0434\u043E\u043B\u0436\u043D\u043E\u0441\u0442\u0438 \u0438 \u043F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0435\u043D\u0438\u044F. Email \u0432\u043A\u043B\u044E\u0447\u0430\u0435\u0442\u0441\u044F \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E \u0438 \u0442\u0440\u0435\u0431\u0443\u0435\u0442 \u043F\u0440\u0430\u0432 webhook.");
-      if (p.people === "work") lines.push(select(p.email ? "\u0421\u043A\u0440\u044B\u0442\u044C email" : "\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C email", p.email ? "email_off" : "email_on"));
-      lines.push("\u041F\u043E\u043B\u044F \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0438\u0432\u0430\u044E\u0442\u0441\u044F \u0434\u043E \u043F\u0435\u0440\u0435\u0434\u0430\u0447\u0438 \u043C\u043E\u0434\u0435\u043B\u0438, \u0432 \u0442\u043E\u043C \u0447\u0438\u0441\u043B\u0435 \u0432 \u043F\u0440\u0435\u0432\u044C\u044E. \u0422\u0435\u043B\u0435\u0444\u043E\u043D\u044B, \u0430\u0434\u0440\u0435\u0441\u0430 \u0438 \u0444\u043E\u0442\u043E \u043D\u0435 \u0437\u0430\u043F\u0440\u0430\u0448\u0438\u0432\u0430\u044E\u0442\u0441\u044F. \u0422\u0435\u043A\u0441\u0442\u044B \u0437\u0430\u0434\u0430\u0447, \u043E\u0431\u0441\u0443\u0436\u0434\u0435\u043D\u0438\u0439, \u0438\u043C\u0435\u043D\u0430 \u0444\u0430\u0439\u043B\u043E\u0432 \u0438 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435 \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u043E\u0432 \u043C\u043E\u0433\u0443\u0442 \u0441\u043E\u0434\u0435\u0440\u0436\u0430\u0442\u044C \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435: \u044D\u0442\u0430 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430 \u0438\u0445 \u043D\u0435 \u043E\u0431\u0435\u0437\u043B\u0438\u0447\u0438\u0432\u0430\u0435\u0442. \u0423\u0436\u0435 \u043F\u043E\u043B\u0443\u0447\u0435\u043D\u043D\u044B\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0438 \u043F\u0430\u043C\u044F\u0442\u044C \u0418\u0432\u044B \u043D\u0435 \u043E\u0447\u0438\u0449\u0430\u044E\u0442\u0441\u044F.");
+      lines.push(
+        block("\u041F\u043E\u043B\u044F \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432", escape2(peopleLabel(p))),
+        row(select(p.people === "ids" ? "ID \u2713" : "ID", "ids"), select(p.people === "names" ? "\u0418\u043C\u0435\u043D\u0430 \u2713" : "\u0418\u043C\u0435\u043D\u0430", "names"), select(p.people === "work" ? "\u041F\u0440\u043E\u0444\u0438\u043B\u044C \u2713" : "\u041F\u0440\u043E\u0444\u0438\u043B\u044C", "work")),
+        "**ID** \u2014 \u0438\u043C\u0435\u043D\u0430 \u0441\u043A\u0440\u044B\u0442\u044B, \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432 \u0432\u044B\u0431\u0438\u0440\u0430\u044E\u0442 \u043F\u043E \u043D\u043E\u043C\u0435\u0440\u0443; \u043F\u043E\u0438\u0441\u043A \u043F\u043E \u0438\u043C\u0435\u043D\u0438 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D.  \n**\u0418\u043C\u0435\u043D\u0430** \u2014 ID \u0438 \u0438\u043C\u044F \u0431\u0435\u0437 \u0434\u043E\u043B\u0436\u043D\u043E\u0441\u0442\u0438, \u043F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0435\u043D\u0438\u0439 \u0438 email.  \n**\u041F\u0440\u043E\u0444\u0438\u043B\u044C** \u2014 \u0438\u043C\u044F, \u0434\u043E\u043B\u0436\u043D\u043E\u0441\u0442\u044C \u0438 \u043F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0435\u043D\u0438\u044F.",
+        block("\u0420\u0430\u0431\u043E\u0447\u0430\u044F \u043F\u043E\u0447\u0442\u0430", p.email ? "Email \u0440\u0430\u0437\u0440\u0435\u0448\u0451\u043D \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u043E\u0439 \u0438 \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 \u043F\u0440\u0430\u0432 webhook." : "Email \u0441\u043A\u0440\u044B\u0442.")
+      );
+      if (p.people === "work") lines.push(select(p.email ? "\u2709\uFE0F \u0421\u043A\u0440\u044B\u0442\u044C email" : "\u2709\uFE0F \u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C email", p.email ? "email_off" : "email_on"));
+      else lines.push("\u0414\u043B\u044F email \u0441\u043D\u0430\u0447\u0430\u043B\u0430 \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0440\u0430\u0431\u043E\u0447\u0438\u0439 \u043F\u0440\u043E\u0444\u0438\u043B\u044C.");
+      lines.push(
+        block("\u0427\u0442\u043E \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0438\u0432\u0430\u0435\u0442\u0441\u044F", "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u043F\u043E\u043B\u044F \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432 \u0438 \u043F\u0440\u0435\u0432\u044C\u044E \u0434\u043E \u043F\u0435\u0440\u0435\u0434\u0430\u0447\u0438 \u043C\u043E\u0434\u0435\u043B\u0438. \u0422\u0435\u043B\u0435\u0444\u043E\u043D\u044B, \u0430\u0434\u0440\u0435\u0441\u0430 \u0438 \u0444\u043E\u0442\u043E \u043D\u0435 \u0437\u0430\u043F\u0440\u0430\u0448\u0438\u0432\u0430\u044E\u0442\u0441\u044F."),
+        block("\u0427\u0442\u043E \u043E\u0441\u0442\u0430\u0451\u0442\u0441\u044F \u0432 \u0434\u0430\u043D\u043D\u044B\u0445", "\u0422\u0435\u043A\u0441\u0442\u044B \u0437\u0430\u0434\u0430\u0447, \u043E\u0431\u0441\u0443\u0436\u0434\u0435\u043D\u0438\u0439, \u0438\u043C\u0435\u043D\u0430 \u0444\u0430\u0439\u043B\u043E\u0432 \u0438 \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u044B \u043C\u043E\u0433\u0443\u0442 \u0441\u043E\u0434\u0435\u0440\u0436\u0430\u0442\u044C \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0441\u0432\u0435\u0434\u0435\u043D\u0438\u044F. \u042D\u0442\u0430 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430 \u0438\u0445 \u043D\u0435 \u043E\u0431\u0435\u0437\u043B\u0438\u0447\u0438\u0432\u0430\u0435\u0442. \u0423\u0436\u0435 \u043F\u043E\u043B\u0443\u0447\u0435\u043D\u043D\u044B\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0438 \u043F\u0430\u043C\u044F\u0442\u044C \u0418\u0432\u044B \u043D\u0435 \u043E\u0447\u0438\u0449\u0430\u044E\u0442\u0441\u044F.")
+      );
     }
-    if (screen !== "home") lines.push(nav("\u041D\u0430\u0437\u0430\u0434 \u043A \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430\u043C Bitrix", "home"));
+    if (screen !== "home") lines.push(nav("\u2039 \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 Bitrix24", "home"));
     return { state: "screen", screen, settings, markdown: lines.join("\n\n") };
   }
 };
@@ -36951,8 +37008,8 @@ var TaskWriter = class {
         if (this.#departmentAvailable) {
           try {
             const raw2 = await this.#client.call("department.get", { ID: departmentId });
-            const row = (Array.isArray(raw2) ? raw2 : []).map(object4).find((row2) => positive(row2.ID) === departmentId);
-            if (typeof row?.NAME === "string" && row.NAME.trim()) name = row.NAME.trim().replace(/\s+/gu, " ").slice(0, 250);
+            const row2 = (Array.isArray(raw2) ? raw2 : []).map(object4).find((row3) => positive(row3.ID) === departmentId);
+            if (typeof row2?.NAME === "string" && row2.NAME.trim()) name = row2.NAME.trim().replace(/\s+/gu, " ").slice(0, 250);
           } catch {
           }
         }
@@ -36968,11 +37025,11 @@ var TaskWriter = class {
     id2.parse(projectId);
     const raw = await this.#client.call("task.stages.get", { entityId: projectId });
     if (!raw || typeof raw !== "object") return fail("INVALID_RESPONSE");
-    const stages = Object.values(raw).map(object4).map((row) => {
-      const stageId = positive(row.ID);
-      if (!stageId || typeof row.TITLE !== "string" || positive(row.ENTITY_ID) !== projectId || row.ENTITY_TYPE !== "G")
+    const stages = Object.values(raw).map(object4).map((row2) => {
+      const stageId = positive(row2.ID);
+      if (!stageId || typeof row2.TITLE !== "string" || positive(row2.ENTITY_ID) !== projectId || row2.ENTITY_TYPE !== "G")
         return fail("INVALID_RESPONSE");
-      return { id: stageId, title: row.TITLE.slice(0, 250), sort: Number(row.SORT) || 0 };
+      return { id: stageId, title: row2.TITLE.slice(0, 250), sort: Number(row2.SORT) || 0 };
     }).sort((a, b) => a.sort - b.sort);
     return { projectId, stages, untrustedContent: true };
   }
@@ -37267,8 +37324,8 @@ var TaskWriter = class {
     const rows = snapshot.editState?.checklist;
     if (!Array.isArray(rows)) return fail("INVALID_RESPONSE");
     if (input2.checklistTitle) return { id: null, title: input2.checklistTitle };
-    const roots = rows.map(object4).filter((row) => Number(row.PARENT_ID ?? row.parentId) === 0);
-    const root = input2.checklistId ? roots.find((row) => positive(row.ID ?? row.id) === input2.checklistId) : roots[0];
+    const roots = rows.map(object4).filter((row2) => Number(row2.PARENT_ID ?? row2.parentId) === 0);
+    const root = input2.checklistId ? roots.find((row2) => positive(row2.ID ?? row2.id) === input2.checklistId) : roots[0];
     if (input2.checklistId && !root) return fail("CHECKLIST_ITEM_NOT_FOUND");
     if (!input2.checklistId && roots.length > 1) return fail("CHECKLIST_SELECTION_REQUIRED");
     if (!root) return { id: null, title: "\u0427\u0435\u043A-\u043B\u0438\u0441\u0442" };
@@ -37279,8 +37336,8 @@ var TaskWriter = class {
   #nextChecklistSort(snapshot) {
     const list = snapshot.editState?.checklist;
     if (!Array.isArray(list)) return fail("INVALID_RESPONSE");
-    return list.reduce((max, row) => {
-      const n = Number(object4(row).SORT_INDEX ?? object4(row).sortIndex ?? 0);
+    return list.reduce((max, row2) => {
+      const n = Number(object4(row2).SORT_INDEX ?? object4(row2).sortIndex ?? 0);
       if (!Number.isSafeInteger(n) || n < 0 || n > 2e9)
         return fail("INVALID_RESPONSE");
       return Math.max(max, n + 1);
@@ -38413,6 +38470,11 @@ function registerUpdaterTools(server, updater) {
   );
 }
 function registerSettingsTool(server, menu) {
+  server.registerTool("bitrix24_screen", {
+    description: "Experimental Iva Bridge screen handler. Returns structured pages for /bitrix without a model turn. The host binds actions to private owner, message and revision. Use bitrix24_settings for normal conversational settings; never invent or replay screen action events.",
+    inputSchema: external_exports.object({ event: screenEventSchema }).strict(),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+  }, (input2) => safe(() => menu.screen(input2.event)));
   server.registerTool("bitrix24_settings", {
     description: "Open the separate Bitrix24 settings menu (home, connection, capabilities, actions, privacy). Returns server-rendered markdown: deliver it verbatim as a final private Telegram reply. For a button pass only the actual incoming owner reply as reply; never invent confirmation or immediately apply a returned confirmReply. A setting selection prepares an expiring revision-bound confirmation; only the next exact reply commits it. Native fallback may relay confirmReply only after an actual structured ask_question confirm answer. No webhook secrets in chat. Uses the existing model-mediated approval boundary.",
     inputSchema: settingsInputSchema,
@@ -38420,7 +38482,7 @@ function registerSettingsTool(server, menu) {
   }, (input2) => safe(() => menu.run(input2)));
 }
 function createMcpServer(reader, updater = null, files = null, writer = null) {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.7.1-rc.2" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.9.0-rc.1" });
   registerUpdaterTools(server, updater);
   if (writer) {
     server.registerTool("bitrix24_project_stages", {
@@ -39436,7 +39498,7 @@ var ReadCapabilityReader = class {
       "disk"
     ]);
     const knownGranted = [...granted].filter((scope) => recognized.has(scope)).sort();
-    const block = (requiredScopes, available, note) => ({
+    const block2 = (requiredScopes, available, note) => ({
       available,
       status: available ? "available" : "unavailable",
       requiredScopes,
@@ -39451,29 +39513,29 @@ var ReadCapabilityReader = class {
           status: granted.has("im") ? "available" : "limited",
           requiredScopes: ["task", "im"],
           note: granted.has("im") ? "New task chat and legacy comments are available." : "Legacy comments may work; new task cards require im."
-        } : block(["task", "im"], false),
-        projects: block(["sonet_group"], granted.has("sonet_group")),
+        } : block2(["task", "im"], false),
+        projects: block2(["sonet_group"], granted.has("sonet_group")),
         people: {
-          ...block(["user_brief"], hasUsers),
+          ...block2(["user_brief"], hasUsers),
           effectiveScope: effectiveUserScope ?? null,
           emailAvailable: hasUserEmail,
           emailRequiredScope: hasUserEmail ? null : "user_basic",
           note: hasUserEmail ? "Names, positions, departments and email are available; phone and photo fields are not requested." : "Names, positions and departments are available; email requires user_basic."
         },
-        departments: block(["department"], granted.has("department")),
-        taskActions: block(
+        departments: block2(["department"], granted.has("department")),
+        taskActions: block2(
           ["task", "user_brief"],
           granted.has("task") && hasUsers,
           "Scope availability only; private plugin data, a fresh preview, confirmation and employee rights are also required."
         ),
-        taskChatActions: block(["task", "user_brief", "im"], granted.has("task") && hasUsers && granted.has("im")),
-        taskReassignment: block(
+        taskChatActions: block2(["task", "user_brief", "im"], granted.has("task") && hasUsers && granted.has("im")),
+        taskReassignment: block2(
           ["task", "user_brief"],
           granted.has("task") && hasUsers,
           "Reassignment is subject to employee access and portal permissions."
         ),
-        taskFiles: block(["task", "disk"], granted.has("task") && granted.has("disk")),
-        checklistAndRelations: block(["task"], granted.has("task"))
+        taskFiles: block2(["task", "disk"], granted.has("task") && granted.has("disk")),
+        checklistAndRelations: block2(["task"], granted.has("task"))
       },
       permissionGuide: {
         path: ["\u041F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u044F", "\u0420\u0435\u0441\u0443\u0440\u0441\u044B \u0434\u043B\u044F \u0440\u0430\u0437\u0440\u0430\u0431\u043E\u0442\u0447\u0438\u043A\u043E\u0432", "\u0418\u043D\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u0438", "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430 \u043F\u0440\u0430\u0432"],
@@ -39930,7 +39992,7 @@ async function resolveAttachmentsRoot(env, wrapper = join5(env.HOME || homedir2(
 
 // server/src/main.ts
 function unavailableServer(error61, updater, settings) {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.7.1-rc.2" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.9.0-rc.1" });
   registerUpdaterTools(server, updater);
   registerSettingsTool(server, new SettingsMenu(settings, { configured: false }));
   server.registerTool(

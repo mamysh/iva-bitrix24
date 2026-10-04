@@ -89,3 +89,11 @@ Rich update tests проверяют escaped host data, copyable command, callba
 exact reply guards/replacement/native fallback. Проверяется actual MCP schema/forwarding.
 Установка и живое Telegram-нажатие RC2 этой работой не выполнялись. Оформление первой
 карточки обновления определяется установленной прежней версией, а не candidate bundle.
+
+
+## Кандидат 0.9.0-rc.1 и API экранов
+
+Кандидат 0.9.0-rc.1 добавляет MCP `bitrix24_screen` (28 tools при полной конфигурации).
+Прямая команда `/bitrix` требует экспериментального API Ивы; штатная 0.4.11 его не содержит.
+Прежний `bitrix24_settings`/skill остаётся fallback после возврата на штатное ядро.
+Контракт, проверки владельца/ревизии и ограничения: [PLUGIN_SCREENS](PLUGIN_SCREENS.md).
