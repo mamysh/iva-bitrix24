@@ -1,4 +1,4 @@
-# Task action contract (prerelease 0.7.0-rc.6; stable 0.6.0)
+# Task action contract (prerelease 0.7.0-rc.7; stable 0.6.0)
 
 The stable 0.6.0 release is validated by synthetic tests. On 4 October 2026 the owner
 reported successful task creation and completion on the current upstream Iva in real use.
@@ -173,3 +173,16 @@ tool calls is not delivered. New prepare supersedes old buttons; expiry, owner/p
 snapshot/file checks and receipts are unchanged. Cancel removes pending state. An already
 applied receipt can be read without another confirmation and never replays writes.
 See [ADR0009](adr/0009-rich-task-approval-through-iva.md).
+
+## Preview blocks and employee context (RC7)
+
+Rich previews separate bold logical blocks with one blank line. Employee role/department
+continuations and checklist entries retain single hard breaks within their own block.
+Current/new responsible labels include WORK_POSITION and named UF_DEPARTMENT entries.
+Department names are resolved with department.get only under granted department scope;
+missing or denied metadata is explicit and never prevents a permitted action. Department
+lookups are bounded and deduplicated per preview. Watcher/co-executor labels remain compact.
+No approval protocol or write payload change.
+
+Sources: [user scope fields](https://apidocs.bitrix24.com/api-reference/user/user-scope.html),
+[company structure](https://apidocs.bitrix24.com/api-reference/departments/index.html).

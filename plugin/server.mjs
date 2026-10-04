@@ -36546,13 +36546,17 @@ function richEscape(value) {
   return value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;").replace(/([\\`*_{}\[\]()#+.!|~=-])/gu, "\\$1");
 }
 function richPreview(prompt, confirmReply, cancelReply) {
-  const lines = prompt.split("\n").map((line, index) => {
-    const escaped = richEscape(line);
-    if (index === 0 || /^\d+\. (?:Создать|Изменить|Добавить|Переместить|Удалить|Завершить|Вернуть|Делегировать|Изменение)/u.test(line))
-      return `**${escaped}**`;
-    const colon = line.indexOf(": ");
-    return colon > 0 && colon < 90 ? `**${richEscape(line.slice(0, colon))}:** ${richEscape(line.slice(colon + 2))}` : escaped;
-  });
+  const lines = [];
+  for (const [index, line] of prompt.split("\n").entries()) {
+    const colon = line.indexOf(":");
+    const item = /^[☐☑]/u.test(line);
+    const heading = index === 0 || /^\d+\. (?:Создать|Изменить|Добавить|Переместить|Удалить|Закрыть|Завершить|Вернуть)/u.test(line);
+    const field = !item && !line.startsWith("\u0414\u043E\u043B\u0436\u043D\u043E\u0441\u0442\u044C \u2014 ") && colon > 0 && colon < 90 && (line[colon + 1] === " " || colon === line.length - 1);
+    const explanation = /^(?:Будет |Результат на контроле|Закрытая задача|Файл будет |Сообщение будет |Действия выполнятся)/u.test(line);
+    if (line && (heading || field || explanation) && lines.length && lines.at(-1) !== "") lines.push("");
+    const formatted = heading ? `**${richEscape(line)}**` : field ? `**${richEscape(line.slice(0, colon))}:**${line.slice(colon + 1) ? ` ${richEscape(line.slice(colon + 1).trimStart())}` : ""}` : richEscape(line);
+    if (formatted || lines.at(-1) !== "") lines.push(formatted);
+  }
   return `${lines.map((line) => line ? `${line}  ` : "").join("\n")}
 
 <tg-button-row><tg-button type="callback_data" style="success" data="${confirmReply}">\u2705 \u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044C</tg-button><tg-button type="callback_data" style="danger" data="${cancelReply}">\u274C \u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C</tg-button></tg-button-row>`;
@@ -36570,6 +36574,8 @@ var TaskWriter = class {
   #attachments;
   #now;
   #emailAvailable;
+  #departmentAvailable = false;
+  #departmentNames = /* @__PURE__ */ new Map();
   constructor(client, data, attachments, now = Date.now) {
     this.#client = client;
     this.#data = data;
@@ -36620,24 +36626,44 @@ var TaskWriter = class {
       await rm2(lock, { recursive: true, force: true });
     }
   }
-  async #person(userId) {
+  async #person(userId, withDetails = false) {
     if (this.#emailAvailable === void 0) {
       const scopes = await this.#client.call("scope");
+      this.#departmentAvailable = Array.isArray(scopes) && scopes.some((v) => typeof v === "string" && v.toLowerCase() === "department");
       this.#emailAvailable = Array.isArray(scopes) && scopes.some((v) => typeof v === "string" && ["user_basic", "user"].includes(v.toLowerCase()));
     }
     const raw = await this.#client.call("user.get", {
       ID: userId,
       ACTIVE: true,
-      select: ["ID", "NAME", "LAST_NAME", "UF_DEPARTMENT", "ACTIVE", ...this.#emailAvailable ? ["EMAIL"] : []]
+      select: ["ID", "NAME", "LAST_NAME", "UF_DEPARTMENT", "ACTIVE", ...withDetails ? ["WORK_POSITION"] : [], ...this.#emailAvailable ? ["EMAIL"] : []]
     });
     const person = (Array.isArray(raw) ? raw : []).map(object4).find((p) => positive(p.ID) === userId);
     if (!person || person.ACTIVE !== true && person.ACTIVE !== "Y")
       return fail("EMPLOYEE_NOT_FOUND_OR_INACTIVE");
     const email3 = this.#emailAvailable && typeof person.EMAIL === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(person.EMAIL.trim()) ? person.EMAIL.trim().slice(0, 320) : null;
-    return {
-      person,
-      label: `${[person.NAME, person.LAST_NAME].filter((s) => typeof s === "string").join(" ").slice(0, 200)} (${email3 ?? `ID ${userId}; \u043F\u043E\u0447\u0442\u0430 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430`})`
-    };
+    const label = `${[person.NAME, person.LAST_NAME].filter((s) => typeof s === "string").join(" ").slice(0, 200)} (${email3 ?? `ID ${userId}; \u043F\u043E\u0447\u0442\u0430 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430`})`;
+    if (!withDetails) return { person, label };
+    const position = typeof person.WORK_POSITION === "string" && person.WORK_POSITION.trim() ? person.WORK_POSITION.trim().replace(/\s+/gu, " ").slice(0, 300) : "\u043D\u0435 \u0443\u043A\u0430\u0437\u0430\u043D\u0430";
+    const departments = [...new Set((Array.isArray(person.UF_DEPARTMENT) ? person.UF_DEPARTMENT : []).map(positive).filter((value) => value !== null))].slice(0, 20);
+    const names = [];
+    for (const departmentId of departments) {
+      if (!this.#departmentNames.has(departmentId)) {
+        let name = null;
+        if (this.#departmentAvailable) {
+          try {
+            const raw2 = await this.#client.call("department.get", { ID: departmentId });
+            const row = (Array.isArray(raw2) ? raw2 : []).map(object4).find((row2) => positive(row2.ID) === departmentId);
+            if (typeof row?.NAME === "string" && row.NAME.trim()) name = row.NAME.trim().replace(/\s+/gu, " ").slice(0, 250);
+          } catch {
+          }
+        }
+        this.#departmentNames.set(departmentId, name);
+      }
+      names.push(this.#departmentNames.get(departmentId) ?? "\u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E");
+    }
+    const department = departments.length ? [...new Set(names)].join(", ") : "\u043D\u0435 \u0443\u043A\u0430\u0437\u0430\u043D\u043E";
+    return { person, label: `${label}
+\u0414\u043E\u043B\u0436\u043D\u043E\u0441\u0442\u044C \u2014 ${position}; \u043F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0435\u043D\u0438\u0435 \u2014 ${department}` };
   }
   async stages(projectId) {
     id2.parse(projectId);
@@ -36972,7 +36998,7 @@ var TaskWriter = class {
         "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u0437\u0430\u0434\u0430\u0447\u0443 \u0432 \u0411\u0438\u0442\u0440\u0438\u043A\u044124",
         `\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435: ${previewText(input2.title)}`,
         `\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435: ${previewText(input2.description)}`,
-        `\u041E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0439: ${previewText((await this.#person(input2.responsibleId)).label)}`,
+        `\u041E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0439: ${previewText((await this.#person(input2.responsibleId, true)).label)}`,
         `\u0421\u0440\u043E\u043A: ${previewDate(input2.deadline)}`
       );
       for (const [key, label] of [
@@ -37066,7 +37092,7 @@ var TaskWriter = class {
       lines.push(
         labels[input2.action],
         `\u0417\u0430\u0434\u0430\u0447\u0430 \u2116${input2.taskId}: ${previewText(snapshot.title)}`,
-        `\u041E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0439: ${previewText((await this.#person(snapshot.responsibleId)).label)}`,
+        `\u041E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0439: ${previewText((await this.#person(snapshot.responsibleId, true)).label)}`,
         `\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0441\u0440\u043E\u043A: ${previewDate(snapshot.deadline)}`,
         `\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0441\u0442\u0430\u0442\u0443\u0441: ${{ 2: "\u041D\u043E\u0432\u0430\u044F", 3: "\u0412 \u0440\u0430\u0431\u043E\u0442\u0435", 4: "\u041D\u0430 \u043A\u043E\u043D\u0442\u0440\u043E\u043B\u0435", 5: "\u0417\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u0430", 6: "\u041E\u0442\u043B\u043E\u0436\u0435\u043D\u0430" }[snapshot.status] ?? snapshot.status}`
       );
@@ -37117,7 +37143,7 @@ var TaskWriter = class {
         lines.push(`\u041D\u043E\u0432\u044B\u0439 \u0441\u0440\u043E\u043A: ${previewDate(input2.deadline)}`);
       if (input2.action === "reassign")
         lines.push(
-          `\u041D\u043E\u0432\u044B\u0439 \u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0439: ${previewText((await this.#person(input2.responsibleId)).label)}`
+          `\u041D\u043E\u0432\u044B\u0439 \u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0439: ${previewText((await this.#person(input2.responsibleId, true)).label)}`
         );
       if (input2.action === "stage")
         lines.push(`\u041D\u043E\u0432\u0430\u044F \u0441\u0442\u0430\u0434\u0438\u044F: ${previewText(String(object4(snapshot.editState?.destination).title))} (ID ${input2.stageId})`);
@@ -37157,6 +37183,7 @@ var TaskWriter = class {
     const input2 = taskWriteSchema.parse(raw);
     return this.#locked(async () => {
       this.#emailAvailable = void 0;
+      this.#departmentNames.clear();
       const owner = await this.#owner();
       const actions = input2.action === "batch" ? input2.actions : [input2];
       const updates = actions.filter((v) => v.action === "update").map((v) => v.taskId);
@@ -38061,7 +38088,7 @@ function registerUpdaterTools(server2, updater) {
   );
 }
 function createMcpServer(reader, updater = null, files = null, writer = null) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.6" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.7" });
   registerUpdaterTools(server2, updater);
   if (writer) {
     server2.registerTool("bitrix24_project_stages", {
@@ -39550,7 +39577,7 @@ async function resolveAttachmentsRoot(env, wrapper = join4(env.HOME || homedir2(
 
 // server/src/main.ts
 function unavailableServer(error61, updater) {
-  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.6" });
+  const server2 = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.7" });
   registerUpdaterTools(server2, updater);
   server2.registerTool(
     "bitrix24_connection_check",

@@ -250,7 +250,7 @@ export function createMcpServer(
   files: FileReaderPort | null = null,
   writer: Pick<TaskWriter, "prepare" | "apply" | "cancel" | "status" | "stages"> | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.6" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.7.0-rc.7" });
   registerUpdaterTools(server, updater);
   if (writer) {
     server.registerTool("bitrix24_project_stages", {

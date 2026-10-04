@@ -229,15 +229,19 @@ function richEscape(value: string): string {
     .replace(/([\\`*_{}\[\]()#+.!|~=-])/gu, "\\$1");
 }
 function richPreview(prompt: string, confirmReply: string, cancelReply: string): string {
-  const lines = prompt.split("\n").map((line, index) => {
-    const escaped = richEscape(line);
-    if (index === 0 || /^\d+\. (?:Создать|Изменить|Добавить|Переместить|Удалить|Завершить|Вернуть|Делегировать|Изменение)/u.test(line))
-      return `**${escaped}**`;
-    const colon = line.indexOf(": ");
-    return colon > 0 && colon < 90
-      ? `**${richEscape(line.slice(0, colon))}:** ${richEscape(line.slice(colon + 2))}`
-      : escaped;
-  });
+  const lines: string[] = [];
+  for (const [index, line] of prompt.split("\n").entries()) {
+    const colon = line.indexOf(":");
+    const item = /^[☐☑]/u.test(line);
+    const heading = index === 0 || /^\d+\. (?:Создать|Изменить|Добавить|Переместить|Удалить|Закрыть|Завершить|Вернуть)/u.test(line);
+    const field = !item && !line.startsWith("Должность — ") && colon > 0 && colon < 90 && (line[colon + 1] === " " || colon === line.length - 1);
+    const explanation = /^(?:Будет |Результат на контроле|Закрытая задача|Файл будет |Сообщение будет |Действия выполнятся)/u.test(line);
+    if (line && (heading || field || explanation) && lines.length && lines.at(-1) !== "") lines.push("");
+    const formatted = heading ? `**${richEscape(line)}**`
+      : field ? `**${richEscape(line.slice(0, colon))}:**${line.slice(colon + 1) ? ` ${richEscape(line.slice(colon + 1).trimStart())}` : ""}`
+      : richEscape(line);
+    if (formatted || lines.at(-1) !== "") lines.push(formatted);
+  }
   return `${lines.map(line => line ? `${line}  ` : "").join("\n")}\n\n<tg-button-row><tg-button type="callback_data" style="success" data="${confirmReply}">✅ Подтвердить</tg-button><tg-button type="callback_data" style="danger" data="${cancelReply}">❌ Отменить</tg-button></tg-button-row>`;
 }
 
@@ -257,6 +261,8 @@ export class TaskWriter {
   readonly #attachments: string | undefined;
   readonly #now: () => number;
   #emailAvailable: boolean | undefined;
+  #departmentAvailable = false;
+  #departmentNames = new Map<number, string | null>();
   constructor(
     client: BitrixClient,
     data?: string,
@@ -315,15 +321,16 @@ export class TaskWriter {
       await rm(lock, { recursive: true, force: true });
     }
   }
-  async #person(userId: number) {
+  async #person(userId: number, withDetails = false) {
     if (this.#emailAvailable === undefined) {
       const scopes = await this.#client.call("scope");
+      this.#departmentAvailable = Array.isArray(scopes) && scopes.some(v => typeof v === "string" && v.toLowerCase() === "department");
       this.#emailAvailable = Array.isArray(scopes) && scopes.some(v => typeof v === "string" && ["user_basic", "user"].includes(v.toLowerCase()));
     }
     const raw = await this.#client.call("user.get", {
       ID: userId,
       ACTIVE: true,
-      select: ["ID", "NAME", "LAST_NAME", "UF_DEPARTMENT", "ACTIVE", ...(this.#emailAvailable ? ["EMAIL"] : [])],
+      select: ["ID", "NAME", "LAST_NAME", "UF_DEPARTMENT", "ACTIVE", ...(withDetails ? ["WORK_POSITION"] : []), ...(this.#emailAvailable ? ["EMAIL"] : [])],
     });
     const person = (Array.isArray(raw) ? raw : [])
       .map(object)
@@ -332,13 +339,30 @@ export class TaskWriter {
       return fail("EMPLOYEE_NOT_FOUND_OR_INACTIVE");
     const email = this.#emailAvailable && typeof person.EMAIL === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(person.EMAIL.trim())
       ? person.EMAIL.trim().slice(0, 320) : null;
-    return {
-      person,
-      label: `${[person.NAME, person.LAST_NAME]
-        .filter((s) => typeof s === "string")
-        .join(" ")
-        .slice(0, 200)} (${email ?? `ID ${userId}; почта недоступна`})`,
-    };
+    const label = `${[person.NAME, person.LAST_NAME]
+      .filter((s) => typeof s === "string").join(" ").slice(0, 200)} (${email ?? `ID ${userId}; почта недоступна`})`;
+    if (!withDetails) return { person, label };
+    const position = typeof person.WORK_POSITION === "string" && person.WORK_POSITION.trim()
+      ? person.WORK_POSITION.trim().replace(/\s+/gu, " ").slice(0, 300) : "не указана";
+    const departments = [...new Set((Array.isArray(person.UF_DEPARTMENT) ? person.UF_DEPARTMENT : [])
+      .map(positive).filter((value): value is number => value !== null))].slice(0, 20);
+    const names: string[] = [];
+    for (const departmentId of departments) {
+      if (!this.#departmentNames.has(departmentId)) {
+        let name: string | null = null;
+        if (this.#departmentAvailable) {
+          try {
+            const raw = await this.#client.call("department.get", { ID: departmentId });
+            const row = (Array.isArray(raw) ? raw : []).map(object).find(row => positive(row.ID) === departmentId);
+            if (typeof row?.NAME === "string" && row.NAME.trim()) name = row.NAME.trim().replace(/\s+/gu, " ").slice(0, 250);
+          } catch { /* Optional display metadata never gates a permitted task action. */ }
+        }
+        this.#departmentNames.set(departmentId, name);
+      }
+      names.push(this.#departmentNames.get(departmentId) ?? "недоступно");
+    }
+    const department = departments.length ? [...new Set(names)].join(", ") : "не указано";
+    return { person, label: `${label}\nДолжность — ${position}; подразделение — ${department}` };
   }
   async stages(projectId: number) {
     id.parse(projectId);
@@ -710,7 +734,7 @@ export class TaskWriter {
         "Создать задачу в Битрикс24",
         `Название: ${previewText(input.title)}`,
         `Описание: ${previewText(input.description)}`,
-        `Ответственный: ${previewText((await this.#person(input.responsibleId)).label)}`,
+        `Ответственный: ${previewText((await this.#person(input.responsibleId, true)).label)}`,
         `Срок: ${previewDate(input.deadline)}`,
       );
       for (const [key, label] of [
@@ -807,7 +831,7 @@ export class TaskWriter {
       lines.push(
         labels[input.action],
         `Задача №${input.taskId}: ${previewText(snapshot.title)}`,
-        `Ответственный: ${previewText((await this.#person(snapshot.responsibleId)).label)}`,
+        `Ответственный: ${previewText((await this.#person(snapshot.responsibleId, true)).label)}`,
         `Текущий срок: ${previewDate(snapshot.deadline)}`,
         `Текущий статус: ${{2: "Новая", 3: "В работе", 4: "На контроле", 5: "Завершена", 6: "Отложена"}[snapshot.status] ?? snapshot.status}`,
       );
@@ -859,7 +883,7 @@ export class TaskWriter {
         lines.push(`Новый срок: ${previewDate(input.deadline)}`);
       if (input.action === "reassign")
         lines.push(
-          `Новый ответственный: ${previewText((await this.#person(input.responsibleId)).label)}`,
+          `Новый ответственный: ${previewText((await this.#person(input.responsibleId, true)).label)}`,
         );
       if (input.action === "stage")
         lines.push(`Новая стадия: ${previewText(String(object(snapshot.editState?.destination).title))} (ID ${input.stageId})`);
@@ -903,6 +927,7 @@ export class TaskWriter {
     const input = taskWriteSchema.parse(raw);
     return this.#locked(async () => {
       this.#emailAvailable = undefined;
+      this.#departmentNames.clear();
       const owner = await this.#owner();
       const actions = input.action === "batch" ? input.actions : [input];
       // Combining two updates for one card would resolve participant deltas against the same old state.
