@@ -41,10 +41,10 @@ const nav = (label: string, screen: Screen) => button(label, `b24s:open:${screen
 const modeLabel = (p: PluginPolicy) => p.mode === "read_only" ? "Только чтение" : "Запись с подтверждением";
 const peopleLabel = (p: PluginPolicy) => ({ ids: "Только ID", names: "ID и имена", work: "Рабочий профиль" })[p.people];
 const on = (value: boolean) => value ? "разрешено" : "выключено";
-const summary = (p: PluginPolicy) => `Действия: ${modeLabel(p)}\nЗагрузка в Bitrix: ${on(p.uploads)}\nУдаление сообщений и файлов: ${on(p.deletions)}\nДанные сотрудников: ${peopleLabel(p)}\nEmail: ${on(p.email)}`;
-const choices = ["read", "write", "upload_on", "upload_off", "delete_on", "delete_off", "ids", "names", "work", "email_on", "email_off"] as const;
-type Choice = typeof choices[number];
-function change(current: PluginPolicy, choice: Choice): PluginPolicy {
+export const policySummary = (p: PluginPolicy) => `Действия: ${modeLabel(p)}\nЗагрузка в Bitrix: ${on(p.uploads)}\nУдаление сообщений и файлов: ${on(p.deletions)}\nДанные сотрудников: ${peopleLabel(p)}\nEmail: ${on(p.email)}`;
+export const settingsChoices = ["read", "write", "upload_on", "upload_off", "delete_on", "delete_off", "ids", "names", "work", "email_on", "email_off"] as const;
+export type Choice = typeof settingsChoices[number];
+export function changePolicy(current: PluginPolicy, choice: Choice): PluginPolicy {
   const next = { ...current };
   switch (choice) {
     case "read": next.mode = "read_only"; break;
@@ -80,7 +80,7 @@ export class SettingsMenu {
       const open = /^b24s:open:(home|connection|capabilities|actions|privacy)$/u.exec(input.reply);
       if (open) return this.#render(open[1] as Screen);
       const set = /^b24s:set:(0|[1-9]\d{0,15}):([a-z_]+)$/u.exec(input.reply);
-      if (set && choices.includes(set[2] as Choice)) return this.#prepare(Number(set[1]), set[2] as Choice);
+      if (set && settingsChoices.includes(set[2] as Choice)) return this.#prepare(Number(set[1]), set[2] as Choice);
       const confirm = /^b24s:(confirm|cancel):([0-9a-f-]{36})$/u.exec(input.reply);
       if (confirm && z.uuid().safeParse(confirm[2]).success) return this.#resolve(confirm[1] === "confirm", confirm[2]!);
       throw new BitrixRequestError("INVALID_SETTINGS_REPLY");
@@ -91,7 +91,7 @@ export class SettingsMenu {
     return withPolicyLock(this.#store.data, async () => {
       const current = await this.#store.read();
       if (current.revision !== revision) throw new BitrixRequestError("SETTINGS_CHANGED");
-      const policy = change(current.policy, choice);
+      const policy = changePolicy(current.policy, choice);
       const screen = ["ids", "names", "work", "email_on", "email_off"].includes(choice) ? "privacy" : "actions";
       if (current.revision > 0 && JSON.stringify(current.policy) === JSON.stringify(policy)) {
         await rm(this.#store.path("settings-offer.json"), { force: true });
@@ -101,8 +101,8 @@ export class SettingsMenu {
       await writePrivateJson(this.#store.path("settings-offer.json"), offer, this.#store.data!);
       const confirmReply = `b24s:confirm:${offer.token}`;
       const cancelReply = `b24s:cancel:${offer.token}`;
-      const prompt = `Изменить настройки Bitrix24?\n\nСейчас:\n${summary(current.policy)}\n\nПосле подтверждения:\n${summary(policy)}\n\nПредыдущее превью задачи станет недействительным. Настройки не меняют права webhook в Bitrix24.`;
-      return { state: "confirmation_required", settings: current, expiresAt: new Date(offer.createdAt + TTL).toISOString(), confirmReply, cancelReply, approvalPrompt: prompt, markdown: [`# ⚙️ Изменить настройки`, block("Сейчас", richText(summary(current.policy))), block("После подтверждения", richText(summary(policy))), block("Что изменится", "Предыдущее превью задачи станет недействительным. Права webhook в Bitrix24 остаются прежними."), row(button("✓ Подтвердить", confirmReply, "success"), button("✕ Отменить", cancelReply, "danger"))].join("\n\n") };
+      const prompt = `Изменить настройки Bitrix24?\n\nСейчас:\n${policySummary(current.policy)}\n\nПосле подтверждения:\n${policySummary(policy)}\n\nПредыдущее превью задачи станет недействительным. Настройки не меняют права webhook в Bitrix24.`;
+      return { state: "confirmation_required", settings: current, expiresAt: new Date(offer.createdAt + TTL).toISOString(), confirmReply, cancelReply, approvalPrompt: prompt, markdown: [`# ⚙️ Изменить настройки`, block("Сейчас", richText(policySummary(current.policy))), block("После подтверждения", richText(policySummary(policy))), block("Что изменится", "Предыдущее превью задачи станет недействительным. Права webhook в Bitrix24 остаются прежними."), row(button("✓ Подтвердить", confirmReply, "success"), button("✕ Отменить", cancelReply, "danger"))].join("\n\n") };
     });
   }
   async #resolve(confirm: boolean, token: string) {

@@ -15,8 +15,10 @@ export const policySchema = z.object({
 export type PluginPolicy = z.infer<typeof policySchema>;
 export const LEGACY_POLICY: Readonly<PluginPolicy> = Object.freeze({ mode: "confirmed_write", uploads: true, deletions: true, people: "work", email: true });
 export const RESTRICTED_POLICY: Readonly<PluginPolicy> = Object.freeze({ mode: "read_only", uploads: false, deletions: false, people: "ids", email: false });
-const settingsSchema = z.object({ schema: z.literal(1), revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), policy: policySchema }).strict();
-export type Settings = z.infer<typeof settingsSchema>;
+export const panelsReceiptSchema = z.object({ state: z.literal("done"), token: z.string().regex(/^[a-f0-9]{24}$/u), revision: z.number().int().min(1).max(999999999999), message: z.string().min(1).max(1500) }).strict();
+const settingsSchema = z.object({ schema: z.literal(1), revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), policy: policySchema, panelsReceipts: z.record(z.string().regex(/^[a-f0-9]{24}$/u), panelsReceiptSchema).optional() }).strict();
+type SettingsDocument = z.infer<typeof settingsSchema>;
+export type Settings = Omit<SettingsDocument, "panelsReceipts">;
 export type PolicyReader = () => Promise<Readonly<PluginPolicy>>;
 export const legacyPolicy: PolicyReader = async () => LEGACY_POLICY;
 
@@ -65,7 +67,7 @@ export class SettingsStore {
     if (!this.data || !isAbsolute(this.data)) throw new BitrixRequestError("SETTINGS_NOT_CONFIGURED");
     return join(this.data, name);
   }
-  async read(): Promise<Settings> {
+  async #readDocument(): Promise<SettingsDocument> {
     if (!this.data || !isAbsolute(this.data)) return { schema: 1, revision: 0, policy: { ...RESTRICTED_POLICY } };
     try {
       const parsed = settingsSchema.safeParse(JSON.parse(await readFile(this.path("settings.json"), "utf8")));
@@ -76,16 +78,30 @@ export class SettingsStore {
       throw new BitrixRequestError("SETTINGS_INVALID");
     }
   }
+  async read(): Promise<Settings> {
+    const { schema, revision, policy } = await this.#readDocument();
+    return { schema, revision, policy };
+  }
+  async panelsState(token: string) {
+    const current = await this.#readDocument();
+    return { settings: { schema: current.schema, revision: current.revision, policy: current.policy }, receipt: current.panelsReceipts?.[token] };
+  }
   policy: PolicyReader = async () => (await this.read()).policy;
-  async commit(expectedRevision: number, policy: PluginPolicy): Promise<Settings> {
+  async commit(expectedRevision: number, policy: PluginPolicy, receipt?: z.infer<typeof panelsReceiptSchema>): Promise<Settings> {
     // Caller owns withPolicyLock, also used by settings offers and task actions.
-    const current = await this.read();
+    const current = await this.#readDocument();
     if (current.revision !== expectedRevision) throw new BitrixRequestError("SETTINGS_CHANGED");
-    const next = settingsSchema.parse({ schema: 1, revision: current.revision + 1, policy });
+    const panelsReceipts = { ...current.panelsReceipts };
+    if (receipt) {
+      panelsReceiptSchema.parse(receipt);
+      if (receipt.revision !== current.revision + 1 || panelsReceipts[receipt.token]) throw new BitrixRequestError("SETTINGS_CHANGED");
+      panelsReceipts[receipt.token] = receipt;
+    }
+    const next = settingsSchema.parse({ schema: 1, revision: current.revision + 1, policy, ...(Object.keys(panelsReceipts).length ? { panelsReceipts } : {}) });
     // Invalidate the draft before changing policy; a crash cannot keep a stale preview alive.
     await rm(join(this.data!, "task-writes", "active.json"), { force: true });
     await writePrivateJson(this.path("settings.json"), next, this.data!);
-    return next;
+    return { schema: next.schema, revision: next.revision, policy: next.policy };
   }
 }
 

@@ -33094,6 +33094,9 @@ var Protocol = class {
       this.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra) => {
         const handleTaskResult = async () => {
           const taskId = request.params.taskId;
+          if (!await this._taskStore.getTask(taskId, extra.sessionId)) {
+            throw new McpError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
+          }
           if (this._taskMessageQueue) {
             let queuedMessage;
             while (queuedMessage = await this._taskMessageQueue.dequeue(taskId, extra.sessionId)) {
@@ -33124,12 +33127,12 @@ var Protocol = class {
             throw new McpError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
           }
           if (!isTerminal(task.status)) {
-            await this._waitForTaskUpdate(taskId, extra.signal);
+            await this._waitForTaskUpdate(taskId, extra.signal, extra.sessionId);
             return await handleTaskResult();
           }
           if (isTerminal(task.status)) {
             const result = await this._taskStore.getTaskResult(taskId, extra.sessionId);
-            this._clearTaskQueue(taskId);
+            this._clearTaskQueue(taskId, extra.sessionId);
             return {
               ...result,
               _meta: {
@@ -33166,7 +33169,7 @@ var Protocol = class {
             throw new McpError(ErrorCode.InvalidParams, `Cannot cancel task in terminal status: ${task.status}`);
           }
           await this._taskStore.updateTaskStatus(request.params.taskId, "cancelled", "Client cancelled task execution.", extra.sessionId);
-          this._clearTaskQueue(request.params.taskId);
+          this._clearTaskQueue(request.params.taskId, extra.sessionId);
           const cancelledTask = await this._taskStore.getTask(request.params.taskId, extra.sessionId);
           if (!cancelledTask) {
             throw new McpError(ErrorCode.InvalidParams, `Task not found after cancellation: ${request.params.taskId}`);
@@ -33294,6 +33297,19 @@ var Protocol = class {
     const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
     const capturedTransport = this._transport;
     const relatedTaskId = request.params?._meta?.[RELATED_TASK_META_KEY]?.taskId;
+    const sessionId = capturedTransport?.sessionId;
+    const store = this._taskStore;
+    let relatedTaskFound = true;
+    let relatedTaskLookup;
+    if (relatedTaskId && store && this._taskMessageQueue && sessionId !== void 0) {
+      relatedTaskFound = false;
+      relatedTaskLookup = (async () => {
+        if (!await store.getTask(relatedTaskId, sessionId)) {
+          throw new McpError(ErrorCode.InvalidParams, `Task not found: ${relatedTaskId}`);
+        }
+        relatedTaskFound = true;
+      })();
+    }
     if (handler === void 0) {
       const errorResponse = {
         jsonrpc: "2.0",
@@ -33303,7 +33319,10 @@ var Protocol = class {
           message: "Method not found"
         }
       };
-      if (relatedTaskId && this._taskMessageQueue) {
+      if (relatedTaskId && relatedTaskLookup) {
+        const queuedError = { type: "error", message: errorResponse, timestamp: Date.now() };
+        relatedTaskLookup.then(() => this._enqueueTaskMessage(relatedTaskId, queuedError, sessionId), () => capturedTransport?.send(errorResponse)).catch((error61) => this._onerror(new Error(`Failed to send an error response: ${error61}`)));
+      } else if (relatedTaskId && this._taskMessageQueue) {
         this._enqueueTaskMessage(relatedTaskId, {
           type: "error",
           message: errorResponse,
@@ -33354,7 +33373,10 @@ var Protocol = class {
       closeSSEStream: extra?.closeSSEStream,
       closeStandaloneSSEStream: extra?.closeStandaloneSSEStream
     };
-    Promise.resolve().then(() => {
+    (relatedTaskLookup ?? Promise.resolve()).then(() => {
+      if (relatedTaskLookup && abortController.signal.aborted) {
+        throw new McpError(ErrorCode.ConnectionClosed, "Request was cancelled");
+      }
       if (taskCreationParams) {
         this.assertTaskHandlerCapability(request.method);
       }
@@ -33389,7 +33411,7 @@ var Protocol = class {
           ...error61["data"] !== void 0 && { data: error61["data"] }
         }
       };
-      if (relatedTaskId && this._taskMessageQueue) {
+      if (relatedTaskId && this._taskMessageQueue && relatedTaskFound) {
         await this._enqueueTaskMessage(relatedTaskId, {
           type: "error",
           message: errorResponse,
@@ -33869,7 +33891,7 @@ var Protocol = class {
       throw new Error("Cannot enqueue task message: taskStore and taskMessageQueue are not configured");
     }
     const maxQueueSize = this._options?.maxTaskQueueSize;
-    await this._taskMessageQueue.enqueue(taskId, message, sessionId, maxQueueSize);
+    await this._taskMessageQueue.enqueue(taskId, message, sessionId ?? this._transport?.sessionId, maxQueueSize);
   }
   /**
    * Clears the message queue for a task and rejects any pending request resolvers.
@@ -33898,12 +33920,13 @@ var Protocol = class {
    * Uses polling to check for updates at the task's configured poll interval.
    * @param taskId The task ID to wait for
    * @param signal Abort signal to cancel the wait
+   * @param sessionId Session of the request that waits, passed to the task store
    * @returns Promise that resolves when an update occurs or rejects if aborted
    */
-  async _waitForTaskUpdate(taskId, signal) {
+  async _waitForTaskUpdate(taskId, signal, sessionId) {
     let interval = this._options?.defaultTaskPollInterval ?? 1e3;
     try {
-      const task = await this._taskStore?.getTask(taskId);
+      const task = await this._taskStore?.getTask(taskId, sessionId);
       if (task?.pollInterval) {
         interval = task.pollInterval;
       }
@@ -34782,6 +34805,42 @@ var ExperimentalMcpServerTasks = class {
 };
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
+function toolInputElementCount(value, max) {
+  let count = 0;
+  const stack = [value];
+  while (stack.length > 0) {
+    const node2 = stack.pop();
+    if (node2 === null || typeof node2 !== "object")
+      continue;
+    if (Array.isArray(node2)) {
+      for (const child of node2) {
+        if (++count > max)
+          return count;
+        if (child !== null && typeof child === "object")
+          stack.push(child);
+      }
+    } else {
+      for (const key in node2) {
+        if (!Object.prototype.hasOwnProperty.call(node2, key))
+          continue;
+        if (++count > max)
+          return count;
+        const child = node2[key];
+        if (child !== null && typeof child === "object")
+          stack.push(child);
+      }
+    }
+  }
+  return count;
+}
+function resolveMaxToolInputElements(value) {
+  if (value === void 0 || value === Infinity)
+    return void 0;
+  if (typeof value !== "number" || Number.isNaN(value) || value < 1) {
+    throw new RangeError(`maxToolInputElements must be a number of at least 1, or Infinity, got ${String(value)}`);
+  }
+  return value;
+}
 var McpServer = class {
   constructor(serverInfo, options) {
     this._registeredResources = {};
@@ -34793,6 +34852,7 @@ var McpServer = class {
     this._resourceHandlersInitialized = false;
     this._promptHandlersInitialized = false;
     this.server = new Server(serverInfo, options);
+    this._maxToolInputElements = resolveMaxToolInputElements(options?.maxToolInputElements);
   }
   /**
    * Access experimental features.
@@ -34923,12 +34983,15 @@ var McpServer = class {
    * Validates tool input arguments against the tool's input schema.
    */
   async validateToolInput(tool, args, toolName) {
+    if (this._maxToolInputElements !== void 0 && toolInputElementCount(args, this._maxToolInputElements) > this._maxToolInputElements) {
+      throw new McpError(ErrorCode.InvalidParams, `Invalid arguments for tool ${toolName}: arguments contain more than the maximum of ${this._maxToolInputElements} elements`);
+    }
     if (!tool.inputSchema) {
       return void 0;
     }
     const inputObj = normalizeObjectSchema(tool.inputSchema);
     const schemaToParse = inputObj ?? tool.inputSchema;
-    const parseResult = await safeParseAsync2(schemaToParse, args);
+    const parseResult = await safeParseAsync2(schemaToParse, args ?? {});
     if (!parseResult.success) {
       const error61 = "error" in parseResult ? parseResult.error : "Unknown error";
       const errorMessage = getParseErrorMessage(error61);
@@ -35166,7 +35229,7 @@ var McpServer = class {
       }
       if (prompt.argsSchema) {
         const argsObj = normalizeObjectSchema(prompt.argsSchema);
-        const parseResult = await safeParseAsync2(argsObj, request.params.arguments);
+        const parseResult = await safeParseAsync2(argsObj, request.params.arguments ?? {});
         if (!parseResult.success) {
           const error61 = "error" in parseResult ? parseResult.error : "Unknown error";
           const errorMessage = getParseErrorMessage(error61);
@@ -36437,7 +36500,8 @@ var policySchema = external_exports.object({
 }).strict().refine((value) => !value.email || value.people === "work", "Email requires work profiles");
 var LEGACY_POLICY = Object.freeze({ mode: "confirmed_write", uploads: true, deletions: true, people: "work", email: true });
 var RESTRICTED_POLICY = Object.freeze({ mode: "read_only", uploads: false, deletions: false, people: "ids", email: false });
-var settingsSchema = external_exports.object({ schema: external_exports.literal(1), revision: external_exports.number().int().min(0).max(Number.MAX_SAFE_INTEGER), policy: policySchema }).strict();
+var panelsReceiptSchema = external_exports.object({ state: external_exports.literal("done"), token: external_exports.string().regex(/^[a-f0-9]{24}$/u), revision: external_exports.number().int().min(1).max(999999999999), message: external_exports.string().min(1).max(1500) }).strict();
+var settingsSchema = external_exports.object({ schema: external_exports.literal(1), revision: external_exports.number().int().min(0).max(Number.MAX_SAFE_INTEGER), policy: policySchema, panelsReceipts: external_exports.record(external_exports.string().regex(/^[a-f0-9]{24}$/u), panelsReceiptSchema).optional() }).strict();
 var legacyPolicy = async () => LEGACY_POLICY;
 function assertWritePolicy(policy, action) {
   if (policy.mode !== "confirmed_write") throw new BitrixRequestError("READ_ONLY_MODE");
@@ -36495,7 +36559,7 @@ var SettingsStore = class {
     if (!this.data || !isAbsolute2(this.data)) throw new BitrixRequestError("SETTINGS_NOT_CONFIGURED");
     return join2(this.data, name);
   }
-  async read() {
+  async #readDocument() {
     if (!this.data || !isAbsolute2(this.data)) return { schema: 1, revision: 0, policy: { ...RESTRICTED_POLICY } };
     try {
       const parsed = settingsSchema.safeParse(JSON.parse(await readFile2(this.path("settings.json"), "utf8")));
@@ -36506,14 +36570,28 @@ var SettingsStore = class {
       throw new BitrixRequestError("SETTINGS_INVALID");
     }
   }
+  async read() {
+    const { schema, revision, policy } = await this.#readDocument();
+    return { schema, revision, policy };
+  }
+  async panelsState(token) {
+    const current = await this.#readDocument();
+    return { settings: { schema: current.schema, revision: current.revision, policy: current.policy }, receipt: current.panelsReceipts?.[token] };
+  }
   policy = async () => (await this.read()).policy;
-  async commit(expectedRevision, policy) {
-    const current = await this.read();
+  async commit(expectedRevision, policy, receipt) {
+    const current = await this.#readDocument();
     if (current.revision !== expectedRevision) throw new BitrixRequestError("SETTINGS_CHANGED");
-    const next = settingsSchema.parse({ schema: 1, revision: current.revision + 1, policy });
+    const panelsReceipts = { ...current.panelsReceipts };
+    if (receipt) {
+      panelsReceiptSchema.parse(receipt);
+      if (receipt.revision !== current.revision + 1 || panelsReceipts[receipt.token]) throw new BitrixRequestError("SETTINGS_CHANGED");
+      panelsReceipts[receipt.token] = receipt;
+    }
+    const next = settingsSchema.parse({ schema: 1, revision: current.revision + 1, policy, ...Object.keys(panelsReceipts).length ? { panelsReceipts } : {} });
     await rm2(join2(this.data, "task-writes", "active.json"), { force: true });
     await writePrivateJson(this.path("settings.json"), next, this.data);
-    return next;
+    return { schema: next.schema, revision: next.revision, policy: next.policy };
   }
 };
 function minimizeResult(value, policy, context = "") {
@@ -36565,13 +36643,13 @@ var nav = (label, screen) => button(label, `b24s:open:${screen}`);
 var modeLabel = (p) => p.mode === "read_only" ? "\u0422\u043E\u043B\u044C\u043A\u043E \u0447\u0442\u0435\u043D\u0438\u0435" : "\u0417\u0430\u043F\u0438\u0441\u044C \u0441 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435\u043C";
 var peopleLabel = (p) => ({ ids: "\u0422\u043E\u043B\u044C\u043A\u043E ID", names: "ID \u0438 \u0438\u043C\u0435\u043D\u0430", work: "\u0420\u0430\u0431\u043E\u0447\u0438\u0439 \u043F\u0440\u043E\u0444\u0438\u043B\u044C" })[p.people];
 var on = (value) => value ? "\u0440\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u043E" : "\u0432\u044B\u043A\u043B\u044E\u0447\u0435\u043D\u043E";
-var summary = (p) => `\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F: ${modeLabel(p)}
+var policySummary = (p) => `\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F: ${modeLabel(p)}
 \u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0432 Bitrix: ${on(p.uploads)}
 \u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0439 \u0438 \u0444\u0430\u0439\u043B\u043E\u0432: ${on(p.deletions)}
 \u0414\u0430\u043D\u043D\u044B\u0435 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432: ${peopleLabel(p)}
 Email: ${on(p.email)}`;
-var choices = ["read", "write", "upload_on", "upload_off", "delete_on", "delete_off", "ids", "names", "work", "email_on", "email_off"];
-function change(current, choice) {
+var settingsChoices = ["read", "write", "upload_on", "upload_off", "delete_on", "delete_off", "ids", "names", "work", "email_on", "email_off"];
+function changePolicy(current, choice) {
   const next = { ...current };
   switch (choice) {
     case "read":
@@ -36635,7 +36713,7 @@ var SettingsMenu = class {
       const open6 = /^b24s:open:(home|connection|capabilities|actions|privacy)$/u.exec(input2.reply);
       if (open6) return this.#render(open6[1]);
       const set2 = /^b24s:set:(0|[1-9]\d{0,15}):([a-z_]+)$/u.exec(input2.reply);
-      if (set2 && choices.includes(set2[2])) return this.#prepare(Number(set2[1]), set2[2]);
+      if (set2 && settingsChoices.includes(set2[2])) return this.#prepare(Number(set2[1]), set2[2]);
       const confirm = /^b24s:(confirm|cancel):([0-9a-f-]{36})$/u.exec(input2.reply);
       if (confirm && external_exports.uuid().safeParse(confirm[2]).success) return this.#resolve(confirm[1] === "confirm", confirm[2]);
       throw new BitrixRequestError("INVALID_SETTINGS_REPLY");
@@ -36646,7 +36724,7 @@ var SettingsMenu = class {
     return withPolicyLock(this.#store.data, async () => {
       const current = await this.#store.read();
       if (current.revision !== revision) throw new BitrixRequestError("SETTINGS_CHANGED");
-      const policy = change(current.policy, choice);
+      const policy = changePolicy(current.policy, choice);
       const screen = ["ids", "names", "work", "email_on", "email_off"].includes(choice) ? "privacy" : "actions";
       if (current.revision > 0 && JSON.stringify(current.policy) === JSON.stringify(policy)) {
         await rm3(this.#store.path("settings-offer.json"), { force: true });
@@ -36659,13 +36737,13 @@ var SettingsMenu = class {
       const prompt = `\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 Bitrix24?
 
 \u0421\u0435\u0439\u0447\u0430\u0441:
-${summary(current.policy)}
+${policySummary(current.policy)}
 
 \u041F\u043E\u0441\u043B\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u044F:
-${summary(policy)}
+${policySummary(policy)}
 
 \u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u0435 \u043F\u0440\u0435\u0432\u044C\u044E \u0437\u0430\u0434\u0430\u0447\u0438 \u0441\u0442\u0430\u043D\u0435\u0442 \u043D\u0435\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u043C. \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043D\u0435 \u043C\u0435\u043D\u044F\u044E\u0442 \u043F\u0440\u0430\u0432\u0430 webhook \u0432 Bitrix24.`;
-      return { state: "confirmation_required", settings: current, expiresAt: new Date(offer.createdAt + TTL).toISOString(), confirmReply, cancelReply, approvalPrompt: prompt, markdown: [`# \u2699\uFE0F \u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438`, block("\u0421\u0435\u0439\u0447\u0430\u0441", richText(summary(current.policy))), block("\u041F\u043E\u0441\u043B\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u044F", richText(summary(policy))), block("\u0427\u0442\u043E \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u0441\u044F", "\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u0435 \u043F\u0440\u0435\u0432\u044C\u044E \u0437\u0430\u0434\u0430\u0447\u0438 \u0441\u0442\u0430\u043D\u0435\u0442 \u043D\u0435\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u043C. \u041F\u0440\u0430\u0432\u0430 webhook \u0432 Bitrix24 \u043E\u0441\u0442\u0430\u044E\u0442\u0441\u044F \u043F\u0440\u0435\u0436\u043D\u0438\u043C\u0438."), row(button("\u2713 \u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044C", confirmReply, "success"), button("\u2715 \u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C", cancelReply, "danger"))].join("\n\n") };
+      return { state: "confirmation_required", settings: current, expiresAt: new Date(offer.createdAt + TTL).toISOString(), confirmReply, cancelReply, approvalPrompt: prompt, markdown: [`# \u2699\uFE0F \u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438`, block("\u0421\u0435\u0439\u0447\u0430\u0441", richText(policySummary(current.policy))), block("\u041F\u043E\u0441\u043B\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u044F", richText(policySummary(policy))), block("\u0427\u0442\u043E \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u0441\u044F", "\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u0435 \u043F\u0440\u0435\u0432\u044C\u044E \u0437\u0430\u0434\u0430\u0447\u0438 \u0441\u0442\u0430\u043D\u0435\u0442 \u043D\u0435\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u043C. \u041F\u0440\u0430\u0432\u0430 webhook \u0432 Bitrix24 \u043E\u0441\u0442\u0430\u044E\u0442\u0441\u044F \u043F\u0440\u0435\u0436\u043D\u0438\u043C\u0438."), row(button("\u2713 \u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044C", confirmReply, "success"), button("\u2715 \u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C", cancelReply, "danger"))].join("\n\n") };
     });
   }
   async #resolve(confirm, token) {
@@ -37480,13 +37558,13 @@ var TaskWriter = class {
             `${input2.checklistTitle ? "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u0447\u0435\u043A-\u043B\u0438\u0441\u0442" : "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0432 \u0447\u0435\u043A-\u043B\u0438\u0441\u0442"} \xAB${previewText(this.#checklistTarget(input2, snapshot).title)}\xBB:`,
             ...input2.checklist.map((v) => `\u2610 ${previewText(v)}`)
           );
-        for (const change2 of input2.checklistUpdates ?? []) {
+        for (const change of input2.checklistUpdates ?? []) {
           const rows = snapshot.editState.checklist;
-          const item = object4(rows.find((v) => positive(object4(v).ID ?? object4(v).id) === change2.id));
-          const title = String(item.TITLE ?? item.title ?? `\u041F\u0443\u043D\u043A\u0442 \u2116${change2.id}`);
+          const item = object4(rows.find((v) => positive(object4(v).ID ?? object4(v).id) === change.id));
+          const title = String(item.TITLE ?? item.title ?? `\u041F\u0443\u043D\u043A\u0442 \u2116${change.id}`);
           const duplicates = rows.filter((v) => (object4(v).TITLE ?? object4(v).title) === title).length > 1;
-          const details = [change2.title !== void 0 ? `\u043F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u0442\u044C \u0432 \xAB${change2.title}\xBB` : "", change2.completed !== void 0 ? change2.completed ? "\u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D" : "\u043D\u0435 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D" : ""].filter(Boolean).join(", ");
-          lines.push(`${change2.completed === true ? "\u2611" : "\u2610"} ${previewText(title)}${duplicates ? ` (\u043F\u0443\u043D\u043A\u0442 \u2116${change2.id})` : ""}: ${previewText(details)}`);
+          const details = [change.title !== void 0 ? `\u043F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u0442\u044C \u0432 \xAB${change.title}\xBB` : "", change.completed !== void 0 ? change.completed ? "\u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D" : "\u043D\u0435 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D" : ""].filter(Boolean).join(", ");
+          lines.push(`${change.completed === true ? "\u2611" : "\u2610"} ${previewText(title)}${duplicates ? ` (\u043F\u0443\u043D\u043A\u0442 \u2116${change.id})` : ""}: ${previewText(details)}`);
         }
       }
       if (input2.action === "comment" || input2.action === "upload")
@@ -37836,13 +37914,13 @@ ${batchPrompt}
               await persist();
             }
             if (input2.action === "update")
-              for (const change2 of input2.checklistUpdates ?? []) {
+              for (const change of input2.checklistUpdates ?? []) {
                 await write("task.checklistitem.update", {
                   TASKID: input2.taskId,
-                  ITEMID: change2.id,
+                  ITEMID: change.id,
                   FIELDS: {
-                    ...change2.title !== void 0 ? { TITLE: change2.title } : {},
-                    ...change2.completed !== void 0 ? { IS_COMPLETE: change2.completed ? "Y" : "N" } : {}
+                    ...change.title !== void 0 ? { TITLE: change.title } : {},
+                    ...change.completed !== void 0 ? { IS_COMPLETE: change.completed ? "Y" : "N" } : {}
                   }
                 });
                 active.completedChecklistUpdates = Number(active.completedChecklistUpdates) + 1;
@@ -38237,7 +38315,7 @@ var TaskReader = class {
     const selected = history.slice(0, options.limit);
     const normalized = selected.filter(isRecordLike).map((value) => {
       const source = record2(value);
-      const change2 = record2(source.value);
+      const change = record2(source.value);
       const user = record2(source.user);
       const warnings = [];
       const id3 = identifier(source.id);
@@ -38247,8 +38325,8 @@ var TaskReader = class {
         id: id3,
         createdDate: isoDate(source.createdDate, "created_date", warnings),
         field,
-        from: historyValue(change2.from),
-        to: historyValue(change2.to),
+        from: historyValue(change.from),
+        to: historyValue(change.to),
         actor: {
           id: identifier(user.id),
           name: text2(user.name, 200),
@@ -38482,7 +38560,7 @@ function registerSettingsTool(server, menu) {
   }, (input2) => safe(() => menu.run(input2)));
 }
 function createMcpServer(reader, updater = null, files = null, writer = null) {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.9.0-rc.1" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.9.0-rc.2" });
   registerUpdaterTools(server, updater);
   if (writer) {
     server.registerTool("bitrix24_project_stages", {
@@ -39990,9 +40068,22 @@ async function resolveAttachmentsRoot(env, wrapper = join5(env.HOME || homedir2(
   }
 }
 
+// server/src/settings-environment.ts
+function settingsFromEnvironment(env) {
+  const marker = env.BITRIX24_SETTINGS_DEFAULTS;
+  const defaults2 = marker !== void 0 && marker !== "legacy" || !env.BITRIX24_WEBHOOK_BASE_URL ? RESTRICTED_POLICY : LEGACY_POLICY;
+  let identity = "not-configured";
+  try {
+    const config2 = loadConfig(env);
+    identity = `${config2.portalOrigin}/${config2.webhookUserId}`;
+  } catch {
+  }
+  return new SettingsStore(env.PLUGIN_DATA, identity, defaults2);
+}
+
 // server/src/main.ts
 function unavailableServer(error61, updater, settings) {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.9.0-rc.1" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.9.0-rc.2" });
   registerUpdaterTools(server, updater);
   registerSettingsTool(server, new SettingsMenu(settings, { configured: false }));
   server.registerTool(
@@ -40020,14 +40111,7 @@ async function serverFromEnvironment(env = process.env, dependencies = {}) {
   } catch {
   }
   const defaultsMarker = env.BITRIX24_SETTINGS_DEFAULTS;
-  const defaults2 = defaultsMarker !== void 0 && defaultsMarker !== "legacy" || !env.BITRIX24_WEBHOOK_BASE_URL ? RESTRICTED_POLICY : LEGACY_POLICY;
-  let identity = "not-configured";
-  try {
-    const config2 = loadConfig(env);
-    identity = `${config2.portalOrigin}/${config2.webhookUserId}`;
-  } catch {
-  }
-  const settings = new SettingsStore(env.PLUGIN_DATA, identity, defaults2);
+  const settings = settingsFromEnvironment(env);
   const protect = async (read) => {
     await settings.read();
     const result = await read();

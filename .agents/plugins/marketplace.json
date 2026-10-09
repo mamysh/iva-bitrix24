@@ -9,7 +9,7 @@
         "path": "plugin",
         "ref": "stable"
       },
-      "description": "Bitrix24 tasks and documents for Iva with confirmed actions and Telegram settings; experimental 0.9.0 adds direct plugin screens when the host supports them."
+      "description": "Bitrix24 tasks and documents for Iva with confirmed actions and settings; optional iva-panels/v2 integration shares the plugin policy store."
     }
   ]
 }

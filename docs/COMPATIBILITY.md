@@ -97,3 +97,13 @@ exact reply guards/replacement/native fallback. Проверяется actual MC
 Прямая команда `/bitrix` требует экспериментального API Ивы; штатная 0.4.11 его не содержит.
 Прежний `bitrix24_settings`/skill остаётся fallback после возврата на штатное ядро.
 Контракт, проверки владельца/ревизии и ограничения: [PLUGIN_SCREENS](PLUGIN_SCREENS.md).
+
+## Panels API 0.9.0-rc.2
+
+Общий iva-panels/v2 добавлен в предварительную 0.9.0-rc.2. Контрактные тесты
+проверяют реальный Unix socket, CAS с обычным меню, отмену, повтор/restart и атомарную
+квитанцию. Требуется Panels 0.2.0-dev.1 и dynamicPanels. Живой Telegram-сценарий
+нового API пока не проверен; синтетический полный Bridge 0.4.14/fa558655
+→ собранный Router Panels dev.2 → настоящий bundle Bitrix v2 прошёл локально
+(cancel/confirm/duplicate/restart Router/shared legacy policy). Прежние доказательства legacy меню на него не переносятся.
+[Зависимости службы и ограничение downgrade](PANELS.md).

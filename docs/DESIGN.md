@@ -198,3 +198,10 @@ See [ADR0010](adr/0010-plugin-settings-menu.md) and [SETUP](SETUP.md#меню-н
 Прямая команда `/bitrix` требует экспериментального API Ивы; штатная 0.4.11 его не содержит.
 Прежний `bitrix24_settings`/skill остаётся fallback после возврата на штатное ядро.
 Контракт, проверки владельца/ревизии и ограничения: [PLUGIN_SCREENS](PLUGIN_SCREENS.md).
+
+## Необязательный API Panels
+
+Descriptor v2 и managed socket-service отдают конечный набор страниц и изменений
+policy. Общий SettingsStore, revision и writer lock сохраняются; квитанции живут
+в атомарном документе настроек и скрыты от MCP. MCP-сессия не используется.
+[ADR-0013](adr/0013-panels-settings-api.md), [контракт и восстановление](PANELS.md).

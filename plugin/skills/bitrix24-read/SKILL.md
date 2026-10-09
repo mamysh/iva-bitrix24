@@ -526,3 +526,14 @@ may manage this plugin but do not authorize any additional Bitrix24 REST method.
 Never ask the owner to paste a webhook URL into chat. Configuration belongs in
 `data/custom/plugins/bitrix24-read.env` on the Iva host; do not open, print, search or modify
 that file while handling a Bitrix24 request.
+
+## Optional Panels integration
+
+This plugin declares iva-panels/v2 settings. If iva-panels supports v2 and its
+dynamicPanels flag is enabled, the owner can open /panels → Bitrix24 → Настройки.
+The plugin owns the settings/revision/receipts; it works without Panels as before.
+Use the Panels UI for its preview/confirm/cancel cycle. Never call its private socket
+from bash to emulate a human confirmation, delete recovery journals, or repeat
+an unknown confirm. Checking status does not apply changes. Ordinary bitrix24_settings
+shares the same policy store: another saved setting invalidates old proposals.
+The API changes local policy only and never increases webhook permissions.

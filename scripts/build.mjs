@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { build } from "esbuild";
 
 const entries = [
+  { input: "server/src/panels-main.ts", output: "plugin/sh.iva/services/panels/server.mjs" },
   { input: "server/src/main.ts", output: "plugin/server.mjs" },
   { input: "server/src/installer-main.ts", output: "plugin/setup.mjs" },
   { input: "server/src/updater-worker.ts", output: "plugin/update-worker.mjs" },
