@@ -440,7 +440,7 @@ schema5 с revision настроек. Завершённые квитанции 
 
 ## Общие панели настроек
 
-Предварительная 0.9.0-rc.2 поставляет необязательный API iva-panels/v2 и managed
+Стабильная 0.9.0 поставляет необязательный API iva-panels/v2 и managed
 службу panels. Нужны Node 24, Linux bash/flock. Порт 8736 (или IVA_SERVICE_PORT,
 назначенный Ивой) обслуживает только loopback health; настройки доступны через
 приватный Unix socket. Panels должен поддерживать v2 и разрешать dynamicPanels.

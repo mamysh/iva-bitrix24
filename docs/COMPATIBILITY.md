@@ -107,3 +107,11 @@ exact reply guards/replacement/native fallback. Проверяется actual MC
 → собранный Router Panels dev.2 → настоящий bundle Bitrix v2 прошёл локально
 (cancel/confirm/duplicate/restart Router/shared legacy policy). Прежние доказательства legacy меню на него не переносятся.
 [Зависимости службы и ограничение downgrade](PANELS.md).
+
+## Стабильная 0.9.0
+
+Выпуск сохраняет API RC2. Контрактные тесты, собранный socket-сервис и MCP,
+отмена/подтверждение/повтор после restart через stock Bridge проверяются в CI.
+Матрица Panels закреплена на штатных 0.4.11/0.4.12/0.4.14; управление плагинами
+доступно только на проверенных exact SHA 0.4.12/0.4.14. Свежий ручной v2 confirm
+на рабочем сервере и полная live-матрица операций записи не проверены.

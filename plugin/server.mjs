@@ -38560,7 +38560,7 @@ function registerSettingsTool(server, menu) {
   }, (input2) => safe(() => menu.run(input2)));
 }
 function createMcpServer(reader, updater = null, files = null, writer = null) {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.9.0-rc.2" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.9.0" });
   registerUpdaterTools(server, updater);
   if (writer) {
     server.registerTool("bitrix24_project_stages", {
@@ -40083,7 +40083,7 @@ function settingsFromEnvironment(env) {
 
 // server/src/main.ts
 function unavailableServer(error61, updater, settings) {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.9.0-rc.2" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.9.0" });
   registerUpdaterTools(server, updater);
   registerSettingsTool(server, new SettingsMenu(settings, { configured: false }));
   server.registerTool(

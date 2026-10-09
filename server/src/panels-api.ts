@@ -5,7 +5,7 @@ import { BitrixRequestError } from "./bitrix-client.ts";
 import { changePolicy, policySummary, settingsChoices, type Choice } from "./settings-menu.ts";
 import { SettingsStore, panelsReceiptSchema, policySchema, withPolicyLock, writePrivateJson } from "./settings.ts";
 
-export const PANELS_VERSION = "0.9.0-rc.2";
+export const PANELS_VERSION = "0.9.0";
 const tokenSchema = z.string().regex(/^[a-f0-9]{24}$/u);
 const revisionSchema = z.number().int().min(0).max(999999999999);
 const envelope = { schema: z.literal("iva-panels/rpc-v1"), plugin: z.literal("bitrix24-read"), pluginVersion: z.literal(PANELS_VERSION) };
