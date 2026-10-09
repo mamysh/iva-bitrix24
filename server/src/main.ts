@@ -14,7 +14,8 @@ import { PluginUpdater } from "./plugin-updater.ts";
 import { ReadCapabilityReader } from "./read-capabilities.ts";
 import { resolveAttachmentsRoot } from "./attachments-root.ts";
 import { TaskWriter } from "./task-writes.ts";
-import { SettingsStore, LEGACY_POLICY, RESTRICTED_POLICY, minimizeResult } from "./settings.ts";
+import { SettingsStore, minimizeResult } from "./settings.ts";
+import { settingsFromEnvironment } from "./settings-environment.ts";
 import { SettingsMenu } from "./settings-menu.ts";
 import { registerSettingsTool } from "./mcp-server.ts";
 import { TaskReader } from "./tasks.ts";
@@ -24,7 +25,7 @@ function unavailableServer(
   updater: PluginUpdaterPort | null,
   settings: SettingsStore,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.9.0-rc.1" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.9.0" });
   registerUpdaterTools(server, updater);
   registerSettingsTool(server, new SettingsMenu(settings, { configured: false }));
   server.registerTool(
@@ -57,10 +58,7 @@ export async function serverFromEnvironment(
     // Local development and a not-yet-trusted process do not have Iva plugin paths.
   }
   const defaultsMarker = env.BITRIX24_SETTINGS_DEFAULTS;
-  const defaults = (defaultsMarker !== undefined && defaultsMarker !== "legacy") || !env.BITRIX24_WEBHOOK_BASE_URL ? RESTRICTED_POLICY : LEGACY_POLICY;
-  let identity = "not-configured";
-  try { const config = loadConfig(env); identity = `${config.portalOrigin}/${config.webhookUserId}`; } catch { /* no secret enters settings */ }
-  const settings = new SettingsStore(env.PLUGIN_DATA, identity, defaults);
+  const settings = settingsFromEnvironment(env);
   const protect = async <T>(read: () => Promise<T>): Promise<T> => {
     await settings.read(); // Invalid policy fails closed before requesting any content.
     const result = await read();
