@@ -9,7 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const root = await realpath(await mkdtemp("/tmp/bp-"));
 const plugin = JSON.parse(await readFile("plugin/plugin.json", "utf8"));
 const descriptor = JSON.parse(await readFile("plugin/panels.json", "utf8"));
-assert.deepEqual(descriptor, { schema: "iva-panels/v2", plugin: plugin.name, pluginVersion: plugin.version, entry: "home", capabilities: ["settings"] });
+assert.deepEqual(descriptor, { schema: "iva-panels/v2", plugin: plugin.name, pluginVersion: plugin.version, entry: "home", capabilities: ["settings", "actions"] });
 const reserve = createServer();
 await new Promise(done => reserve.listen(0, "127.0.0.1", done));
 const port = reserve.address().port;

@@ -20,10 +20,11 @@
 API не открыт на TCP: HTTP POST `/panels/v1` обслуживается только через
 `PLUGIN_DATA/panels.sock`, права 0600. Приватный каталог должен иметь канонический
 путь без symlink. Unix socket не изолирует доверенные процессы одного пользователя.
-Сервис не использует Telegram credentials, MCP session или методы Bitrix REST.
+Сервис не использует Telegram credentials или MCP session. В 0.9.0 он не вызывает
+Bitrix REST; в 0.10.0-rc.1 исполняет отдельно подтверждённые кадровые задания.
 Он читает только собственный bitrix24-read.env из data/custom/plugins: обычный
 Node parseEnv, без shell, файл 0600 того же UID без symlink. Из него берутся только
-webhook для identity и marker исходной policy. Секрет не передаётся Panels. После
+webhook для identity, а в кадровом RC также для REST-клиента, и marker исходной policy. Секрет не передаётся Panels. После
 замены env нужно перезапустить MCP Bitrix24 и эту службу.
 
 Плагин проверяет строгий envelope, identity/version, operation и допустимые значения.
@@ -73,3 +74,20 @@ transport в panels-main.ts. Настройки принадлежат Bitrix24;
 Автотесты проверяют сохранение/отмену, повтор и restart, CAS между интерфейсами,
 общую блокировку, истечение, identity/version, чистый status, приватный socket
 и MCP discovery. Живые Telegram-нажатия нового API проверяются отдельно после установки.
+
+
+## Заявки сотрудников в 0.10.0-rc.1
+
+Descriptor объявляет capabilities settings/actions. Home добавляет «Заявки сотрудников»;
+страницы employees/employees-N показывают до трёх заявок и навигацию. emp-<16 hex>
+выбирает одну готовую заявку для предложения; аргументы эффекта не поступают от Panels.
+Version/revision/TTL/identity и неизменный снимок связывают её с собранными данными.
+
+Confirm здесь атомарно записывает queued job, employee revision+1 и done-квитанцию в
+employees.json; это принятие в очередь, а не результат REST. Долгий внешний запрос
+выполняется службой отдельно и не превышает timeout RPC. Status возвращает сохранённое
+принятие; бизнес-результат виден в списке заявок или employee draft status через Иву.
+Отдельного Telegram sender нет. Служба проверяет очередь раз в секунду, expiry предложений
+раз в 15 секунд. Подготовка/чтение/подтверждение/статус сами не выполняют REST-write.
+Управление по умолчанию выключено. См. [сотрудники](EMPLOYEES.md) и
+[ADR0014](adr/0014-employee-drafts-and-panels-approval.md).

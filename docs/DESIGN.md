@@ -205,3 +205,10 @@ Descriptor v2 и managed socket-service отдают конечный набор
 policy. Общий SettingsStore, revision и writer lock сохраняются; квитанции живут
 в атомарном документе настроек и скрыты от MCP. MCP-сессия не используется.
 [ADR-0013](adr/0013-panels-settings-api.md), [контракт и восстановление](PANELS.md).
+
+
+## Кадровые заявки
+
+0.10.0-rc.1 добавляет отдельные диалоговые черновики и очередь с финальным апрувом
+через Panels, без кадрового MCP apply. [ADR0014](adr/0014-employee-drafts-and-panels-approval.md)
+описывает intent, receipt, scope/policy gates и границу внешней транзакции.

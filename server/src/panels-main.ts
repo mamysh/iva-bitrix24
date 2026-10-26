@@ -4,6 +4,10 @@ import { constants } from "node:fs";
 import { parseEnv } from "node:util";
 import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { BitrixClient } from "./bitrix-client.ts";
+import { loadConfig } from "./config.ts";
+import { EmployeeDirectory } from "./employee-directory.ts";
+import { EmployeeManager } from "./employee-management.ts";
 import { PanelsSettings } from "./panels-api.ts";
 import { settingsFromEnvironment } from "./settings-environment.ts";
 
@@ -42,6 +46,7 @@ export async function servePanels(api: PanelsSettings) {
   await mkdir(data, { recursive: true, mode: 0o700 });
   if (await realpath(data) !== resolve(data)) throw new Error("PLUGIN_DATA_MUST_BE_CANONICAL");
   await api.expireOffers();
+  await api.employees?.expireOffers();
   const path = join(data, "panels.sock");
   try {
     const info = await lstat(path);
@@ -67,16 +72,24 @@ export async function servePanels(api: PanelsSettings) {
   await new Promise<void>((done, fail) => { server.once("error", fail); server.listen(path, () => { server.removeListener("error", fail); done(); }); });
   try { await chmod(path, 0o600); }
   catch (error) { server.close(); throw error; }
-  const expiry = setInterval(() => { void api.expireOffers().catch(() => { /* Busy/corrupt storage never applies a policy; retry cancellation on the next tick. */ }); }, 15_000);
+  const worker = api.employees ? setInterval(() => { void api.employees!.runQueued().catch(() => { /* Fail closed on busy/corrupt storage. */ }); }, 1000) : undefined;
+  worker?.unref();
+  const expiry = setInterval(() => { void (async () => { await api.expireOffers(); await api.employees?.expireOffers(); })().catch(() => { /* Busy/corrupt storage never applies a policy; retry cancellation on the next tick. */ }); }, 15_000);
   expiry.unref();
-  server.once("close", () => clearInterval(expiry));
+  server.once("close", () => { clearInterval(expiry); if (worker) clearInterval(worker); });
   return server;
+}
+/** Injectable transport for synthetic bundle checks; production uses the normal HTTPS client. */
+export function createPanelsApi(env: Readonly<Record<string, string | undefined>>, dependencies: ConstructorParameters<typeof BitrixClient>[1] = {}) {
+  const settings = settingsFromEnvironment(env);
+  const employees = env.BITRIX24_WEBHOOK_BASE_URL ? new EmployeeManager(new EmployeeDirectory(new BitrixClient(loadConfig(env), dependencies), settings), settings) : undefined;
+  return new PanelsSettings(settings, Date.now, employees);
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   process.umask(0o077);
   const env = await panelsEnvironment(process.env);
   if (env.BITRIX24_SETTINGS_DEFAULTS !== undefined && !["restricted", "legacy"].includes(env.BITRIX24_SETTINGS_DEFAULTS)) throw new Error("INVALID_SETTINGS_DEFAULTS");
-  const api = new PanelsSettings(settingsFromEnvironment(env));
+  const api = createPanelsApi(env);
   const socket = await servePanels(api);
   const health = createServer((req, res) => {
     if (req.method === "GET" && req.url === "/health") res.writeHead(200, { "content-type": "application/json" }).end('{"ok":true,"service":"bitrix24-panels"}');

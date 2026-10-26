@@ -9,7 +9,7 @@
         "path": "plugin",
         "ref": "stable"
       },
-      "description": "Bitrix24 tasks and documents for Iva with confirmed actions and settings; optional iva-panels/v2 integration shares the plugin policy store."
+      "description": "Bitrix24 tasks, documents and employee drafts for Iva; final employee approval through iva-panels/v2, explicit opt-in and scoped permissions."
     }
   ]
 }

@@ -21,6 +21,8 @@ export const ALLOWED_METHODS = [
 ] as const;
 
 export const WRITE_METHODS = [
+  "user.add",
+  "user.update",
   "task.stages.movetask",
   "im.disk.file.delete",
   "im.message.delete",
@@ -44,6 +46,8 @@ export type AllowedMethod = (typeof ALLOWED_METHODS)[number];
 
 const allowed = new Set<string>(ALLOWED_METHODS);
 const REQUIRED_SCOPES: Partial<Record<RestMethod, string>> = {
+  "user.add": "user",
+  "user.update": "user",
   "task.stages.get": "task",
   "task.stages.canmovetask": "task",
   "task.stages.movetask": "task",

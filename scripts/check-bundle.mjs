@@ -62,6 +62,13 @@ try {
   const { tools } = await client.listTools();
   assert.ok(tools.find(tool => tool.name === "iva_bitrix24_update_check").inputSchema.properties?.presentation);
   assert.ok(tools.find(tool => tool.name === "iva_bitrix24_update_apply").inputSchema.properties?.confirmationReply);
+  const employeeDraft = tools.find(tool => tool.name === "bitrix24_employee_draft");
+  assert.equal(employeeDraft.inputSchema.type, "object");
+  assert.ok(!tools.some(tool => /employee.*apply|apply.*employee/u.test(tool.name)));
+  assert.ok(tools.some(tool => tool.name === "bitrix24_employee_candidates"));
+  const employeeBlocked = await client.callTool({ name: "bitrix24_employee_draft", arguments: { op: "collect", action: "invite", fields: { name: "Synthetic" } } });
+  assert.equal(employeeBlocked.isError, true);
+  assert.match(employeeBlocked.content[0].text, /EMPLOYEES_DISABLED|EMPLOYEE_PROFILE_REQUIRED/u);
   const settingsSchema = tools.find(tool => tool.name === "bitrix24_settings").inputSchema;
   assert.equal(settingsSchema.type, "object");
   for (const field of ["screen", "reply"]) assert.ok(settingsSchema.properties?.[field]);
@@ -91,6 +98,8 @@ try {
       "bitrix24_capabilities",
       "bitrix24_connection_check",
       "bitrix24_download_task_document",
+      "bitrix24_employee_candidates",
+      "bitrix24_employee_draft",
       "bitrix24_get_task",
       "bitrix24_list_departments",
       "bitrix24_list_task_documents",

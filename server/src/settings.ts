@@ -7,6 +7,7 @@ import { BitrixRequestError } from "./bitrix-client.ts";
 
 export const policySchema = z.object({
   mode: z.enum(["read_only", "confirmed_write"]),
+  employees: z.boolean().optional(), // Explicit opt-in; absent on existing installs means disabled.
   uploads: z.boolean(),
   deletions: z.boolean(),
   people: z.enum(["ids", "names", "work"]),

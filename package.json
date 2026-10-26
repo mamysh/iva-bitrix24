@@ -1,8 +1,8 @@
 {
   "name": "iva-bitrix24",
-  "version": "0.9.0",
+  "version": "0.10.0-rc.1",
   "private": true,
-  "description": "Bitrix24 task and document integration for Iva with confirmed actions and Telegram policy settings.",
+  "description": "Bitrix24 tasks, documents and employee drafts for Iva with confirmed actions and policy settings.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -22,7 +22,7 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check:bundle": "node scripts/check-bundle.mjs && node scripts/check-panels-bundle.mjs",
+    "check:bundle": "node scripts/check-bundle.mjs && node scripts/check-panels-bundle.mjs && node scripts/check-employees-bundle.mjs",
     "check:distribution": "node scripts/check-distribution.mjs",
     "check:secrets": "node scripts/check-secrets.mjs",
     "smoke:live": "node scripts/smoke-live.mjs",
@@ -35,7 +35,7 @@
     "@types/node": "26.4.1",
     "esbuild": "0.28.2",
     "typescript": "7.0.2",
-    "zod": "4.5.4"
+    "zod": "4.6.7"
   },
   "engines": {
     "node": ">=24"
