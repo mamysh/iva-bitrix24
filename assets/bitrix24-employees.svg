@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="792" viewBox="0 0 640 792" role="img" aria-labelledby="title description">
+  <title id="title">Приглашение сотрудника через разговор с Ивой</title>
+  <desc id="description">Иллюстрация с вымышленными данными. Сначала выберите подразделение короткой кнопкой «Отдел 1» или «Отдел 2». Затем проверьте имя, почту и должность в карточке и отдельно подтвердите приглашение.</desc>
+  <style>
+    text {font-family:Arial,sans-serif;fill:#F3F5EF}
+    .heading {font-size:28px;font-weight:700}
+    .label {font-size:24px;font-weight:700}
+    .detail {font-size:19px;fill:#BAC8C1}
+    .button {font-size:21px;font-weight:700;text-anchor:middle}
+  </style>
+  <rect width="640" height="792" rx="24" fill="#080B0A"/>
+  <text x="32" y="54" font-size="32" font-weight="700">Пригласить сотрудника</text>
+  <text x="32" y="90" font-size="20" fill="#BAC8C1">Уточните детали. Проверьте. Подтвердите.</text>
+  <rect x="32" y="128" width="576" height="268" rx="18" fill="#121B17" stroke="#375244"/>
+  <text x="56" y="168" class="heading">1. Выберите подразделение</text>
+  <text x="56" y="211" class="label">1. Отдел дизайна</text>
+  <text x="56" y="239" class="detail">Компания / Маркетинг</text>
+  <text x="56" y="281" class="label">2. Сектор дизайна</text>
+  <text x="56" y="309" class="detail">Компания / Производство</text>
+  <rect x="56" y="333" width="152" height="42" rx="10" fill="#223A30"/>
+  <rect x="224" y="333" width="152" height="42" rx="10" fill="#223A30"/>
+  <rect x="392" y="333" width="152" height="42" rx="10" fill="#2D2525"/>
+  <text x="132" y="361" class="button">Отдел 1</text>
+  <text x="300" y="361" class="button">Отдел 2</text>
+  <text x="468" y="361" class="button" style="fill:#E8A88D">Отмена</text>
+  <path d="M320 408v25m-6-6 6 6 6-6" fill="none" stroke="#91C9AD" stroke-width="2" stroke-linecap="round"/>
+  <rect x="32" y="448" width="576" height="290" rx="18" fill="#121B17" stroke="#5A8870"/>
+  <text x="56" y="489" class="heading">2. Проверьте приглашение</text>
+  <text x="56" y="533" font-size="27" font-weight="700">Иван Тестов</text>
+  <text x="56" y="565" font-size="22" style="fill:#95BFDA">ivan@example.test</text>
+  <text x="56" y="598" font-size="22">Должность: Дизайнер</text>
+  <text x="56" y="630" font-size="22">Подразделение: Отдел дизайна</text>
+  <rect x="56" y="658" width="248" height="52" rx="12" fill="#91C9AD"/>
+  <rect x="320" y="658" width="248" height="52" rx="12" fill="#2D2525" stroke="#855F50"/>
+  <text x="180" y="692" class="button" style="fill:#080B0A">Подтвердить</text>
+  <text x="444" y="692" class="button" style="fill:#E8A88D">Отменить</text>
+  <text x="320" y="772" font-size="17" text-anchor="middle" style="fill:#BAC8C1">Иллюстрация · Все данные вымышлены</text>
+</svg>

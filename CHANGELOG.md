@@ -1,20 +1,24 @@
-# Changelog
+# История изменений
+
+## Проверка кадрового сценария — 2026-10-27
+
+- Владелец подтвердил корректную работу установленного 0.10.0-rc.4 в Telegram с Iva 0.5.7 и Panels 0.3.0-rc.2.
+- Публичное руководство описывает весь диалог: уточнения, нумерованные отделы, короткие кнопки и финальную карточку в чате.
+- Это обновление документации без изменения установленного bundle; stable остаётся 0.9.0.
 
 ## 0.10.0-rc.4 — 2026-10-27 (предварительный выпуск)
 
-- Expose employee draft operation/fields through an object-root MCP schema; strict operation validation remains in the handler.
+- Исправлена схема MCP: Ива видит допустимые команды и поля заявки. Строгая проверка конкретной операции сохранена.
 
 ## 0.10.0-rc.3 — 2026-10-27 (предварительный выпуск)
 
-- Focused employee skill replaces the long task workflow for employee requests and supersedes old catalog-navigation instructions.
+- Для кадровых запросов выделен короткий отдельный навык. Он задаёт сценарий подтверждения в чате и заменяет прежние инструкции о переходе в каталог Panels.
 
 ## 0.10.0-rc.2 — 2026-10-27 (предварительный выпуск)
 
-- Rich numbered employee choices with short department buttons.
-- Generic Panels chat transport presents final approval in the current owner chat.
-- Explicit present operation never applies a portal write; lost delivery is not replayed.
-
-Значимые пользовательские изменения этого проекта будут фиксироваться здесь.
+- Варианты сотрудников и отделов оформляются rich-блоками с короткими нумерованными кнопками.
+- Общий транспорт Panels показывает итоговую карточку прямо в личном чате владельца.
+- Команда показа карточки не выполняет запись. При неизвестном результате доставки автоматического повтора нет.
 
 ## 0.10.0-rc.1 — 2026-10-26
 

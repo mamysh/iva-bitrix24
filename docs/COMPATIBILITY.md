@@ -3,6 +3,9 @@
 Compatibility is claimed only for combinations that are exercised by automated checks or an
 explicit live smoke test.
 
+Актуальный кадровый сценарий: **0.10.0-rc.4 + Iva 0.5.7 + Panels 0.3.0-rc.2**.
+[Подтверждение владельца и границы проверки](#сотрудники-проверенная-связка).
+
 | Component | Version or mode | Evidence | Status |
 | --- | --- | --- | --- |
 | Iva | 0.3.34 | historical MCP lifecycle without the current native button flow | legacy; current button flow not supported |
@@ -117,7 +120,7 @@ exact reply guards/replacement/native fallback. Проверяется actual MC
 на рабочем сервере и полная live-матрица операций записи не проверены.
 
 
-## 0.10.0-rc.1: сотрудники
+## 0.10.0-rc.1: сотрудники (история первого RC)
 
 Локальные синтетические тесты проверяют диалоговые черновики, approximate lookup,
 подтверждение через настоящий Unix socket, очередь/intent/replay и read-back с fake Bitrix.
@@ -125,8 +128,8 @@ exact reply guards/replacement/native fallback. Проверяется actual MC
 27 октября 2026 RC установлен на Iva 0.5.7 (тот же upstream commit, штатная
 пересборка состава). Проверены активные службы, HTTP health, read-only doctor
 (31 ok, 0 warn/fail), discovery новых MCP tools и чтение рабочих Panels socket-экранов.
-Управление сотрудниками остаётся выключенным до подтверждения владельца.
-Живые Telegram-нажатия, модельный диалог и кадровые записи на портале ещё не приняты;
+На этапе первого RC управление сотрудниками оставалось выключенным до подтверждения.
+Живые Telegram-нажатия и новый диалог тогда ещё не были приняты;
 этот smoke подтверждает установку и чтение, а не всю матрицу операций.
 Требуется Panels с iva-panels/v2 и dynamicPanels. Старые проверки задач не считаются
 проверкой новых полномочий. Stable 0.9.0 сохраняется.
@@ -160,4 +163,27 @@ Read-only postflight verified exact plugin artifacts, eight active services, thr
 health endpoints, the private chat socket and actual compiled MCP discovery fields.
 Iva doctor reported 31 ok, 0 warn/fail. Existing configuration and saved draft states
 were preserved. The operator sent no live card or invitation; human Telegram acceptance
-of the new chat-card presentation remains pending. Stable releases are unchanged.
+was pending at that read-only checkpoint. Stable releases are unchanged.
+
+## Сотрудники: проверенная связка
+
+| Компонент | Версия | Основание |
+| --- | --- | --- |
+| Bitrix-плагин | 0.10.0-rc.4 (`d254078`) | Установленные файлы сверены с проверенной сборкой |
+| Iva | Штатная 0.5.7 | Серверная диагностика и фактическая схема MCP |
+| Panels | 0.3.0-rc.2 | Приватный транспорт карточек и проверка установленного сервиса |
+| Канал | Личный Telegram-чат | Подтверждение владельца от 27 октября 2026 |
+
+После установки владелец проверил новый кадровый сценарий и сообщил, что он
+отработал корректно. Это пользовательское подтверждение работы обновлённого диалога
+и карточек; оператор не отправлял тестовые приглашения и не имитировал нажатия.
+
+Автоматически проверены 201 тест, настоящие MCP discovery/callTool, собранный Unix socket,
+очередь и read-back с синтетическим порталом. Отдельный общий транспорт карточек проверен
+на показ превью без записи, повторную доставку, привязку подтверждения и отсутствие
+повторного эффекта. Серверная проверка: 8 активных служб, 3 HTTP health, `iva doctor`
+с 31 успешной проверкой, без предупреждений и ошибок; настройки и состояния заявок сохранены.
+
+Подтверждение одного сценария не расширяет live-матрицу на каждую правку профиля,
+другие каналы, аварийное восстановление или доставку приглашения в почтовый ящик.
+Увольнение и изменение самих подразделений не реализованы. Stable остаётся 0.9.0.

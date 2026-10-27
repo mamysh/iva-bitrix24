@@ -114,7 +114,7 @@ candidateSha/hidden approvalToken. Новый check заменяет offer. TTL1
 Контракт, проверки владельца/ревизии и ограничения: [PLUGIN_SCREENS](PLUGIN_SCREENS.md).
 
 
-## Сотрудники (0.10.0-rc.1)
+## Сотрудники (0.10.0-rc.4)
 
 `bitrix24_employee_candidates`: kind=people|departments, ровно один query|id|email
 (email только для people), start=0 по умолчанию. Выдаёт items, nextStart, complete,
@@ -122,13 +122,16 @@ skipped, approximate, untrustedContent. Десять исходных запис
 требуют выбора владельцем. Полные пути до 12 уровней, scope/policy ошибки не маскируются
 заявлением «совпадений нет». Рабочий профиль/email должны быть разрешены.
 
-`bitrix24_employee_draft`: строгая discriminated schema по op.
+`bitrix24_employee_draft`: объектная схема MCP с явными op/fields. Обработчик
+дополнительно проверяет строгую discriminated schema конкретной операции.
 
 - collect: новая заявка action=invite|update и fields; изменение — draftId/version и fields,
   без action. Сохраняются остальные поля, старый snapshot инвалидируется.
 - fields: userId, name, lastName, email, position, departmentIds (1–5 уникальных ID),
   departmentMode=replace|add. Null снимает поле из заявки; position=null очищает должность.
 - preview: draftId/version, валидация полного запроса, точный снимок и summary. Writes нет.
+- present: draftId/version, показ сохранённого готового превью в текущем чате через
+  общий транспорт Panels. Возвращает chatCard.state; не подтверждает и не выполняет запись.
 - cancel: draftId/version, только collecting/ready, включая истёкшие заявки.
 - status: draftId, чистое чтение; возвращает state, поля, missing, summary и actual userId/code,
   когда доступны. Токены Panels, fingerprint и полный локальный журнал не возвращаются.
@@ -139,15 +142,15 @@ Preview и исполнение проверяют user/department; при за�
 Ни employee apply, ни произвольного REST-call нет. Финальный апрув: только private Panels RPC.
 [Полный контракт и обработка сбоев](EMPLOYEES.md), [ADR0014](adr/0014-employee-drafts-and-panels-approval.md).
 
-## 0.10.0-rc.2: карточки в чате
+### Представление и подтверждение
 
-Выбор подразделений возвращает rich-разметку: нумерованные варианты и полные пути
-в тексте, короткие кнопки «Отдел 1», «Отдел 2», «Отмена». Выбор не подтверждает запись.
-После preview Ива вызывает employee_draft op=present. Panels 0.3.0-rc.1 с dynamicPanels
-показывает проверенное превью сразу в личном чате, без переходов по каталогу.
-Panels служит общим транспортом кнопок; проверка прав, данных, очередь и REST остаются
-у Bitrix-плагина. Настоящее нажатие связано с владельцем, сообщением, revision и TTL.
-MCP apply не добавлен. При недоступной/неоднозначной доставке заявка сохраняется;
-повторная отправка автоматически не выполняется. Поддерживается один настроенный
-владелец Panels; неоднозначный адресат отклоняется. Panels 0.2.0 сохраняет старый
-каталог заявок для восстановления, но не умеет новый chat transport.
+Candidates дополнительно возвращает `presentation.markdown`, `options` и `pages`:
+полные пути в тексте, короткие кнопки «Отдел N», «Сотрудник N», «Отмена».
+Это выбор данных, не разрешение записи. Навык `bitrix24-employees` задаёт диалог.
+
+`present` обращается только к общему транспорту `iva-panels/chat-v1`; аргументы эффекта
+Panels получает от Bitrix socket при prepare. Адресат и идентификаторы кнопок не выбираются
+моделью. `chatCard.state`: `presented`, `already_presented`, `delivery_unknown` или
+`unavailable`. Неизвестная доставка не повторяется автоматически.
+Проверенная конфигурация — Panels 0.3.0-rc.2 с одним владельцем и dynamicPanels.
+[Сценарий и ограничения](EMPLOYEES.md) · [Карточки](PANELS.md).
