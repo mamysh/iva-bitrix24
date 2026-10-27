@@ -363,6 +363,42 @@ function loadConfig(env = process.env) {
   };
 }
 
+// server/src/employee-presentation.ts
+var richText = (v) => v.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replace(/([\\`*_{}\[\]()#+.!|~=-])/gu, "\\$1");
+function candidatePresentation(kind, items, complete) {
+  const noun = kind === "departments" ? "\u041E\u0442\u0434\u0435\u043B" : "\u0421\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A";
+  const options = items.map((v, i) => ({ id: String(v.id), label: `${noun} ${i + 1}`, reply: `\u0412\u044B\u0431\u0440\u0430\u0442\u044C ${kind === "departments" ? "\u043E\u0442\u0434\u0435\u043B" : "\u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430"} ID ${v.id}` }));
+  const groups = [{ lines: [], indices: [] }];
+  items.forEach((v, i) => {
+    const name = [v.name, v.lastName].filter(Boolean).join(" ");
+    const detail = v.path ?? [v.position, v.email].filter(Boolean).join(" \xB7 ");
+    const line = `${i + 1}. **${richText(name)}**
+${richText(detail)}`;
+    let group = groups.at(-1);
+    if (group.lines.length && group.lines.join("\n\n").length + line.length > 2800) {
+      group = { lines: [], indices: [] };
+      groups.push(group);
+    }
+    group.lines.push(line);
+    group.indices.push(i);
+  });
+  const pages = groups.map((group) => {
+    const selected = group.indices.map((i) => options[i]);
+    const buttons = selected.map((v) => `<tg-button type="callback_data" data="${v.reply}">${v.label}</tg-button>`);
+    const rows = [];
+    for (let i = 0; i < buttons.length; i += 2) rows.push(`<tg-button-row>${buttons.slice(i, i + 2).join("")}</tg-button-row>`);
+    return { markdown: `**${kind === "departments" ? "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0435\u043D\u0438\u0435" : "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430"}**
+
+${group.lines.join("\n\n") || "\u0412 \u044D\u0442\u043E\u0439 \u043F\u043E\u0440\u0446\u0438\u0438 \u0432\u0430\u0440\u0438\u0430\u043D\u0442\u043E\u0432 \u043D\u0435\u0442."}
+
+${complete ? "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0432\u0430\u0440\u0438\u0430\u043D\u0442. \u041D\u0435\u0434\u043E\u0441\u0442\u0430\u044E\u0449\u0438\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 \u043C\u043E\u0436\u043D\u043E \u043D\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u043C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435\u043C." : "\u041F\u043E\u0438\u0441\u043A \u0435\u0449\u0451 \u043D\u0435 \u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D. \u042D\u0442\u043E \u043D\u0430\u0439\u0434\u0435\u043D\u043D\u044B\u0435 \u0432\u0430\u0440\u0438\u0430\u043D\u0442\u044B; \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0435 \u043F\u043E\u0440\u0446\u0438\u0438."}
+
+${rows.join("\n")}
+<tg-button type="callback_data" data="\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C \u0432\u044B\u0431\u043E\u0440 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430">\u041E\u0442\u043C\u0435\u043D\u0430</tg-button>`, options: [...selected, { id: "cancel", label: "\u041E\u0442\u043C\u0435\u043D\u0430", reply: "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C \u0432\u044B\u0431\u043E\u0440 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430" }] };
+  });
+  return { ...pages[0], pages, choiceIsApproval: false };
+}
+
 // node_modules/zod/v4/classic/external.js
 var external_exports = {};
 __export(external_exports, {
@@ -20326,6 +20362,7 @@ var EmployeeDirectory = class {
     return {
       kind: input2.kind,
       items,
+      presentation: candidatePresentation(input2.kind, items, nextStart === null && skipped === 0),
       nextStart,
       complete: nextStart === null && skipped === 0,
       skipped,
@@ -20474,7 +20511,8 @@ var employeeDraftInputSchema = external_exports.discriminatedUnion("op", [
   ),
   external_exports.object({ op: external_exports.literal("preview"), draftId, version: revision }).strict(),
   external_exports.object({ op: external_exports.literal("cancel"), draftId, version: revision }).strict(),
-  external_exports.object({ op: external_exports.literal("status"), draftId }).strict()
+  external_exports.object({ op: external_exports.literal("status"), draftId }).strict(),
+  external_exports.object({ op: external_exports.literal("present"), draftId, version: revision }).strict()
 ]);
 var snapshotSchema = external_exports.object({
   before: personSchema.nullable(),
@@ -20633,7 +20671,7 @@ var EmployeeManager = class {
       ...draft.snapshot ? { summary: draft.snapshot.summary } : {},
       ...draft.userId ? { userId: draft.userId } : {},
       ...draft.code ? { code: draft.code } : {},
-      approval: draft.state === "ready" ? "\u041E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 /panels \u2192 Bitrix24 \u2192 \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u2192 \u0417\u0430\u044F\u0432\u043A\u0438 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432. \u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0437\u0430\u044F\u0432\u043A\u0443, \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043F\u0440\u0435\u0432\u044C\u044E \u0438 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u0435." : null,
+      approval: draft.state === "ready" ? "\u041F\u043E\u043A\u0430\u0436\u0438\u0442\u0435 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0443 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u044F \u0437\u0434\u0435\u0441\u044C \u0432 \u0447\u0430\u0442\u0435 \u0447\u0435\u0440\u0435\u0437 op=present. \u0412\u044B\u0431\u043E\u0440 \u043E\u0442\u0434\u0435\u043B\u0430 \u043D\u0435 \u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435\u043C \u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u044F." : null,
       untrustedContent: true
     };
   }
@@ -20674,6 +20712,7 @@ var EmployeeManager = class {
         return this.view(draft2);
       }
       const draft = this.get(doc, input2.draftId);
+      if (input2.op === "present" && draft.state !== "ready") throw new BitrixRequestError("EMPLOYEE_DRAFT_CHANGED");
       if (input2.op === "cancel") {
         if (!mutable(draft) || draft.version !== input2.version)
           throw new BitrixRequestError("EMPLOYEE_DRAFT_CHANGED");
@@ -20681,7 +20720,7 @@ var EmployeeManager = class {
       if (input2.op === "cancel") {
         draft.state = "cancelled";
         draft.version++;
-      } else {
+      } else if (input2.op !== "present") {
         if (this.missing(draft).length) return this.view(draft);
         await this.directory.scopes();
         await this.noConflict(doc, draft);
@@ -20689,7 +20728,7 @@ var EmployeeManager = class {
         draft.state = "ready";
         draft.version++;
       }
-      await this.save(doc);
+      if (input2.op !== "present") await this.save(doc);
       return this.view(draft);
     });
   }
@@ -20754,7 +20793,7 @@ var EmployeeManager = class {
         before ? names(before.departmentIds) : void 0
       );
     lines.push(
-      "\u041D\u0443\u0436\u043D\u044B \u043F\u0440\u0430\u0432\u0430 user \u0438 department \u0438 \u0440\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u0435 \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0430 \u0411\u0438\u0442\u0440\u0438\u043A\u044124. \u0410\u043F\u0440\u0443\u0432 \u043F\u0435\u0440\u0435\u0434\u0430\u0441\u0442 \u0437\u0430\u044F\u0432\u043A\u0443 \u0432 \u043E\u0447\u0435\u0440\u0435\u0434\u044C; \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E."
+      "\u041F\u043E\u0441\u043B\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u044F \u0437\u0430\u044F\u0432\u043A\u0430 \u043F\u043E\u0441\u0442\u0443\u043F\u0438\u0442 \u0432 \u043E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0443. \u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442 \u0432 \u0411\u0438\u0442\u0440\u0438\u043A\u0441\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u0438\u043C \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E."
     );
     const summary = lines.join("\n");
     if (summary.length > 1500)
@@ -21057,7 +21096,7 @@ function changePolicy(current, choice) {
 }
 
 // server/src/panels-api.ts
-var PANELS_VERSION = "0.10.0-rc.1";
+var PANELS_VERSION = "0.10.0-rc.2";
 var tokenSchema2 = external_exports.string().regex(/^[a-f0-9]{24}$/u);
 var revisionSchema = external_exports.number().int().min(0).max(999999999999);
 var envelope = { schema: external_exports.literal("iva-panels/rpc-v1"), plugin: external_exports.literal("bitrix24-read"), pluginVersion: external_exports.literal(PANELS_VERSION) };

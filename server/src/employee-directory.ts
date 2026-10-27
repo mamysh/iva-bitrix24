@@ -1,3 +1,4 @@
+import { candidatePresentation } from "./employee-presentation.ts";
 import { z } from "zod/v4";
 import { BitrixClient, BitrixRequestError } from "./bitrix-client.ts";
 import type { SettingsStore } from "./settings.ts";
@@ -295,6 +296,7 @@ export class EmployeeDirectory {
     return {
       kind: input.kind,
       items,
+      presentation: candidatePresentation(input.kind, items, nextStart === null && skipped === 0),
       nextStart,
       complete: nextStart === null && skipped === 0,
       skipped,

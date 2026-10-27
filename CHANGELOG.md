@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0-rc.2 — 2026-10-27 (предварительный выпуск)
+
+- Rich numbered employee choices with short department buttons.
+- Generic Panels chat transport presents final approval in the current owner chat.
+- Explicit present operation never applies a portal write; lost delivery is not replayed.
+
 Значимые пользовательские изменения этого проекта будут фиксироваться здесь.
 
 ## 0.10.0-rc.1 — 2026-10-26

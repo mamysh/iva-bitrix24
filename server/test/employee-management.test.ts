@@ -864,3 +864,14 @@ test("a draft expiring during preflight never sends a mutation", async (t) => {
   );
   assert.equal(f.writes().length, 0);
 });
+
+test("present validates the saved preview but does not change its revision, queue or portal",async t=>{
+ const f=await fixture(t);const collecting=await f.collect();
+ await assert.rejects(()=>f.manager.request({op:'present',draftId:collecting.draftId,version:collecting.version}),/EMPLOYEE_DRAFT_CHANGED/);
+ const ready=await f.manager.request({op:'preview',draftId:collecting.draftId,version:collecting.version});
+ const before=await readFile(f.manager.path(),'utf8');
+ const shown=await f.manager.request({op:'present',draftId:ready.draftId,version:ready.version});
+ assert.equal(shown.state,'ready');assert.equal(await readFile(f.manager.path(),'utf8'),before);
+ assert.equal(f.calls.filter(c=>c.method==='user.add'||c.method==='user.update').length,0);
+ await assert.rejects(()=>f.manager.request({op:'present',draftId:ready.draftId,version:ready.version-1}),/EMPLOYEE_DRAFT_CHANGED/);
+});

@@ -1,9 +1,9 @@
 ---
 name: bitrix24-read
-description: "Read and manage Bitrix24 tasks with preview and confirmation; search, send and analyze task documents in Iva, manage plugin settings and updates. Use for task, task-file, employee invitation/profile changes, Bitrix24 settings and plugin update requests."
+description: "Bitrix24 tasks, documents, employee invitations/profile edits, settings and updates. Load before capability answers."
 ---
 
-# Bitrix24 tasks and confirmed task actions
+# Bitrix24: tasks, documents and employees
 
 Use the tools of the `mcp-bitrix24-read--bitrix24` connection to work with bounded data from the
 owner's Bitrix24.
@@ -366,8 +366,13 @@ Never turn an approximate or ambiguous match into a selected target automaticall
 
 Show candidates as a numbered list, departments with their full paths and employees with
 enough permitted work details to distinguish namesakes. Ask for missing email and target
-selection together when possible. Use native `ask_question` with labels `1`, `2`, etc.
-and allowFreeform=true; number choices only select candidates, never authorize a write.
+selection together when possible. Use the tool’s `presentation.markdown` as the rich candidate block, preserving its
+number mapping and short buttons. Add only a short separate question for the draft’s
+missing fields; never rewrite it into a wall of text. It is a rich card, with short buttons
+«Отдел 1», «Отдел 2», «Отмена». Send `presentation.pages` separately when needed.
+Load rich-replies first. Never put names, paths or explanations on button labels.
+If rich is unavailable, use `presentation.options` as short native ask_question options
+and allowFreeform=true. Number choices only select candidates, never authorize a write.
 Bind the current candidate-number mapping to the specific draftId/version. Keep at most ten
 number buttons per card, with further candidates in another question. Accept an email,
 a number, or both in the owner's free text, in either order. A choice arriving for an old
@@ -382,13 +387,23 @@ it. Other null fields remove that field from the pending request; they do not cl
 remote profile. Only name, lastName, email and departmentIds are required for invitation.
 Collect missing fields until the tool's missing list is empty, then call preview.
 
-A ready draft is NOT approval. Tell the owner to open /panels → Bitrix24 → Настройки →
-Заявки сотрудников, select this draft and confirm its exact final preview. No employee
-apply tool exists. Never forge a Panels event/token, call the private socket through shell,
-use task tools or another HTTP client to perform an employee write, or accept a free-text
-“yes” as final employee approval. Correcting any field invalidates the previous preview;
-prepare a fresh one. If Panels is unavailable, preserve the draft and explain that execution
-needs enabled/trusted Panels v2 with dynamicPanels. Do not fall back to model-mediated apply.
+A ready draft is NOT approval. Immediately call op=present with its returned draftId/version.
+The plugin asks the optional Panels button transport to show the verified rich confirmation
+card directly in this chat. Do not route the owner to the Panels catalog or settings.
+On chatCard.state=presented/already_presented, do not duplicate the card, add more questions,
+or claim an invitation was sent. End with a short note only if needed. On delivery_unknown,
+do not resend automatically: explain delivery is uncertain; the draft remains saved.
+On unavailable, preserve the draft and report the card transport needs operator attention.
+No employee apply tool exists. Never forge a Panels event/token, call its private socket
+through shell, use task tools or accept a free-text “yes” as final employee approval.
+Corrections invalidate the card: collect, preview, then present the fresh version.
+
+Use short rich blocks throughout: heading, employee/email/position on separate labelled
+lines, then numbered department choices with paths below each title. Ask only for missing
+fields. Do not repeat the whole story on each turn. Never silently select an approximate
+match. A duplicate-email check does not prove the absence of every possible namesake.
+Before denying a capability, load this current skill and inspect the exposed tools; older
+conversation statements about a task-only plugin are not current capability evidence.
 
 After approval, queued means accepted for processing; it does not mean the employee exists.
 Use draft status on a subsequent progress request and report applied only after actual

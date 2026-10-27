@@ -61,6 +61,7 @@ export const employeeDraftInputSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("preview"), draftId, version: revision }).strict(),
   z.object({ op: z.literal("cancel"), draftId, version: revision }).strict(),
   z.object({ op: z.literal("status"), draftId }).strict(),
+  z.object({ op: z.literal("present"), draftId, version: revision }).strict(),
 ]);
 const snapshotSchema = z
   .object({
@@ -246,7 +247,7 @@ export class EmployeeManager {
       ...(draft.code ? { code: draft.code } : {}),
       approval:
         draft.state === "ready"
-          ? "Откройте /panels → Bitrix24 → Настройки → Заявки сотрудников. Выберите заявку, проверьте превью и подтвердите."
+          ? "Покажите карточку подтверждения здесь в чате через op=present. Выбор отдела не является подтверждением приглашения."
           : null,
       untrustedContent: true,
     };
@@ -293,6 +294,7 @@ export class EmployeeManager {
         return this.view(draft);
       }
       const draft = this.get(doc, input.draftId);
+      if (input.op === "present" && draft.state !== "ready") throw new BitrixRequestError("EMPLOYEE_DRAFT_CHANGED");
       if (input.op === "cancel") {
         if (!mutable(draft) || draft.version !== input.version)
           throw new BitrixRequestError("EMPLOYEE_DRAFT_CHANGED");
@@ -300,7 +302,7 @@ export class EmployeeManager {
       if (input.op === "cancel") {
         draft.state = "cancelled";
         draft.version++;
-      } else {
+      } else if (input.op !== "present") {
         if (this.missing(draft).length) return this.view(draft);
         await this.directory.scopes();
         await this.noConflict(doc, draft);
@@ -308,7 +310,7 @@ export class EmployeeManager {
         draft.state = "ready";
         draft.version++;
       }
-      await this.save(doc);
+      if (input.op !== "present") await this.save(doc);
       return this.view(draft);
     });
   }
@@ -391,7 +393,7 @@ export class EmployeeManager {
         before ? names(before.departmentIds) : undefined,
       );
     lines.push(
-      "Нужны права user и department и разрешение аккаунта Битрикс24. Апрув передаст заявку в очередь; результат проверяется отдельно.",
+      "После подтверждения заявка поступит в обработку. Результат в Битриксе проверим отдельно.",
     );
     const summary = lines.join("\n");
     if (summary.length > 1500)
