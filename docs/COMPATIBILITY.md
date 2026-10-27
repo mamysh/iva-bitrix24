@@ -149,3 +149,8 @@ MCP apply не добавлен. При недоступной/неоднозн�
 повторная отправка автоматически не выполняется. Поддерживается один настроенный
 владелец Panels; неоднозначный адресат отклоняется. Panels 0.2.0 сохраняет старый
 каталог заявок для восстановления, но не умеет новый chat transport.
+
+RC4 additionally checks the actual compiled MCP discovery schema: employee_draft exposes
+op, action, draftId, version and fields from an object-root schema. A discriminated union
+at the root previously advertised an empty object despite accepting direct calls. Strict
+operation-specific validation remains in the handler; malformed combinations still fail.

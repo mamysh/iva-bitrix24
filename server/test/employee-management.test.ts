@@ -639,6 +639,9 @@ test("actual MCP discovers strict draft schema, collects across calls, rejects a
   });
   const tools = (await client.listTools()).tools;
   assert.ok(tools.some((t) => t.name === "bitrix24_employee_draft"));
+  const draftSchema=tools.find(t=>t.name==="bitrix24_employee_draft")!.inputSchema as unknown as {properties:{op:{enum:string[]};fields:unknown}};
+  assert.deepEqual(draftSchema.properties.op.enum,["collect","preview","present","cancel","status"]);
+  assert.ok(draftSchema.properties.fields);
   assert.ok(
     !tools.some((t) => /employee.*apply|apply.*employee/u.test(t.name)),
   );

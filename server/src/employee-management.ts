@@ -63,6 +63,13 @@ export const employeeDraftInputSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("status"), draftId }).strict(),
   z.object({ op: z.literal("present"), draftId, version: revision }).strict(),
 ]);
+// MCP discovery requires an object at the root. The strict union above still
+// validates operation-specific required/forbidden fields before any side effect.
+export const employeeDraftToolSchema = z.object({
+  op:z.enum(["collect","preview","present","cancel","status"]),
+  action:z.enum(["invite","update"]).optional(),
+  draftId:draftId.optional(),version:revision.optional(),fields:fieldsSchema.optional(),
+}).strict();
 const snapshotSchema = z
   .object({
     before: personSchema.nullable(),

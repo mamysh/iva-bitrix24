@@ -1,3 +1,4 @@
+import { employeeDraftToolSchema } from "./employee-management.ts";
 import { EmployeeManager, employeeDraftInputSchema } from "./employee-management.ts";
 import { EmployeeDirectory, employeeLookupSchema } from "./employee-directory.ts";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -276,7 +277,7 @@ export function createMcpServer(
   files: FileReaderPort | null = null,
   writer: Pick<TaskWriter, "prepare" | "apply" | "cancel" | "status" | "stages"> | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.10.0-rc.3" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.10.0-rc.4" });
   registerUpdaterTools(server, updater);
   if (writer) {
     server.registerTool("bitrix24_project_stages", {
@@ -655,10 +656,10 @@ export function registerEmployeeTools(server: McpServer, employees: EmployeeMana
   }, input => safe(() => directory.lookup(input)));
   server.registerTool("bitrix24_employee_draft", {
     description: "Collect an employee invitation or bounded profile update across turns. Persist only fields supplied or explicitly selected by this owner. New collect needs action; edits need draftId/version and preserve other fields. Ask for missing data, clarify ambiguous names and department replace/add. Preview validates the complete request but performs NO portal write. Corrections invalidate preview. After preview, call op=present with the returned draftId/version to display the final rich confirmation card directly here in chat. The Panels button transport handles actual clicks; never send the owner through its catalog. Final approval is ONLY the real card confirmation. Never emulate its socket/callback or use task actions/shell to apply. Status reads actual outcome; queued is not success. No automatic retries for unknown outcomes. Dismissal and department mutations are not implemented in this version.",
-    inputSchema: employeeDraftInputSchema,
+    inputSchema: employeeDraftToolSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   }, input => safe(async () => {
-    const result=await employees.request(input);
+    const result=await employees.request(employeeDraftInputSchema.parse(input));
     if(input.op!=="present")return result;
     if(!present)return {...result,chatCard:{state:"unavailable"},approval:"Карточка сейчас недоступна. Заявка сохранена; приглашение не отправлено."};
     try{const chatCard=await present(result.draftId,result.version);return {...result,chatCard,approval:chatCard.state==="delivery_unknown" ? "Доставка карточки не подтверждена. Не отправляйте её повторно автоматически; заявка сохранена." : "Карточка доступна в этом чате. Дождитесь настоящего нажатия; принятие в очередь не равно успеху на портале."};}

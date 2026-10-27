@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.0-rc.4 — 2026-10-27 (предварительный выпуск)
+
+- Expose employee draft operation/fields through an object-root MCP schema; strict operation validation remains in the handler.
+
 ## 0.10.0-rc.3 — 2026-10-27 (предварительный выпуск)
 
 - Focused employee skill replaces the long task workflow for employee requests and supersedes old catalog-navigation instructions.

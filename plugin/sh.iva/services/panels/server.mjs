@@ -20514,6 +20514,13 @@ var employeeDraftInputSchema = external_exports.discriminatedUnion("op", [
   external_exports.object({ op: external_exports.literal("status"), draftId }).strict(),
   external_exports.object({ op: external_exports.literal("present"), draftId, version: revision }).strict()
 ]);
+var employeeDraftToolSchema = external_exports.object({
+  op: external_exports.enum(["collect", "preview", "present", "cancel", "status"]),
+  action: external_exports.enum(["invite", "update"]).optional(),
+  draftId: draftId.optional(),
+  version: revision.optional(),
+  fields: fieldsSchema.optional()
+}).strict();
 var snapshotSchema = external_exports.object({
   before: personSchema.nullable(),
   departments: external_exports.array(departmentSchema).max(100),
@@ -21096,7 +21103,7 @@ function changePolicy(current, choice) {
 }
 
 // server/src/panels-api.ts
-var PANELS_VERSION = "0.10.0-rc.3";
+var PANELS_VERSION = "0.10.0-rc.4";
 var tokenSchema2 = external_exports.string().regex(/^[a-f0-9]{24}$/u);
 var revisionSchema = external_exports.number().int().min(0).max(999999999999);
 var envelope = { schema: external_exports.literal("iva-panels/rpc-v1"), plugin: external_exports.literal("bitrix24-read"), pluginVersion: external_exports.literal(PANELS_VERSION) };

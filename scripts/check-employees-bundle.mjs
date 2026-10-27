@@ -114,6 +114,11 @@ try {
   const [left, right] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(right), client.connect(left)]);
   const tools = (await client.listTools()).tools;
+  const draftSchema=tools.find(t=>t.name==="bitrix24_employee_draft").inputSchema;
+  assert.equal(draftSchema.type,"object");
+  assert.deepEqual(draftSchema.properties.op.enum,["collect","preview","present","cancel","status"]);
+  assert.ok(draftSchema.properties.fields.properties.departmentIds);
+
   assert.ok(tools.some((t) => t.name === "bitrix24_employee_draft"));
   assert.ok(
     !tools.some((t) => /employee.*apply|apply.*employee/u.test(t.name)),

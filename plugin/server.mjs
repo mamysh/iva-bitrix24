@@ -27767,6 +27767,13 @@ var employeeDraftInputSchema = external_exports.discriminatedUnion("op", [
   external_exports.object({ op: external_exports.literal("status"), draftId }).strict(),
   external_exports.object({ op: external_exports.literal("present"), draftId, version: revision }).strict()
 ]);
+var employeeDraftToolSchema = external_exports.object({
+  op: external_exports.enum(["collect", "preview", "present", "cancel", "status"]),
+  action: external_exports.enum(["invite", "update"]).optional(),
+  draftId: draftId.optional(),
+  version: revision.optional(),
+  fields: fieldsSchema.optional()
+}).strict();
 var snapshotSchema = external_exports.object({
   before: personSchema.nullable(),
   departments: external_exports.array(departmentSchema).max(100),
@@ -39805,7 +39812,7 @@ function registerSettingsTool(server, menu) {
   }, (input2) => safe(() => menu.run(input2)));
 }
 function createMcpServer(reader, updater = null, files = null, writer = null) {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.10.0-rc.3" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.10.0-rc.4" });
   registerUpdaterTools(server, updater);
   if (writer) {
     server.registerTool("bitrix24_project_stages", {
@@ -40117,10 +40124,10 @@ function registerEmployeeTools(server, employees, directory, present) {
   }, (input2) => safe2(() => directory.lookup(input2)));
   server.registerTool("bitrix24_employee_draft", {
     description: "Collect an employee invitation or bounded profile update across turns. Persist only fields supplied or explicitly selected by this owner. New collect needs action; edits need draftId/version and preserve other fields. Ask for missing data, clarify ambiguous names and department replace/add. Preview validates the complete request but performs NO portal write. Corrections invalidate preview. After preview, call op=present with the returned draftId/version to display the final rich confirmation card directly here in chat. The Panels button transport handles actual clicks; never send the owner through its catalog. Final approval is ONLY the real card confirmation. Never emulate its socket/callback or use task actions/shell to apply. Status reads actual outcome; queued is not success. No automatic retries for unknown outcomes. Dismissal and department mutations are not implemented in this version.",
-    inputSchema: employeeDraftInputSchema,
+    inputSchema: employeeDraftToolSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
   }, (input2) => safe2(async () => {
-    const result = await employees.request(input2);
+    const result = await employees.request(employeeDraftInputSchema.parse(input2));
     if (input2.op !== "present") return result;
     if (!present) return { ...result, chatCard: { state: "unavailable" }, approval: "\u041A\u0430\u0440\u0442\u043E\u0447\u043A\u0430 \u0441\u0435\u0439\u0447\u0430\u0441 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430. \u0417\u0430\u044F\u0432\u043A\u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0430; \u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u0435 \u043D\u0435 \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E." };
     try {
@@ -41910,7 +41917,7 @@ function settingsFromEnvironment(env) {
 
 // server/src/main.ts
 function unavailableServer(error62, updater, settings) {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.10.0-rc.3" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.10.0-rc.4" });
   registerUpdaterTools(server, updater);
   registerSettingsTool(server, new SettingsMenu(settings, { configured: false }));
   server.registerTool(
