@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.0-rc.3 — 2026-10-27 (предварительный выпуск)
+
+- Focused employee skill replaces the long task workflow for employee requests and supersedes old catalog-navigation instructions.
+
 ## 0.10.0-rc.2 — 2026-10-27 (предварительный выпуск)
 
 - Rich numbered employee choices with short department buttons.

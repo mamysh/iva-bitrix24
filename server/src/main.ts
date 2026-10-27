@@ -29,7 +29,7 @@ function unavailableServer(
   updater: PluginUpdaterPort | null,
   settings: SettingsStore,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.10.0-rc.2" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.10.0-rc.3" });
   registerUpdaterTools(server, updater);
   registerSettingsTool(server, new SettingsMenu(settings, { configured: false }));
   server.registerTool(
