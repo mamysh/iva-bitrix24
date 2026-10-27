@@ -154,3 +154,10 @@ RC4 additionally checks the actual compiled MCP discovery schema: employee_draft
 op, action, draftId, version and fields from an object-root schema. A discriminated union
 at the root previously advertised an empty object despite accepting direct calls. Strict
 operation-specific validation remains in the handler; malformed combinations still fail.
+
+RC4 with Panels 0.3.0-rc.2 was installed on stock Iva 0.5.7 on 27 October 2026.
+Read-only postflight verified exact plugin artifacts, eight active services, three HTTP
+health endpoints, the private chat socket and actual compiled MCP discovery fields.
+Iva doctor reported 31 ok, 0 warn/fail. Existing configuration and saved draft states
+were preserved. The operator sent no live card or invitation; human Telegram acceptance
+of the new chat-card presentation remains pending. Stable releases are unchanged.
