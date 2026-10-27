@@ -102,6 +102,7 @@ const PERMISSIONS = {
     nameRu: "Пользователи (базовые)",
     purpose: "рабочий профиль сотрудника, включая email; телефоны плагин не запрашивает",
   },
+  user: { nameRu: "Пользователи", purpose: "только для включённых приглашений и изменения профиля сотрудников" },
   department: { nameRu: "Структура компании", purpose: "названия подразделений" },
   disk: { nameRu: "Диск", purpose: "метаданные доступных вложений" },
 } as const;
@@ -216,6 +217,7 @@ export class ReadCapabilityReader {
             : "Names, positions and departments are available; email requires user_basic.",
         },
         departments: block(["department"], granted.has("department")),
+        employeeManagement: block(["user", "department"], granted.has("user") && granted.has("department"), "Invitation and profile updates additionally require explicit employee-management opt-in, work profiles/email, confirmed-write mode and final approval through trusted Panels. Scopes do not prove account permissions."),
         taskActions: block(["task", "user_brief"], granted.has("task") && hasUsers,
           "Scope availability only; private plugin data, a fresh preview, confirmation and employee rights are also required."),
         taskChatActions: block(["task", "user_brief", "im"], granted.has("task") && hasUsers && granted.has("im")),

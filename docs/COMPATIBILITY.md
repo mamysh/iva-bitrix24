@@ -3,6 +3,9 @@
 Compatibility is claimed only for combinations that are exercised by automated checks or an
 explicit live smoke test.
 
+Актуальный кадровый сценарий: **0.10.0-rc.4 + Iva 0.5.7 + Panels 0.3.0-rc.2**.
+[Подтверждение владельца и границы проверки](#сотрудники-проверенная-связка).
+
 | Component | Version or mode | Evidence | Status |
 | --- | --- | --- | --- |
 | Iva | 0.3.34 | historical MCP lifecycle without the current native button flow | legacy; current button flow not supported |
@@ -115,3 +118,72 @@ exact reply guards/replacement/native fallback. Проверяется actual MC
 Матрица Panels закреплена на штатных 0.4.11/0.4.12/0.4.14; управление плагинами
 доступно только на проверенных exact SHA 0.4.12/0.4.14. Свежий ручной v2 confirm
 на рабочем сервере и полная live-матрица операций записи не проверены.
+
+
+## 0.10.0-rc.1: сотрудники (история первого RC)
+
+Локальные синтетические тесты проверяют диалоговые черновики, approximate lookup,
+подтверждение через настоящий Unix socket, очередь/intent/replay и read-back с fake Bitrix.
+Настоящий MCP client проверяет discovery и callTool; compiled bundle проверяется отдельно.
+27 октября 2026 RC установлен на Iva 0.5.7 (тот же upstream commit, штатная
+пересборка состава). Проверены активные службы, HTTP health, read-only doctor
+(31 ok, 0 warn/fail), discovery новых MCP tools и чтение рабочих Panels socket-экранов.
+На этапе первого RC управление сотрудниками оставалось выключенным до подтверждения.
+Живые Telegram-нажатия и новый диалог тогда ещё не были приняты;
+этот smoke подтверждает установку и чтение, а не всю матрицу операций.
+Требуется Panels с iva-panels/v2 и dynamicPanels. Старые проверки задач не считаются
+проверкой новых полномочий. Stable 0.9.0 сохраняется.
+
+Финальный локальный gate: 198 тестов, typecheck, stdio discovery/callTool и полный
+compiled MCP + Unix socket workflow с синтетическим Bitrix; npm audit — 0 уязвимостей.
+Отдельно пройден реальный generic client/provider Panels 0.2.0 с собранным плагином:
+навигация, предложение, confirm, квитанция принятия и чтение результата. Это локальная
+проверка протокола, не живой Telegram/Bridge smoke на установленной Иве.
+
+## 0.10.0-rc.2: карточки в чате
+
+Выбор подразделений возвращает rich-разметку: нумерованные варианты и полные пути
+в тексте, короткие кнопки «Отдел 1», «Отдел 2», «Отмена». Выбор не подтверждает запись.
+После preview Ива вызывает employee_draft op=present. Panels 0.3.0-rc.1 с dynamicPanels
+показывает проверенное превью сразу в личном чате, без переходов по каталогу.
+Panels служит общим транспортом кнопок; проверка прав, данных, очередь и REST остаются
+у Bitrix-плагина. Настоящее нажатие связано с владельцем, сообщением, revision и TTL.
+MCP apply не добавлен. При недоступной/неоднозначной доставке заявка сохраняется;
+повторная отправка автоматически не выполняется. Поддерживается один настроенный
+владелец Panels; неоднозначный адресат отклоняется. Panels 0.2.0 сохраняет старый
+каталог заявок для восстановления, но не умеет новый chat transport.
+
+RC4 additionally checks the actual compiled MCP discovery schema: employee_draft exposes
+op, action, draftId, version and fields from an object-root schema. A discriminated union
+at the root previously advertised an empty object despite accepting direct calls. Strict
+operation-specific validation remains in the handler; malformed combinations still fail.
+
+RC4 with Panels 0.3.0-rc.2 was installed on stock Iva 0.5.7 on 27 October 2026.
+Read-only postflight verified exact plugin artifacts, eight active services, three HTTP
+health endpoints, the private chat socket and actual compiled MCP discovery fields.
+Iva doctor reported 31 ok, 0 warn/fail. Existing configuration and saved draft states
+were preserved. The operator sent no live card or invitation; human Telegram acceptance
+was pending at that read-only checkpoint. Stable releases are unchanged.
+
+## Сотрудники: проверенная связка
+
+| Компонент | Версия | Основание |
+| --- | --- | --- |
+| Bitrix-плагин | 0.10.0-rc.4 (`d254078`) | Установленные файлы сверены с проверенной сборкой |
+| Iva | Штатная 0.5.7 | Серверная диагностика и фактическая схема MCP |
+| Panels | 0.3.0-rc.2 | Приватный транспорт карточек и проверка установленного сервиса |
+| Канал | Личный Telegram-чат | Подтверждение владельца от 27 октября 2026 |
+
+После установки владелец проверил новый кадровый сценарий и сообщил, что он
+отработал корректно. Это пользовательское подтверждение работы обновлённого диалога
+и карточек; оператор не отправлял тестовые приглашения и не имитировал нажатия.
+
+Автоматически проверены 201 тест, настоящие MCP discovery/callTool, собранный Unix socket,
+очередь и read-back с синтетическим порталом. Отдельный общий транспорт карточек проверен
+на показ превью без записи, повторную доставку, привязку подтверждения и отсутствие
+повторного эффекта. Серверная проверка: 8 активных служб, 3 HTTP health, `iva doctor`
+с 31 успешной проверкой, без предупреждений и ошибок; настройки и состояния заявок сохранены.
+
+Подтверждение одного сценария не расширяет live-матрицу на каждую правку профиля,
+другие каналы, аварийное восстановление или доставку приглашения в почтовый ящик.
+Увольнение и изменение самих подразделений не реализованы. Stable остаётся 0.9.0.

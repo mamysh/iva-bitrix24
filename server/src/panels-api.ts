@@ -1,3 +1,4 @@
+import type { EmployeeManager } from "./employee-management.ts";
 import { readFile, readdir, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod/v4";
@@ -5,13 +6,13 @@ import { BitrixRequestError } from "./bitrix-client.ts";
 import { changePolicy, policySummary, settingsChoices, type Choice } from "./settings-menu.ts";
 import { SettingsStore, panelsReceiptSchema, policySchema, withPolicyLock, writePrivateJson } from "./settings.ts";
 
-export const PANELS_VERSION = "0.9.0";
+export const PANELS_VERSION = "0.10.0-rc.4";
 const tokenSchema = z.string().regex(/^[a-f0-9]{24}$/u);
 const revisionSchema = z.number().int().min(0).max(999999999999);
 const envelope = { schema: z.literal("iva-panels/rpc-v1"), plugin: z.literal("bitrix24-read"), pluginVersion: z.literal(PANELS_VERSION) };
 export const panelsRequestSchema = z.discriminatedUnion("op", [
-  z.object({ ...envelope, op: z.literal("read"), page: z.enum(["home", "actions", "privacy"]) }).strict(),
-  z.object({ ...envelope, op: z.literal("prepare"), action: z.enum(settingsChoices.map(value => value.replaceAll("_", "-")) as [string, ...string[]]), revision: revisionSchema, token: tokenSchema }).strict(),
+  z.object({ ...envelope, op: z.literal("read"), page: z.string().regex(/^(?:home|actions|privacy|employees(?:-[0-9]{1,3})?)$/u) }).strict(),
+  z.object({ ...envelope, op: z.literal("prepare"), action: z.union([z.enum(settingsChoices.map(value => value.replaceAll("_", "-")) as [string, ...string[]]), z.string().regex(/^emp-[a-f0-9]{16}$/u)]), revision: revisionSchema, token: tokenSchema }).strict(),
   ...(["confirm", "cancel", "status"] as const).map(op => z.object({ ...envelope, op: z.literal(op), token: tokenSchema }).strict()),
 ]);
 const offerSchema = z.object({ token: tokenSchema, revision: revisionSchema, action: z.string(), identity: z.string(), createdAt: z.number().finite(), expiresAt: z.number().finite(), policy: policySchema, summary: z.string().min(1).max(1500), cancelled: z.boolean().optional() }).strict();
@@ -22,11 +23,12 @@ const doneMessage = "Настройки сохранены. Предыдущее
 const cancelled = (o: Offer) => ({ state: "cancelled" as const, token: o.token, revision: o.revision, message: "Изменение отменено или предложение устарело. Откройте настройки заново." });
 const proposal = (o: Offer) => ({ state: "offer" as const, token: o.token, revision: o.revision, expiresAt: o.expiresAt, summary: o.summary });
 
-/** Plugin-owned local settings only; no portal calls, MCP sessions or Telegram credentials. */
+/** Private settings and employee queue approval; no inline portal writes or Telegram credentials. */
 export class PanelsSettings {
   readonly store: SettingsStore;
   readonly now: () => number;
-  constructor(store: SettingsStore, now = Date.now) { this.store = store; this.now = now; }
+  readonly employees: EmployeeManager | undefined;
+  constructor(store: SettingsStore, now = Date.now, employees?: EmployeeManager) { this.store = store; this.now = now; this.employees = employees; }
   directory() {
     if (!this.store.data) throw new BitrixRequestError("SETTINGS_NOT_CONFIGURED");
     this.store.path("settings.json");
@@ -64,6 +66,15 @@ export class PanelsSettings {
   }
   async request(raw: unknown) {
     const input = panelsRequestSchema.parse(raw);
+    if (this.employees) {
+      if (input.op === "read" && input.page.startsWith("employees")) return { ...envelopeValues(), result: await this.employees.screen(Number(input.page.split("-")[1] ?? 0)) };
+      if (input.op === "prepare" && input.action.startsWith("emp-")) return { ...envelopeValues(), result: await withPolicyLock(this.store.data, () => this.employees!.panels(input)) };
+      if (["confirm", "cancel", "status"].includes(input.op) && "token" in input && await this.employees.hasToken(input.token)) {
+        const employeeInput = input as { op: "confirm" | "cancel" | "status"; token: string };
+        const result = input.op === "status" ? await this.employees.panels(employeeInput) : await withPolicyLock(this.store.data, () => this.employees!.panels(employeeInput));
+        return { ...envelopeValues(), result };
+      }
+    }
     let result: unknown;
     if (input.op === "read") result = await this.screen(input.page);
     else if (input.op === "status") {
@@ -111,14 +122,14 @@ export class PanelsSettings {
     });
     return { ...envelopeValues(), result };
   }
-  async screen(page: "home" | "actions" | "privacy") {
+  async screen(page: string) {
     const settings = await this.store.read();
     revisionSchema.parse(settings.revision);
     const p = settings.policy;
     const action = (label: string, choice: Choice) => ({ label, action: choice.replaceAll("_", "-") });
     const home = [{ label: "‹ Настройки Bitrix24", target: "home" }];
-    if (page === "home") return { state: "screen", revision: settings.revision, title: "Настройки Bitrix24", body: `${policySummary(p)}\n\nИзменения сохраняются после превью и подтверждения. Они не меняют права webhook. Проверка подключения и прав доступна в обычном меню Bitrix24.`, rows: [[{ label: "Действия", target: "actions" }, { label: "Данные сотрудников", target: "privacy" }]] };
-    if (page === "actions") return { state: "screen", revision: settings.revision, title: "Действия Bitrix24", body: `${policySummary(p)}\n\nЧтение: без изменений на портале. Запись: каждое действие через превью и подтверждение. Загрузка и удаление доступны только в режиме записи. Скачивание относится к чтению.`, rows: [[action("Только чтение", "read"), action("Запись с подтверждением", "write")], [action(p.uploads ? "Выключить загрузку" : "Разрешить загрузку", p.uploads ? "upload_off" : "upload_on"), action(p.deletions ? "Выключить удаление" : "Разрешить удаление", p.deletions ? "delete_off" : "delete_on")], home] };
+    if (page === "home") return { state: "screen", revision: settings.revision, title: "Настройки Bitrix24", body: `${policySummary(p)}\n\nИзменения сохраняются после превью и подтверждения. Они не меняют права webhook. Проверка подключения и прав доступна в обычном меню Bitrix24.`, rows: [[{ label: "Действия", target: "actions" }, { label: "Данные сотрудников", target: "privacy" }], ...(this.employees ? [[{ label: "Заявки сотрудников", target: "employees" }]] : [])] };
+    if (page === "actions") return { state: "screen", revision: settings.revision, title: "Действия Bitrix24", body: `${policySummary(p)}\n\nЧтение: без изменений на портале. Запись: каждое действие через превью и подтверждение. Загрузка и удаление доступны только в режиме записи. Скачивание относится к чтению.`, rows: [[action("Только чтение", "read"), action("Запись с подтверждением", "write")], [action(p.uploads ? "Выключить загрузку" : "Разрешить загрузку", p.uploads ? "upload_off" : "upload_on"), action(p.deletions ? "Выключить удаление" : "Разрешить удаление", p.deletions ? "delete_off" : "delete_on")], [action(p.employees ? "Выключить управление сотрудниками" : "Разрешить управление сотрудниками", p.employees ? "employees_off" : "employees_on")], home] };
     return { state: "screen", revision: settings.revision, title: "Данные сотрудников", body: `${policySummary(p)}\n\nID: без имён. Имена: ID и имя. Рабочий профиль: имя, должность и подразделения. Email требует рабочего профиля и прав webhook. Настройка ограничивает структурированные поля, но не обезличивает тексты задач, обсуждений и документов. Уже полученные сообщения и память Ивы не очищаются.`, rows: [[action("Только ID", "ids"), action("ID и имена", "names")], [action("Рабочий профиль", "work")], ...(p.people === "work" ? [[action(p.email ? "Скрыть email" : "Разрешить email", p.email ? "email_off" : "email_on")]] : []), home] };
   }
 }

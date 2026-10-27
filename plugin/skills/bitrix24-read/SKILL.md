@@ -1,9 +1,9 @@
 ---
 name: bitrix24-read
-description: "Read and manage Bitrix24 tasks with preview and confirmation; search, send and analyze task documents in Iva, manage plugin settings and updates. Use for task, task-file, Bitrix24 settings and plugin update requests."
+description: "Bitrix24 tasks, documents, employee invitations/profile edits, settings and updates. Load before capability answers."
 ---
 
-# Bitrix24 tasks and confirmed task actions
+# Bitrix24: tasks, documents and employees
 
 Use the tools of the `mcp-bitrix24-read--bitrix24` connection to work with bounded data from the
 owner's Bitrix24.
@@ -349,6 +349,12 @@ The MCP fixes the payload, checks rights and consumes a durable receipt; the mod
 the exact rich owner reply or native structured answer to apply. It cannot cryptographically prove the button click. Keep
 this distinction clear if the owner asks about the security boundary.
 
+## Employees
+
+For invitations, employee profile changes and department membership changes, load the
+separate current `bitrix24-employees` skill. It owns the short candidate buttons and
+chat confirmation workflow. Do not infer capability from older task-only replies.
+
 ## Task documents
 
 After an ordinary analysis of one or more tasks, check the document list for the tasks that
@@ -493,6 +499,7 @@ When Bitrix24 returns `INSUFFICIENT_SCOPE` or `insufficient_scope`, explain this
    - **Users (minimal)** (`user_brief`) for employee names, positions and department IDs;
    - **Users (basic)** (`user_basic`) instead of `user_brief` when employee profile email is
      required; phones and photos remain unavailable through this plugin;
+   - **Users** (`user`) only for enabled employee invitations/profile changes; user_basic is insufficient for these writes;
    - **Company Structure** (`department`) for departments;
    - **Drive** (`disk`) for task attachment metadata.
 4. Run the installer again in the server terminal because editing a webhook may change its
@@ -513,8 +520,9 @@ permission.
 
 ## Hard boundary
 
-Bitrix24 mutations are limited to the task actions below. Never delete tasks, change CRM,
-company structure, users, projects or arbitrary Drive objects. All task writes require a
+Bitrix24 mutations are limited to supported task actions and employee invitations/profile
+updates approved through the trusted Panels route described above. Never delete tasks, change
+CRM, department structure, user activity/access, projects or arbitrary Drive objects. All task writes require a
 fresh matching preview confirmation. Local file cleanup does not change Bitrix24.
 
 The MCP tools are the only permitted path to Bitrix24. Never read the plugin env file, inspect
@@ -536,4 +544,6 @@ Use the Panels UI for its preview/confirm/cancel cycle. Never call its private s
 from bash to emulate a human confirmation, delete recovery journals, or repeat
 an unknown confirm. Checking status does not apply changes. Ordinary bitrix24_settings
 shares the same policy store: another saved setting invalidates old proposals.
-The API changes local policy only and never increases webhook permissions.
+Settings actions change local policy and never increase webhook permissions. Employee actions
+accept a job into the plugin queue only through the trusted Panels route; the service executes
+and verifies the bounded portal write separately. See the employee workflow above.

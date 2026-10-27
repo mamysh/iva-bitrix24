@@ -41,12 +41,14 @@ const nav = (label: string, screen: Screen) => button(label, `b24s:open:${screen
 const modeLabel = (p: PluginPolicy) => p.mode === "read_only" ? "Только чтение" : "Запись с подтверждением";
 const peopleLabel = (p: PluginPolicy) => ({ ids: "Только ID", names: "ID и имена", work: "Рабочий профиль" })[p.people];
 const on = (value: boolean) => value ? "разрешено" : "выключено";
-export const policySummary = (p: PluginPolicy) => `Действия: ${modeLabel(p)}\nЗагрузка в Bitrix: ${on(p.uploads)}\nУдаление сообщений и файлов: ${on(p.deletions)}\nДанные сотрудников: ${peopleLabel(p)}\nEmail: ${on(p.email)}`;
-export const settingsChoices = ["read", "write", "upload_on", "upload_off", "delete_on", "delete_off", "ids", "names", "work", "email_on", "email_off"] as const;
+export const policySummary = (p: PluginPolicy) => `Действия: ${modeLabel(p)}\nЗагрузка в Bitrix: ${on(p.uploads)}\nУдаление сообщений и файлов: ${on(p.deletions)}\nДанные сотрудников: ${peopleLabel(p)}\nEmail: ${on(p.email)}\nУправление сотрудниками: ${on(p.employees === true)}`;
+export const settingsChoices = ["read", "write", "upload_on", "upload_off", "delete_on", "delete_off", "ids", "names", "work", "email_on", "email_off", "employees_on", "employees_off"] as const;
 export type Choice = typeof settingsChoices[number];
 export function changePolicy(current: PluginPolicy, choice: Choice): PluginPolicy {
   const next = { ...current };
   switch (choice) {
+    case "employees_on": next.employees = true; break;
+    case "employees_off": next.employees = false; break;
     case "read": next.mode = "read_only"; break;
     case "write": next.mode = "confirmed_write"; break;
     case "upload_on": next.uploads = true; break;
@@ -173,6 +175,8 @@ export class SettingsMenu {
         block("Файлы и сообщения", richText(`Загрузка в Bitrix: ${on(p.uploads)}\nУдаление из чата задачи: ${on(p.deletions)}`)),
         row(select(p.uploads ? "Загрузка ✓" : "Загрузка ○", p.uploads ? "upload_off" : "upload_on"), select(p.deletions ? "Удаление ✓" : "Удаление ○", p.deletions ? "delete_off" : "delete_on")),
         "**Загрузка** — отправлять выбранные файлы в Bitrix.  \n**Удаление** — удалять выбранные сообщения и файлы чата.",
+        select(p.employees ? "Управление сотрудниками ✓" : "Управление сотрудниками ○", p.employees ? "employees_off" : "employees_on"),
+        "Сотрудники: отдельные заявки и финальный апрув через Panels; нужны рабочий профиль, email и права user/department.",
         block("Когда действуют разрешения", "Загрузка и удаление доступны только в режиме записи. Скачивание относится к чтению. Обновление самого плагина подтверждается отдельно."));
     } else {
       lines.push(block("Поля сотрудников", escape(peopleLabel(p))),

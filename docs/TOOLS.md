@@ -85,7 +85,7 @@ are unchanged. Rich block spacing is preserved verbatim by the skill.
 и только после настоящего ответа передаёт соответствующий reply. Общие «да» не применяются.
 
 Политика: mode=read_only/confirmed_write; uploads/deletions booleans; people=ids/names/work;
-email boolean (true только при work). Смена любой настройки увеличивает revision и отменяет
+email boolean (true только при work); optional employees boolean (отсутствует = false). Смена любой настройки увеличивает revision и отменяет
 pending task draft. TTL10 минут, single pending settings offer, привязка к identity/revision,
 receipt-replay задач остаётся доступным. Настройки не обеспечивают независимую авторизацию
 Telegram-нажатия. См. [ADR0010](adr/0010-plugin-settings-menu.md).
@@ -112,3 +112,45 @@ candidateSha/hidden approvalToken. Новый check заменяет offer. TTL1
 Прямая команда `/bitrix` требует экспериментального API Ивы; штатная 0.4.11 его не содержит.
 Прежний `bitrix24_settings`/skill остаётся fallback после возврата на штатное ядро.
 Контракт, проверки владельца/ревизии и ограничения: [PLUGIN_SCREENS](PLUGIN_SCREENS.md).
+
+
+## Сотрудники (0.10.0-rc.4)
+
+`bitrix24_employee_candidates`: kind=people|departments, ровно один query|id|email
+(email только для people), start=0 по умолчанию. Выдаёт items, nextStart, complete,
+skipped, approximate, untrustedContent. Десять исходных записей за вызов; результаты
+требуют выбора владельцем. Полные пути до 12 уровней, scope/policy ошибки не маскируются
+заявлением «совпадений нет». Рабочий профиль/email должны быть разрешены.
+
+`bitrix24_employee_draft`: объектная схема MCP с явными op/fields. Обработчик
+дополнительно проверяет строгую discriminated schema конкретной операции.
+
+- collect: новая заявка action=invite|update и fields; изменение — draftId/version и fields,
+  без action. Сохраняются остальные поля, старый snapshot инвалидируется.
+- fields: userId, name, lastName, email, position, departmentIds (1–5 уникальных ID),
+  departmentMode=replace|add. Null снимает поле из заявки; position=null очищает должность.
+- preview: draftId/version, валидация полного запроса, точный снимок и summary. Writes нет.
+- present: draftId/version, показ сохранённого готового превью в текущем чате через
+  общий транспорт Panels. Возвращает chatCard.state; не подтверждает и не выполняет запись.
+- cancel: draftId/version, только collecting/ready, включая истёкшие заявки.
+- status: draftId, чистое чтение; возвращает state, поля, missing, summary и actual userId/code,
+  когда доступны. Токены Panels, fingerprint и полный локальный журнал не возвращаются.
+
+Возможные state: collecting|ready|queued|running|applied|rejected|unknown|cancelled.
+Новый collect и preview требуют confirmed_write + employees=true + work/email.
+Preview и исполнение проверяют user/department; при записи остаются реальные права портала.
+Ни employee apply, ни произвольного REST-call нет. Финальный апрув: только private Panels RPC.
+[Полный контракт и обработка сбоев](EMPLOYEES.md), [ADR0014](adr/0014-employee-drafts-and-panels-approval.md).
+
+### Представление и подтверждение
+
+Candidates дополнительно возвращает `presentation.markdown`, `options` и `pages`:
+полные пути в тексте, короткие кнопки «Отдел N», «Сотрудник N», «Отмена».
+Это выбор данных, не разрешение записи. Навык `bitrix24-employees` задаёт диалог.
+
+`present` обращается только к общему транспорту `iva-panels/chat-v1`; аргументы эффекта
+Panels получает от Bitrix socket при prepare. Адресат и идентификаторы кнопок не выбираются
+моделью. `chatCard.state`: `presented`, `already_presented`, `delivery_unknown` или
+`unavailable`. Неизвестная доставка не повторяется автоматически.
+Проверенная конфигурация — Panels 0.3.0-rc.2 с одним владельцем и dynamicPanels.
+[Сценарий и ограничения](EMPLOYEES.md) · [Карточки](PANELS.md).

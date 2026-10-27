@@ -1,3 +1,7 @@
+import { presentEmployeeCard } from "./employee-chat.ts";
+import { EmployeeDirectory } from "./employee-directory.ts";
+import { EmployeeManager } from "./employee-management.ts";
+import { registerEmployeeTools } from "./mcp-server.ts";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -25,7 +29,7 @@ function unavailableServer(
   updater: PluginUpdaterPort | null,
   settings: SettingsStore,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.9.0" });
+  const server = new McpServer({ name: "bitrix24-read", version: "0.10.0-rc.4" });
   registerUpdaterTools(server, updater);
   registerSettingsTool(server, new SettingsMenu(settings, { configured: false }));
   server.registerTool(
@@ -105,6 +109,13 @@ export async function serverFromEnvironment(
         status: draftId => writer.status(draftId),
       },
     );
+    const directory = new EmployeeDirectory(client, settings);
+    const employees=new EmployeeManager(directory,settings);
+    registerEmployeeTools(server, employees, directory, settings.data ? async(draftId,version)=>{
+      const doc=await employees.load();const draft=employees.get(doc,draftId);employees.fresh(draft,version);
+      if(draft.state!=="ready")throw new Error("EMPLOYEE_DRAFT_CHANGED");
+      return presentEmployeeCard(settings.data!,{draftId,version,revision:doc.revision});
+    }:undefined);
     registerSettingsTool(server, new SettingsMenu(settings, { configured: true, connectionCheck: () => tasks.connectionCheck(), capabilities: () => capabilities.capabilities() }));
     return server;
   } catch (error) {
