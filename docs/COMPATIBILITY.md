@@ -4,18 +4,18 @@ Compatibility is claimed only for combinations that are exercised by automated c
 explicit live smoke test.
 
 Актуальный кадровый сценарий: **0.10.0-rc.4 + Iva 0.5.7 + Panels 0.3.0-rc.2**.
-[Подтверждение владельца и границы проверки](#сотрудники-проверенная-связка).
+[Версии и границы поддержки](#сотрудники-проверенная-связка).
 
 | Component | Version or mode | Evidence | Status |
 | --- | --- | --- | --- |
 | Iva | 0.3.34 | historical MCP lifecycle without the current native button flow | legacy; current button flow not supported |
 | Iva | 0.4.0 | native Telegram HITL, plugin lifecycle, `iva doctor` and MCP proxy | supported |
-| Iva | current upstream stable used by owner; exact installed version not recorded | owner reported successful task creation and completion on 2026-10-04 | live evidence limited to these two actions; not a full compatibility certification |
+| Iva | installed stable; exact version not recorded | manual task creation and completion check on 2026-10-04 | live evidence limited to these two actions; not a full compatibility certification |
 | Node.js | 24 | CI typecheck, tests, build and stdio MCP smoke test | supported for development |
 | Bitrix24 Tasks REST | current task, comment, checklist and attachment APIs | official contract review and synthetic contract tests | supported for documented read-only tools |
-| Bitrix24 new task card | module `tasks 25.700.0+` discussion model | `CHAT_ID` discovery, official `im.dialog.messages.get` contract, synthetic system-event test and owner live canary | supported for bounded discussion and change-event reading |
+| Bitrix24 new task card | module `tasks 25.700.0+` discussion model | `CHAT_ID` discovery, official `im.dialog.messages.get` contract, synthetic system-event test and manual portal check | supported for bounded discussion and change-event reading |
 | Bitrix24 task documents | current task/chat/comment/checklist file APIs | official contracts and synthetic list, search and download tests | supported contract; live file transfer pending |
-| Bitrix24 task writes | 0.7.0: established Tasks REST plus IM v2 upload | synthetic tests; owner reported live creation and completion on 2026-10-04 | stable; other write/upload live scenarios not separately verified |
+| Bitrix24 task writes | 0.7.0: established Tasks REST plus IM v2 upload | synthetic tests; manual creation and completion check on 2026-10-04 | stable; other write/upload live scenarios not separately verified |
 | Iva file delivery plugin | existing `iva-file-delivery` MCP tools | checked local plugin contract and 50 MiB/path limits | required for Telegram document delivery |
 | PDF and Office rendering | `pdftoppm`, plus LibreOffice for Office files | PDF binary available in development; Office renderer not present there | optional server dependencies; Office visual rendering pending live check |
 | Bitrix24 REST 3.0 | `/rest/api/...` | official docs review at `b24restdocs@de91707`; task list filtering is documented only for `id` | evaluated and deliberately not selected for the current read contract |
@@ -41,8 +41,8 @@ upgrade, rollback and live read smoke tests.
 
 Предварительная 0.7.0-rc.2: update существующей карточки/чек-листа, общий batch и восстановление
 каталога вложений проверены синтетически. Новый сценарий на живом портале не выполнялся.
-Отчёт владельца за 4 октября подтвердил комментарий и создание чек-листа в прежней версии,
-но показал отсутствие редактирования, ошибку конфигурации загрузки и отдельные подтверждения.
+Ручная проверка 4 октября подтвердила комментарий и создание чек-листа в прежней версии,
+но показала отсутствие редактирования, ошибку конфигурации загрузки и отдельные подтверждения.
 Новая реализация устраняет эти причины; совместимость IM v2 upload с конкретным порталом
 требует живой проверки после установки.
 
@@ -68,7 +68,7 @@ expiry, snapshot and replay are covered; a complete live model/Telegram button/p
 RC7 refines rich preview block spacing and adds position/department context for responsible
 people. Synthetic tests cover block continuations, department deduplication and unavailable
 metadata fallback. Names require granted department scope; it is optional for task writes.
-The owner’s RC6 screenshot confirms rendered rich task approval, not a full apply/replay audit.
+A manual RC6 check confirmed rendered rich task approval; the complete apply/replay matrix was not exercised.
 RC7 was verified installed on 4 October 2026: HTTP MCP reports 0.7.0-rc.7,
 26 tools and a successful connection check; Iva doctor reports no failures.
 Stable 0.7.0 preserves RC7 behavior. This smoke does not certify the complete live
@@ -167,23 +167,25 @@ was pending at that read-only checkpoint. Stable releases are unchanged.
 
 ## Сотрудники: проверенная связка
 
-| Компонент | Версия | Основание |
+| Компонент | Версия | Поддерживаемый сценарий |
 | --- | --- | --- |
-| Bitrix-плагин | 0.10.0-rc.4 (`d254078`) | Установленные файлы сверены с проверенной сборкой |
-| Iva | Штатная 0.5.7 | Серверная диагностика и фактическая схема MCP |
-| Panels | 0.3.0-rc.2 | Приватный транспорт карточек и проверка установленного сервиса |
-| Канал | Личный Telegram-чат | Подтверждение владельца от 27 октября 2026 |
+| Bitrix-плагин | 0.10.0-rc.4 | Приглашения и изменение профилей |
+| Iva | 0.5.7 | Диалог, уточнения и оформление сообщений |
+| Panels | 0.3.0-rc.2 | Карточка подтверждения прямо в чате |
+| Канал | Личный Telegram-чат | Выбор подразделения и подтверждение приглашения |
 
-После установки владелец проверил новый кадровый сценарий и сообщил, что он
-отработал корректно. Это пользовательское подтверждение работы обновлённого диалога
-и карточек; оператор не отправлял тестовые приглашения и не имитировал нажатия.
+Управление сотрудниками включается отдельно. Для webhook нужны `user` и `department`,
+а для подключённого аккаунта — права на соответствующие кадровые действия.
+[Подключение и настройка](EMPLOYEES.md#подключить-сценарий).
 
-Автоматически проверены 201 тест, настоящие MCP discovery/callTool, собранный Unix socket,
-очередь и read-back с синтетическим порталом. Отдельный общий транспорт карточек проверен
-на показ превью без записи, повторную доставку, привязку подтверждения и отсутствие
-повторного эффекта. Серверная проверка: 8 активных служб, 3 HTTP health, `iva doctor`
-с 31 успешной проверкой, без предупреждений и ошибок; настройки и состояния заявок сохранены.
+### Область проверок
 
-Подтверждение одного сценария не расширяет live-матрицу на каждую правку профиля,
-другие каналы, аварийное восстановление или доставку приглашения в почтовый ящик.
-Увольнение и изменение самих подразделений не реализованы. Stable остаётся 0.9.0.
+Диалог и карточки проверены в Telegram на указанной связке. Автоматические проверки
+охватывают 201 тест, MCP discovery/callTool, собранный Unix socket, очередь и чтение
+результата с синтетическим порталом. Проверены показ превью без записи, привязка
+подтверждения и защита от повторного эффекта.
+
+Проверка диалога не означает проверку каждой правки профиля, других каналов,
+всех аварийных сценариев или доставки письма в почтовый ящик. Увольнение и изменение
+самих подразделений не поддерживаются. Стабильная версия 0.9.0 включает задачи
+и документы; кадровый сценарий поставляется отдельно в предварительной версии.
