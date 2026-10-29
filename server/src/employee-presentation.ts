@@ -1,12 +1,12 @@
 export const richText = (v: string) => v.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replace(/([\\`*_{}\[\]()#+.!|~=-])/gu, "\\$1");
-type Candidate = {id:number; name:string; path?:string; lastName?:string; position?:string; email?:string};
+type Candidate = {id:number; name:string; path?:string; lastName?:string; position?:string; email?:string; active?:boolean};
 export function candidatePresentation(kind:"people"|"departments", items:readonly Candidate[], complete:boolean) {
   const noun=kind==="departments"?"Отдел":"Сотрудник";
   const options=items.map((v,i)=>({id:String(v.id), label:`${noun} ${i+1}`, reply:`Выбрать ${kind==="departments"?"отдел":"сотрудника"} ID ${v.id}`}));
   const groups:Array<{lines:string[];indices:number[]}>=[{lines:[],indices:[]}];
   items.forEach((v,i)=>{
     const name=[v.name,v.lastName].filter(Boolean).join(" ");
-    const detail=v.path??[v.position,v.email].filter(Boolean).join(" · ");
+    const detail=v.path??[v.position,v.email,v.active === undefined ? undefined : v.active ? "Активен" : "Уволен"].filter(Boolean).join(" · ");
     const line=`${i+1}. **${richText(name)}**\n${richText(detail)}`;
     let group=groups.at(-1)!;
     if(group.lines.length && group.lines.join("\n\n").length+line.length>2800){group={lines:[],indices:[]};groups.push(group);}

@@ -9,7 +9,7 @@
         "path": "plugin",
         "ref": "stable"
       },
-      "description": "Bitrix24 tasks, documents and employee drafts for Iva; final employee approval through iva-panels/v2, explicit opt-in and scoped permissions."
+      "description": "Bitrix24 tasks, documents, employee invitations, profile changes and dismissal for Iva; preview and in-chat approval, explicit opt-in and scoped permissions."
     }
   ]
 }

@@ -277,7 +277,7 @@ export function createMcpServer(
   files: FileReaderPort | null = null,
   writer: Pick<TaskWriter, "prepare" | "apply" | "cancel" | "status" | "stages"> | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "0.10.0-rc.4" });
+  const server = new McpServer({ name: "bitrix24-read", version: "1.0.0-rc.1" });
   registerUpdaterTools(server, updater);
   if (writer) {
     server.registerTool("bitrix24_project_stages", {
@@ -655,7 +655,7 @@ export function registerEmployeeTools(server: McpServer, employees: EmployeeMana
     inputSchema: employeeLookupSchema, annotations: readOnly,
   }, input => safe(() => directory.lookup(input)));
   server.registerTool("bitrix24_employee_draft", {
-    description: "Collect an employee invitation or bounded profile update across turns. Persist only fields supplied or explicitly selected by this owner. New collect needs action; edits need draftId/version and preserve other fields. Ask for missing data, clarify ambiguous names and department replace/add. Preview validates the complete request but performs NO portal write. Corrections invalidate preview. After preview, call op=present with the returned draftId/version to display the final rich confirmation card directly here in chat. The Panels button transport handles actual clicks; never send the owner through its catalog. Final approval is ONLY the real card confirmation. Never emulate its socket/callback or use task actions/shell to apply. Status reads actual outcome; queued is not success. No automatic retries for unknown outcomes. Dismissal and department mutations are not implemented in this version.",
+    description: "Collect an employee invitation, bounded profile update or dismissal across turns. Dismissal uses action=dismiss with only fields.userId, previews ACTIVE=N and preserves history; it cannot edit other fields or dismiss the webhook account. Persist only fields supplied or explicitly selected by this owner. New collect needs action; edits need draftId/version and preserve other fields. Ask for missing data, clarify ambiguous names and department replace/add. Preview validates the complete request but performs NO portal write. Corrections invalidate preview. After preview, call op=present with the returned draftId/version to display the final rich confirmation card directly here in chat. The Panels button transport handles actual clicks; never send the owner through its catalog. Final approval is ONLY the real card confirmation. Never emulate its socket/callback or use task actions/shell to apply. Status reads actual outcome; queued is not success. No automatic retries for unknown outcomes. Reinstatement, permanent deletion and department mutations are not implemented.",
     inputSchema: employeeDraftToolSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   }, input => safe(async () => {

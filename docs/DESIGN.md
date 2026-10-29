@@ -217,3 +217,10 @@ policy. Общий SettingsStore, revision и writer lock сохраняются
 транспорт карточек Panels. Panels связывает доставку и нажатие; данные, проверки,
 очередь и внешний эффект принадлежат Bitrix-плагину. Поля сотрудника не передаются
 в запросе к общему транспорту. [ADR0015](adr/0015-employee-chat-cards.md).
+
+## Увольнение сотрудников
+
+В 1.0.0-rc.1 action=dismiss готовит отдельную заявку с единственным userId и
+серверным ACTIVE=N. Fingerprint и policy/revision проверяются перед записью; результат
+требует active=false при контрольном чтении. Новые методы REST и MCP apply не добавлены.
+[Решение и ограничения](adr/0016-employee-dismissal.md).

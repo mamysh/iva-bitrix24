@@ -45,7 +45,7 @@ export const employeeDraftInputSchema = z.discriminatedUnion("op", [
   z
     .object({
       op: z.literal("collect"),
-      action: z.enum(["invite", "update"]).optional(),
+      action: z.enum(["invite", "update", "dismiss"]).optional(),
       draftId: draftId.optional(),
       version: revision.optional(),
       fields: fieldsSchema,
@@ -67,7 +67,7 @@ export const employeeDraftInputSchema = z.discriminatedUnion("op", [
 // validates operation-specific required/forbidden fields before any side effect.
 export const employeeDraftToolSchema = z.object({
   op:z.enum(["collect","preview","present","cancel","status"]),
-  action:z.enum(["invite","update"]).optional(),
+  action:z.enum(["invite","update","dismiss"]).optional(),
   draftId:draftId.optional(),version:revision.optional(),fields:fieldsSchema.optional(),
 }).strict();
 const snapshotSchema = z
@@ -76,6 +76,7 @@ const snapshotSchema = z
     departments: z.array(departmentSchema).max(100),
     desired: z
       .object({
+        ACTIVE: z.literal("N").optional(),
         NAME: text(80).optional(),
         LAST_NAME: text(80).optional(),
         EMAIL: z.email().max(254).optional(),
@@ -93,7 +94,7 @@ const draftSchema = z
     id: draftId,
     identity: z.string(),
     version: revision,
-    action: z.enum(["invite", "update"]),
+    action: z.enum(["invite", "update", "dismiss"]),
     fields: fieldsSchema,
     state: z.enum([
       "collecting",
@@ -220,6 +221,7 @@ export class EmployeeManager {
   }
   missing(draft: Draft) {
     const f = draft.fields;
+    if (draft.action === "dismiss") return [!f.userId && "userId"].filter(Boolean);
     return draft.action === "invite"
       ? [
           !f.name && "name",
@@ -254,7 +256,7 @@ export class EmployeeManager {
       ...(draft.code ? { code: draft.code } : {}),
       approval:
         draft.state === "ready"
-          ? "Покажите карточку подтверждения здесь в чате через op=present. Выбор отдела не является подтверждением приглашения."
+          ? "Покажите карточку подтверждения здесь в чате через op=present. Выбор сотрудника или отдела не является подтверждением действия."
           : null,
       untrustedContent: true,
     };
@@ -291,6 +293,8 @@ export class EmployeeManager {
           draft.action === "invite" &&
           (fields.userId || fields.departmentMode)
         )
+          throw new BitrixRequestError("EMPLOYEE_FIELDS_INVALID");
+        if (draft.action === "dismiss" && Object.keys(fields).some((key) => key !== "userId"))
           throw new BitrixRequestError("EMPLOYEE_FIELDS_INVALID");
         draft.fields = fields;
         draft.version++;
@@ -342,12 +346,19 @@ export class EmployeeManager {
     const current = await this.allowed();
     const f = draft.fields;
     const before =
-      draft.action === "update"
+      draft.action !== "invite"
         ? await this.directory.getPerson(f.userId!)
         : null;
     if (before && !before.active)
       throw new BitrixRequestError("EMPLOYEE_INACTIVE");
+    if (draft.action === "dismiss") {
+      if (Object.keys(f).some((key) => key !== "userId"))
+        throw new BitrixRequestError("EMPLOYEE_FIELDS_INVALID");
+      if (f.userId === this.directory.client.webhookUserId)
+        throw new BitrixRequestError("EMPLOYEE_INTEGRATION_ACCOUNT");
+    }
     const desired: z.infer<typeof snapshotSchema>["desired"] = {};
+    if (draft.action === "dismiss") desired.ACTIVE = "N";
     if (f.name) desired.NAME = f.name;
     if (f.lastName) desired.LAST_NAME = f.lastName;
     if (f.email) {
@@ -380,12 +391,19 @@ export class EmployeeManager {
     const lines = [
       draft.action === "invite"
         ? "Пригласить сотрудника и отправить стандартное приглашение на email?"
-        : `Изменить сотрудника ${before!.name} ${before!.lastName} [${before!.id}]?`,
+        : `${draft.action === "dismiss" ? "Уволить" : "Изменить"} сотрудника ${before!.name} ${before!.lastName} [${before!.id}]?`,
     ];
     const line = (label: string, value: string, previous?: string) =>
       lines.push(
         `${label}: ${previous === undefined ? value : `${previous || "не указано"} → ${value || "не указано"}`}`,
       );
+    if (draft.action === "dismiss") {
+      line("Email", before!.email);
+      line("Должность", before!.position || "не указано");
+      line("Подразделения", names(before!.departmentIds));
+      line("Статус", "Уволен", "Активен");
+      lines.push("Учётная запись станет неактивной. Профиль, задачи, переписка и файлы сохранятся. Передача дел и управление интеграциями не выполняются.");
+    }
     if (desired.NAME !== undefined) line("Имя", desired.NAME, before?.name);
     if (desired.LAST_NAME !== undefined)
       line("Фамилия", desired.LAST_NAME, before?.lastName);
@@ -436,7 +454,7 @@ export class EmployeeManager {
       ? selected
           .map(
             (d, i) =>
-              `${i + 1}. ${d.action === "invite" ? "Пригласить" : "Изменить"}: ${displayName(d)} — ${stateLabels[d.state]}${this.now() >= d.expiresAt && mutable(d) ? ", срок истёк" : ""}`,
+              `${i + 1}. ${d.action === "invite" ? "Пригласить" : d.action === "dismiss" ? "Уволить" : "Изменить"}: ${displayName(d)} — ${stateLabels[d.state]}${this.now() >= d.expiresAt && mutable(d) ? ", срок истёк" : ""}`,
           )
           .join("\n")
       : "";
@@ -649,7 +667,7 @@ export class EmployeeManager {
             draft.action === "invite" ? "user.add" : "user.update",
             {
               ...draft.snapshot!.desired,
-              ...(draft.action === "update" ? { ID: draft.fields.userId } : {}),
+              ...(draft.action !== "invite" ? { ID: draft.fields.userId } : {}),
             },
           );
           writeResponded = true;
@@ -663,7 +681,7 @@ export class EmployeeManager {
                   ),
                 )
               : draft.fields.userId!;
-          if (draft.action === "update" && result !== true)
+          if (draft.action !== "invite" && result !== true)
             throw new BitrixRequestError("EMPLOYEE_RESULT_UNKNOWN");
           draft.userId = id;
           // Persist the returned identity before read-back, but leave intent in running state.
@@ -671,7 +689,7 @@ export class EmployeeManager {
           const actual = await this.directory.getPerson(id);
           const expected = draft.snapshot!.desired;
           if (
-            !actual.active ||
+            actual.active !== (expected.ACTIVE !== "N") ||
             (expected.NAME !== undefined && actual.name !== expected.NAME) ||
             (expected.LAST_NAME !== undefined &&
               actual.lastName !== expected.LAST_NAME) ||

@@ -58,6 +58,13 @@ const fetcher = async (url, init) => {
     people.push({ ID: "20", ...params, ACTIVE: true });
     return Response.json({ result: 20 });
   }
+  if (method === "user.update") {
+    assert.deepEqual(params,{ID:20,ACTIVE:"N"});
+    writes++;
+    people[0].ACTIVE="N";
+    people[0].UF_DEPARTMENT=[0];
+    return Response.json({result:true});
+  }
   throw new Error("UNEXPECTED_SYNTHETIC_METHOD");
 };
 const api = createPanelsApi(env, { fetch: fetcher });
@@ -118,6 +125,7 @@ try {
   assert.equal(draftSchema.type,"object");
   assert.deepEqual(draftSchema.properties.op.enum,["collect","preview","present","cancel","status"]);
   assert.ok(draftSchema.properties.fields.properties.departmentIds);
+  assert.ok(draftSchema.properties.action.enum.includes("dismiss"));
 
   assert.ok(tools.some((t) => t.name === "bitrix24_employee_draft"));
   assert.ok(
@@ -176,6 +184,19 @@ try {
     assert.deepEqual(await rpc({ op, token }), accepted);
   await api.employees.runQueued();
   assert.equal(writes, 1);
+  let dismissal=await draftCall({op:"collect",action:"dismiss",fields:{userId:20}});
+  dismissal=await draftCall({op:"preview",draftId:dismissal.draftId,version:dismissal.version});
+  assert.match(dismissal.summary,/Активен → Уволен/u);
+  const current=await rpc({op:"read",page:"employees"});
+  const dismissalToken="02".repeat(12);
+  assert.equal((await rpc({op:"prepare",action:`emp-${dismissal.draftId}`,revision:current.revision,token:dismissalToken})).state,"offer");
+  assert.equal(writes,1);
+  assert.equal((await rpc({op:"confirm",token:dismissalToken})).state,"done");
+  await api.employees.runQueued();
+  assert.equal((await draftCall({op:"status",draftId:dismissal.draftId})).state,"applied");
+  await rpc({op:"confirm",token:dismissalToken});
+  await api.employees.runQueued();
+  assert.equal(writes,2);
   console.log(
     "employee bundles ok: actual built MCP + private socket, incomplete draft, final approval, queue/readback/replay; fake Bitrix only",
   );

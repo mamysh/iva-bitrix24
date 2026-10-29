@@ -1,8 +1,8 @@
 {
   "name": "iva-bitrix24",
-  "version": "0.10.0-rc.4",
+  "version": "1.0.0-rc.1",
   "private": true,
-  "description": "Bitrix24 tasks, documents and employee drafts for Iva with confirmed actions and policy settings.",
+  "description": "Bitrix24 tasks, documents and employee management for Iva with confirmed actions and policy settings.",
   "license": "MIT",
   "repository": {
     "type": "git",
