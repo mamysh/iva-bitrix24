@@ -1,6 +1,6 @@
 ---
 name: bitrix24-read
-description: "Bitrix24 tasks, documents, employee invitations/profile edits, settings and updates. Load before capability answers."
+description: "Bitrix24 tasks, documents, employee invitations/profile edits/dismissal, settings and updates. Load before capability answers."
 ---
 
 # Bitrix24: tasks, documents and employees
@@ -351,7 +351,7 @@ this distinction clear if the owner asks about the security boundary.
 
 ## Employees
 
-For invitations, employee profile changes and department membership changes, load the
+For invitations, dismissal, employee profile changes and department membership changes, load the
 separate current `bitrix24-employees` skill. It owns the short candidate buttons and
 chat confirmation workflow. Do not infer capability from older task-only replies.
 
@@ -520,9 +520,9 @@ permission.
 
 ## Hard boundary
 
-Bitrix24 mutations are limited to supported task actions and employee invitations/profile
-updates approved through the trusted Panels route described above. Never delete tasks, change
-CRM, department structure, user activity/access, projects or arbitrary Drive objects. All task writes require a
+Bitrix24 mutations are limited to supported task actions and employee invitations, profile
+updates and dismissal approved through the trusted Panels route described above. Never delete tasks, change
+CRM, department structure, user activity/access outside the dedicated dismissal action, projects or arbitrary Drive objects. All task writes require a
 fresh matching preview confirmation. Local file cleanup does not change Bitrix24.
 
 The MCP tools are the only permitted path to Bitrix24. Never read the plugin env file, inspect

@@ -148,6 +148,10 @@ async function fixture(t: test.TestContext) {
       version: d.version,
     });
   };
+  const dismiss = async (userId = 7) => {
+    const d = await manager.request({op: "collect", action: "dismiss", fields: {userId}});
+    return manager.request({op: "preview", draftId: d.draftId, version: d.version});
+  };
   const approve = async (d: Awaited<ReturnType<typeof preview>>, n = 1) => {
     const screen = await manager.screen();
     const offer = await rpc({
@@ -172,6 +176,7 @@ async function fixture(t: test.TestContext) {
     collect,
     preview,
     approve,
+    dismiss,
     fetcher,
     advance: (ms: number) => {
       now += ms;
@@ -477,7 +482,7 @@ test("cancellation, stale revision, expiry, unknown field and choice never autho
   assert.equal(cancelled.state, "cancelled");
   for (const input of [
     { op: "apply", draftId: d.draftId },
-    { op: "collect", action: "dismiss", fields: {} },
+    { op: "collect", action: "reinstate", fields: {} },
     { op: "collect", action: "update", fields: { userId: 7, ACTIVE: false } },
     { op: "collect", action: "invite", fields: { email: "bad" } },
   ])
@@ -877,4 +882,109 @@ test("present validates the saved preview but does not change its revision, queu
  assert.equal(shown.state,'ready');assert.equal(await readFile(f.manager.path(),'utf8'),before);
  assert.equal(f.calls.filter(c=>c.method==='user.add'||c.method==='user.update').length,0);
  await assert.rejects(()=>f.manager.request({op:'present',draftId:ready.draftId,version:ready.version-1}),/EMPLOYEE_DRAFT_CHANGED/);
+});
+
+
+test("dismissal clarifies identity, previews consequences and writes only ACTIVE=N after separate approval", async t => {
+  const f = await fixture(t);
+  let d = await f.manager.request({op: "collect", action: "dismiss", fields: {}});
+  assert.deepEqual(d.missing, ["userId"]);
+  assert.equal((await f.manager.request({op: "preview", draftId:d.draftId, version:d.version})).state, "collecting");
+  d = await f.manager.request({op:"collect", draftId:d.draftId, version:d.version, fields:{userId:7}});
+  d = await f.manager.request({op:"preview", draftId:d.draftId, version:d.version});
+  assert.equal(d.state, "ready");
+  assert.deepEqual(d.missing, []);
+  for (const pattern of [/Уволить сотрудника Иван Иванов \[7\]/u, /ivan@example.test/u, /Дизайнер/u, /Компания \/ Отдел дизайна/u, /Активен → Уволен/u, /файлы сохранятся/u, /управление интеграциями не выполняются/u]) assert.match(d.summary!, pattern);
+  assert.equal(f.writes().length, 0);
+  await f.manager.request({op:"present", draftId:d.draftId, version:d.version});
+  assert.equal(f.writes().length, 0);
+  await f.approve(d);
+  assert.equal(f.writes().length, 0);
+  const before = structuredClone(f.people[0]);
+  await f.manager.runQueued();
+  assert.deepEqual(f.writes(), [{method:"user.update", params:{ID:7, ACTIVE:"N"}}]);
+  assert.deepEqual(f.people[0], {...before, ACTIVE:"N", ID:7});
+  assert.equal((await f.manager.request({op:"status", draftId:d.draftId})).state,"applied");
+  assert.equal((await f.rpc({op:"confirm", token:token()})).state,"done");
+  await new EmployeeManager(f.directory,f.store).runQueued();
+  assert.equal(f.writes().length,1);
+});
+
+test("dismissal cannot carry profile changes, accept ACTIVE input, reinstate or target the integration account", async t => {
+  const f = await fixture(t);
+  for (const fields of [{userId:7, position:"Test"}, {userId:7, email:"other@example.test"}, {userId:7, departmentIds:[3]}, {userId:7, name:null}]) {
+    await assert.rejects(f.manager.request({op:"collect",action:"dismiss",fields}), /EMPLOYEE_FIELDS_INVALID/u);
+  }
+  assert.equal(employeeDraftInputSchema.safeParse({op:"collect",action:"dismiss",fields:{userId:7,ACTIVE:"N"}}).success,false);
+  f.people.push({...person, ID:"123"});
+  await assert.rejects(f.dismiss(123), /EMPLOYEE_INTEGRATION_ACCOUNT/u);
+  f.people[0]!.ACTIVE="N";
+  f.people[0]!.UF_DEPARTMENT=[0];
+  assert.deepEqual((await f.directory.getPerson(7)).departmentIds, []);
+  const candidates = await f.directory.lookup({kind:"people",id:7});
+  assert.match(candidates.presentation.markdown,/Уволен/u);
+  await assert.rejects(f.dismiss(), /EMPLOYEE_INACTIVE/u);
+  f.people[0]!.ACTIVE=true;
+  await assert.rejects(f.directory.getPerson(7), /EMPLOYEE_RESPONSE_INVALID/u);
+  assert.equal(f.writes().length,0);
+});
+
+test("dismissal corrections invalidate the old card; cancellation never writes", async t => {
+  const f=await fixture(t);
+  f.people.push({...person, ID:"8", NAME:"Другой", EMAIL:"other@example.test"});
+  let d=await f.dismiss();
+  const screen=await f.manager.screen();
+  await f.rpc({op:"prepare",action:`emp-${d.draftId}`,revision:screen.revision,token:token()});
+  d=await f.manager.request({op:"collect",draftId:d.draftId,version:d.version,fields:{userId:8}});
+  assert.equal((await f.rpc({op:"confirm",token:token()})).state,"cancelled");
+  d=await f.manager.request({op:"preview",draftId:d.draftId,version:d.version});
+  assert.match(d.summary!,/Другой Иванов \[8\]/u);
+  await f.manager.request({op:"cancel",draftId:d.draftId,version:d.version});
+  await f.manager.runQueued();
+  assert.equal(f.writes().length,0);
+});
+
+test("dismissal rechecks profile/status, settings and scopes after approval", async t => {
+  for (const change of ["profile", "inactive", "policy", "scope"] as const) {
+    await t.test(change,async t => {
+      const f=await fixture(t); const d=await f.dismiss(); await f.approve(d);
+      if(change==="profile")f.people[0]!.WORK_POSITION="Другая должность";
+      if(change==="inactive")f.people[0]!.ACTIVE=false;
+      if(change==="policy")await withPolicyLock(f.data,()=>f.store.commit(0,{...LEGACY_POLICY,employees:false}));
+      if(change==="scope")f.scopes(["user_basic","department"]);
+      await f.manager.runQueued();
+      assert.equal((await f.manager.request({op:"status",draftId:d.draftId})).state,"rejected");
+      assert.equal(f.writes().length,0);
+    });
+  }
+});
+
+test("dismissal requires an inactive read-back even after a successful response; denial and loss never masquerade as success", async t => {
+  for(const mode of ["ignored", "false", "denied", "lost", "unreadable", "empty-departments"] as const) {
+    await t.test(mode,async t=>{
+      const f=await fixture(t); const d=await f.dismiss(); await f.approve(d);
+      let sent=false;
+      f.intercept(async(method)=>{
+        if(method==="user.update"){
+          sent=true;
+          if(mode==="denied")return Response.json({error:"ACCESS_DENIED"});
+          if(mode==="false")return Response.json({result:false});
+          if(mode==="ignored")return Response.json({result:true});
+          f.people[0]!.ACTIVE="N";
+          f.people[0]!.UF_DEPARTMENT=mode==="empty-departments"?[0]:[];
+          if(mode==="lost")throw new TypeError("synthetic response lost");
+          return Response.json({result:true});
+        }
+        if(sent&&method==="user.get"&&mode==="unreadable")return Response.json({error:"ACCESS_DENIED"});
+        return undefined;
+      });
+      await f.manager.runQueued();
+      const status=await f.manager.request({op:"status",draftId:d.draftId});
+      assert.equal(status.state,mode==="denied"?"rejected":mode==="empty-departments"?"applied":"unknown");
+      await new EmployeeManager(f.directory,f.store).runQueued();
+      await f.rpc({op:"confirm",token:token()});
+      assert.equal(f.writes().length,1);
+      if(status.state==="unknown")await assert.rejects(f.dismiss(),/EMPLOYEE_CONFLICTING_DRAFT/u);
+    });
+  }
 });

@@ -150,6 +150,9 @@ var BitrixClient = class {
     this.#config = config2;
     this.#dependencies = { ...defaults, ...dependencies };
   }
+  get webhookUserId() {
+    return this.#config.webhookUserId;
+  }
   taskWebUrl(taskId) {
     const path = `/company/personal/user/${this.#config.webhookUserId}/tasks/task/view/${taskId}/`;
     return new URL(path, this.#config.portalOrigin).toString();
@@ -371,7 +374,7 @@ function candidatePresentation(kind, items, complete) {
   const groups = [{ lines: [], indices: [] }];
   items.forEach((v, i) => {
     const name = [v.name, v.lastName].filter(Boolean).join(" ");
-    const detail = v.path ?? [v.position, v.email].filter(Boolean).join(" \xB7 ");
+    const detail = v.path ?? [v.position, v.email, v.active === void 0 ? void 0 : v.active ? "\u0410\u043A\u0442\u0438\u0432\u0435\u043D" : "\u0423\u0432\u043E\u043B\u0435\u043D"].filter(Boolean).join(" \xB7 ");
     const line = `${i + 1}. **${richText(name)}**
 ${richText(detail)}`;
     let group = groups.at(-1);
@@ -20215,7 +20218,9 @@ var EmployeeDirectory = class {
       lastName: v.LAST_NAME,
       email: v.EMAIL,
       position: v.WORK_POSITION ?? "",
-      departmentIds: [...new Set(v.UF_DEPARTMENT.map(Number))].sort(
+      departmentIds: [...new Set(v.UF_DEPARTMENT.map(Number).filter(
+        (id) => !((v.ACTIVE === "N" || v.ACTIVE === false) && id === 0)
+      ))].sort(
         (a, b) => a - b
       ),
       active: v.ACTIVE === "Y" || v.ACTIVE === true
@@ -20501,7 +20506,7 @@ var fieldsSchema = external_exports.object({
 var employeeDraftInputSchema = external_exports.discriminatedUnion("op", [
   external_exports.object({
     op: external_exports.literal("collect"),
-    action: external_exports.enum(["invite", "update"]).optional(),
+    action: external_exports.enum(["invite", "update", "dismiss"]).optional(),
     draftId: draftId.optional(),
     version: revision.optional(),
     fields: fieldsSchema
@@ -20516,7 +20521,7 @@ var employeeDraftInputSchema = external_exports.discriminatedUnion("op", [
 ]);
 var employeeDraftToolSchema = external_exports.object({
   op: external_exports.enum(["collect", "preview", "present", "cancel", "status"]),
-  action: external_exports.enum(["invite", "update"]).optional(),
+  action: external_exports.enum(["invite", "update", "dismiss"]).optional(),
   draftId: draftId.optional(),
   version: revision.optional(),
   fields: fieldsSchema.optional()
@@ -20525,6 +20530,7 @@ var snapshotSchema = external_exports.object({
   before: personSchema.nullable(),
   departments: external_exports.array(departmentSchema).max(100),
   desired: external_exports.object({
+    ACTIVE: external_exports.literal("N").optional(),
     NAME: text(80).optional(),
     LAST_NAME: text(80).optional(),
     EMAIL: external_exports.email().max(254).optional(),
@@ -20539,7 +20545,7 @@ var draftSchema = external_exports.object({
   id: draftId,
   identity: external_exports.string(),
   version: revision,
-  action: external_exports.enum(["invite", "update"]),
+  action: external_exports.enum(["invite", "update", "dismiss"]),
   fields: fieldsSchema,
   state: external_exports.enum([
     "collecting",
@@ -20648,6 +20654,7 @@ var EmployeeManager = class {
   }
   missing(draft) {
     const f = draft.fields;
+    if (draft.action === "dismiss") return [!f.userId && "userId"].filter(Boolean);
     return draft.action === "invite" ? [
       !f.name && "name",
       !f.lastName && "lastName",
@@ -20678,7 +20685,7 @@ var EmployeeManager = class {
       ...draft.snapshot ? { summary: draft.snapshot.summary } : {},
       ...draft.userId ? { userId: draft.userId } : {},
       ...draft.code ? { code: draft.code } : {},
-      approval: draft.state === "ready" ? "\u041F\u043E\u043A\u0430\u0436\u0438\u0442\u0435 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0443 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u044F \u0437\u0434\u0435\u0441\u044C \u0432 \u0447\u0430\u0442\u0435 \u0447\u0435\u0440\u0435\u0437 op=present. \u0412\u044B\u0431\u043E\u0440 \u043E\u0442\u0434\u0435\u043B\u0430 \u043D\u0435 \u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435\u043C \u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u044F." : null,
+      approval: draft.state === "ready" ? "\u041F\u043E\u043A\u0430\u0436\u0438\u0442\u0435 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0443 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u044F \u0437\u0434\u0435\u0441\u044C \u0432 \u0447\u0430\u0442\u0435 \u0447\u0435\u0440\u0435\u0437 op=present. \u0412\u044B\u0431\u043E\u0440 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430 \u0438\u043B\u0438 \u043E\u0442\u0434\u0435\u043B\u0430 \u043D\u0435 \u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435\u043C \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F." : null,
       untrustedContent: true
     };
   }
@@ -20709,6 +20716,8 @@ var EmployeeManager = class {
         if (input2.draftId) this.fresh(draft2, input2.version);
         const fields = { ...draft2.fields, ...input2.fields };
         if (draft2.action === "invite" && (fields.userId || fields.departmentMode))
+          throw new BitrixRequestError("EMPLOYEE_FIELDS_INVALID");
+        if (draft2.action === "dismiss" && Object.keys(fields).some((key) => key !== "userId"))
           throw new BitrixRequestError("EMPLOYEE_FIELDS_INVALID");
         draft2.fields = fields;
         draft2.version++;
@@ -20752,10 +20761,17 @@ var EmployeeManager = class {
   async snapshot(draft) {
     const current = await this.allowed();
     const f = draft.fields;
-    const before = draft.action === "update" ? await this.directory.getPerson(f.userId) : null;
+    const before = draft.action !== "invite" ? await this.directory.getPerson(f.userId) : null;
     if (before && !before.active)
       throw new BitrixRequestError("EMPLOYEE_INACTIVE");
+    if (draft.action === "dismiss") {
+      if (Object.keys(f).some((key) => key !== "userId"))
+        throw new BitrixRequestError("EMPLOYEE_FIELDS_INVALID");
+      if (f.userId === this.directory.client.webhookUserId)
+        throw new BitrixRequestError("EMPLOYEE_INTEGRATION_ACCOUNT");
+    }
     const desired = {};
+    if (draft.action === "dismiss") desired.ACTIVE = "N";
     if (f.name) desired.NAME = f.name;
     if (f.lastName) desired.LAST_NAME = f.lastName;
     if (f.email) {
@@ -20781,11 +20797,18 @@ var EmployeeManager = class {
     for (const id of ids) departments.push(await this.directory.department(id));
     const names = (values) => values.map((id) => `${departments.find((d) => d.id === id).path} [${id}]`).join(", ") || "\u043D\u0435 \u0443\u043A\u0430\u0437\u0430\u043D\u043E";
     const lines = [
-      draft.action === "invite" ? "\u041F\u0440\u0438\u0433\u043B\u0430\u0441\u0438\u0442\u044C \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430 \u0438 \u043E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u0441\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u043D\u043E\u0435 \u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u0435 \u043D\u0430 email?" : `\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430 ${before.name} ${before.lastName} [${before.id}]?`
+      draft.action === "invite" ? "\u041F\u0440\u0438\u0433\u043B\u0430\u0441\u0438\u0442\u044C \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430 \u0438 \u043E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u0441\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u043D\u043E\u0435 \u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u0435 \u043D\u0430 email?" : `${draft.action === "dismiss" ? "\u0423\u0432\u043E\u043B\u0438\u0442\u044C" : "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C"} \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430 ${before.name} ${before.lastName} [${before.id}]?`
     ];
     const line = (label, value, previous) => lines.push(
       `${label}: ${previous === void 0 ? value : `${previous || "\u043D\u0435 \u0443\u043A\u0430\u0437\u0430\u043D\u043E"} \u2192 ${value || "\u043D\u0435 \u0443\u043A\u0430\u0437\u0430\u043D\u043E"}`}`
     );
+    if (draft.action === "dismiss") {
+      line("Email", before.email);
+      line("\u0414\u043E\u043B\u0436\u043D\u043E\u0441\u0442\u044C", before.position || "\u043D\u0435 \u0443\u043A\u0430\u0437\u0430\u043D\u043E");
+      line("\u041F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0435\u043D\u0438\u044F", names(before.departmentIds));
+      line("\u0421\u0442\u0430\u0442\u0443\u0441", "\u0423\u0432\u043E\u043B\u0435\u043D", "\u0410\u043A\u0442\u0438\u0432\u0435\u043D");
+      lines.push("\u0423\u0447\u0451\u0442\u043D\u0430\u044F \u0437\u0430\u043F\u0438\u0441\u044C \u0441\u0442\u0430\u043D\u0435\u0442 \u043D\u0435\u0430\u043A\u0442\u0438\u0432\u043D\u043E\u0439. \u041F\u0440\u043E\u0444\u0438\u043B\u044C, \u0437\u0430\u0434\u0430\u0447\u0438, \u043F\u0435\u0440\u0435\u043F\u0438\u0441\u043A\u0430 \u0438 \u0444\u0430\u0439\u043B\u044B \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u0442\u0441\u044F. \u041F\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0434\u0435\u043B \u0438 \u0443\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0438\u043D\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u044F\u043C\u0438 \u043D\u0435 \u0432\u044B\u043F\u043E\u043B\u043D\u044F\u044E\u0442\u0441\u044F.");
+    }
     if (desired.NAME !== void 0) line("\u0418\u043C\u044F", desired.NAME, before?.name);
     if (desired.LAST_NAME !== void 0)
       line("\u0424\u0430\u043C\u0438\u043B\u0438\u044F", desired.LAST_NAME, before?.lastName);
@@ -20826,7 +20849,7 @@ var EmployeeManager = class {
     const selected = drafts.slice(page * 3, page * 3 + 3);
     const displayName = (d) => `${d.fields.name ?? d.snapshot?.before?.name ?? ""} ${d.fields.lastName ?? d.snapshot?.before?.lastName ?? ""}`.replace(/[\p{Cc}\p{Cf}]/gu, " ").trim().slice(0, 100) || `\u0421\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A \u2116${d.fields.userId ?? "?"}`;
     const body2 = enabled ? selected.map(
-      (d, i) => `${i + 1}. ${d.action === "invite" ? "\u041F\u0440\u0438\u0433\u043B\u0430\u0441\u0438\u0442\u044C" : "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C"}: ${displayName(d)} \u2014 ${stateLabels[d.state]}${this.now() >= d.expiresAt && mutable(d) ? ", \u0441\u0440\u043E\u043A \u0438\u0441\u0442\u0451\u043A" : ""}`
+      (d, i) => `${i + 1}. ${d.action === "invite" ? "\u041F\u0440\u0438\u0433\u043B\u0430\u0441\u0438\u0442\u044C" : d.action === "dismiss" ? "\u0423\u0432\u043E\u043B\u0438\u0442\u044C" : "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C"}: ${displayName(d)} \u2014 ${stateLabels[d.state]}${this.now() >= d.expiresAt && mutable(d) ? ", \u0441\u0440\u043E\u043A \u0438\u0441\u0442\u0451\u043A" : ""}`
     ).join("\n") : "";
     const rows = selected.flatMap(
       (d, i) => enabled && d.state === "ready" && this.now() < d.expiresAt ? [
@@ -20992,7 +21015,7 @@ ${body2 || "\u0417\u0430\u044F\u0432\u043E\u043A \u043D\u0435\u0442. \u041E\u043
             draft.action === "invite" ? "user.add" : "user.update",
             {
               ...draft.snapshot.desired,
-              ...draft.action === "update" ? { ID: draft.fields.userId } : {}
+              ...draft.action !== "invite" ? { ID: draft.fields.userId } : {}
             }
           );
           writeResponded = true;
@@ -21001,13 +21024,13 @@ ${body2 || "\u0417\u0430\u044F\u0432\u043E\u043A \u043D\u0435\u0442. \u041E\u043
               external_exports.union([employeeId, external_exports.string().regex(/^[1-9][0-9]*$/u)]).parse(result)
             )
           ) : draft.fields.userId;
-          if (draft.action === "update" && result !== true)
+          if (draft.action !== "invite" && result !== true)
             throw new BitrixRequestError("EMPLOYEE_RESULT_UNKNOWN");
           draft.userId = id;
           await this.save(doc);
           const actual = await this.directory.getPerson(id);
           const expected = draft.snapshot.desired;
-          if (!actual.active || expected.NAME !== void 0 && actual.name !== expected.NAME || expected.LAST_NAME !== void 0 && actual.lastName !== expected.LAST_NAME || expected.EMAIL !== void 0 && actual.email.toLowerCase() !== expected.EMAIL.toLowerCase() || expected.WORK_POSITION !== void 0 && actual.position !== expected.WORK_POSITION || expected.UF_DEPARTMENT !== void 0 && JSON.stringify(actual.departmentIds) !== JSON.stringify(expected.UF_DEPARTMENT))
+          if (actual.active !== (expected.ACTIVE !== "N") || expected.NAME !== void 0 && actual.name !== expected.NAME || expected.LAST_NAME !== void 0 && actual.lastName !== expected.LAST_NAME || expected.EMAIL !== void 0 && actual.email.toLowerCase() !== expected.EMAIL.toLowerCase() || expected.WORK_POSITION !== void 0 && actual.position !== expected.WORK_POSITION || expected.UF_DEPARTMENT !== void 0 && JSON.stringify(actual.departmentIds) !== JSON.stringify(expected.UF_DEPARTMENT))
             throw new BitrixRequestError("EMPLOYEE_READBACK_MISMATCH");
           draft.state = "applied";
         } catch (error62) {
@@ -21103,7 +21126,7 @@ function changePolicy(current, choice) {
 }
 
 // server/src/panels-api.ts
-var PANELS_VERSION = "0.10.0-rc.4";
+var PANELS_VERSION = "1.0.0-rc.1";
 var tokenSchema2 = external_exports.string().regex(/^[a-f0-9]{24}$/u);
 var revisionSchema = external_exports.number().int().min(0).max(999999999999);
 var envelope = { schema: external_exports.literal("iva-panels/rpc-v1"), plugin: external_exports.literal("bitrix24-read"), pluginVersion: external_exports.literal(PANELS_VERSION) };

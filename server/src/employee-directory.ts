@@ -131,7 +131,9 @@ export class EmployeeDirectory {
       lastName: v.LAST_NAME,
       email: v.EMAIL,
       position: v.WORK_POSITION ?? "",
-      departmentIds: [...new Set(v.UF_DEPARTMENT.map(Number))].sort(
+      departmentIds: [...new Set(v.UF_DEPARTMENT.map(Number).filter((id) =>
+        !((v.ACTIVE === "N" || v.ACTIVE === false) && id === 0),
+      ))].sort(
         (a, b) => a - b,
       ),
       active: v.ACTIVE === "Y" || v.ACTIVE === true,

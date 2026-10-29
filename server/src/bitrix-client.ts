@@ -184,6 +184,10 @@ export class BitrixClient {
     this.#dependencies = { ...defaults, ...dependencies };
   }
 
+  get webhookUserId(): number {
+    return this.#config.webhookUserId;
+  }
+
   taskWebUrl(taskId: string | number): string {
     const path = `/company/personal/user/${this.#config.webhookUserId}/tasks/task/view/${taskId}/`;
     return new URL(path, this.#config.portalOrigin).toString();

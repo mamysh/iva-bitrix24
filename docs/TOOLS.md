@@ -114,7 +114,7 @@ candidateSha/hidden approvalToken. Новый check заменяет offer. TTL1
 Контракт, проверки владельца/ревизии и ограничения: [PLUGIN_SCREENS](PLUGIN_SCREENS.md).
 
 
-## Сотрудники (0.10.0-rc.4)
+## Сотрудники (1.0.0-rc.1)
 
 `bitrix24_employee_candidates`: kind=people|departments, ровно один query|id|email
 (email только для people), start=0 по умолчанию. Выдаёт items, nextStart, complete,
@@ -125,7 +125,7 @@ skipped, approximate, untrustedContent. Десять исходных запис
 `bitrix24_employee_draft`: объектная схема MCP с явными op/fields. Обработчик
 дополнительно проверяет строгую discriminated schema конкретной операции.
 
-- collect: новая заявка action=invite|update и fields; изменение — draftId/version и fields,
+- collect: новая заявка action=invite|update|dismiss и fields; изменение — draftId/version и fields,
   без action. Сохраняются остальные поля, старый snapshot инвалидируется.
 - fields: userId, name, lastName, email, position, departmentIds (1–5 уникальных ID),
   departmentMode=replace|add. Null снимает поле из заявки; position=null очищает должность.
@@ -154,3 +154,12 @@ Panels получает от Bitrix socket при prepare. Адресат и и�
 `unavailable`. Неизвестная доставка не повторяется автоматически.
 Проверенная конфигурация — Panels 0.3.0-rc.2 с одним владельцем и dynamicPanels.
 [Сценарий и ограничения](EMPLOYEES.md) · [Карточки](PANELS.md).
+
+### Увольнение
+
+`collect action=dismiss fields={userId}` готовит отдельную заявку. Дополнительные поля
+отклоняются; ACTIVE не является входным полем. preview → present → настоящая кнопка
+→ очередь → `user.update {ID, ACTIVE:"N"}` → чтение active=false. Увольнение аккаунта
+webhook блокируется. Коды: EMPLOYEE_INACTIVE, EMPLOYEE_INTEGRATION_ACCOUNT,
+EMPLOYEE_FIELDS_INVALID, EMPLOYEE_CHANGED_SINCE_PREVIEW, EMPLOYEE_READBACK_MISMATCH.
+Неопределённый результат не повторяется. Другие профили/подразделения не меняются.
