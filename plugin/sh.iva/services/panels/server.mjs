@@ -20377,6 +20377,23 @@ var EmployeeDirectory = class {
   }
 };
 
+// server/src/employee-chat.ts
+function employeeChatCard(summary, token, expiresAt) {
+  const confirmReply = `b24e:ok:${token}`;
+  const cancelReply = `b24e:no:${token}`;
+  return {
+    markdown: [
+      "**\u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0441 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u043C**",
+      richText(summary),
+      "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0434\u0430\u043D\u043D\u044B\u0435. \u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435 \u043F\u0440\u0438\u043D\u0438\u043C\u0430\u0435\u0442 \u0437\u0430\u044F\u0432\u043A\u0443 \u0432 \u043E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0443; \u0438\u0442\u043E\u0433 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E.",
+      `<tg-button-row><tg-button type="callback_data" style="success" data="${confirmReply}">\u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044C</tg-button><tg-button type="callback_data" style="danger" data="${cancelReply}">\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C</tg-button></tg-button-row>`
+    ].join("\n\n"),
+    confirmReply,
+    cancelReply,
+    expiresAt
+  };
+}
+
 // server/src/employee-management.ts
 import { randomBytes, createHash } from "node:crypto";
 import { readFile as readFile2, stat } from "node:fs/promises";
@@ -20572,7 +20589,9 @@ var offerSchema = external_exports.object({
   identity: external_exports.string(),
   createdAt: external_exports.number().finite(),
   expiresAt: external_exports.number().finite(),
-  state: external_exports.enum(["offer", "done", "cancelled"])
+  state: external_exports.enum(["offer", "done", "cancelled"]),
+  channel: external_exports.literal("chat").optional(),
+  fingerprint: external_exports.string().optional()
 }).strict();
 var documentSchema = external_exports.object({
   schema: external_exports.literal(1),
@@ -20672,7 +20691,7 @@ var EmployeeManager = class {
       ].some(Boolean) && "changes"
     ].filter(Boolean);
   }
-  view(draft) {
+  view(draft, presentation) {
     return {
       draftId: draft.id,
       version: draft.version,
@@ -20686,6 +20705,7 @@ var EmployeeManager = class {
       ...draft.userId ? { userId: draft.userId } : {},
       ...draft.code ? { code: draft.code } : {},
       approval: draft.state === "ready" ? "\u041F\u043E\u043A\u0430\u0436\u0438\u0442\u0435 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0443 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u044F \u0437\u0434\u0435\u0441\u044C \u0432 \u0447\u0430\u0442\u0435 \u0447\u0435\u0440\u0435\u0437 op=present. \u0412\u044B\u0431\u043E\u0440 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430 \u0438\u043B\u0438 \u043E\u0442\u0434\u0435\u043B\u0430 \u043D\u0435 \u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435\u043C \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F." : null,
+      ...presentation ? { presentation } : {},
       untrustedContent: true
     };
   }
@@ -20744,7 +20764,31 @@ var EmployeeManager = class {
         draft.state = "ready";
         draft.version++;
       }
-      if (input2.op !== "present") await this.save(doc);
+      if (input2.op === "present") {
+        const offers = Object.values(doc.offers).filter((o) => o.channel === "chat" && o.draftId === draft.id && o.draftVersion === draft.version);
+        let offer = offers.at(-1);
+        if (offer && (offer.state !== "offer" || this.now() >= offer.expiresAt || this.now() < offer.createdAt))
+          throw new BitrixRequestError("EMPLOYEE_OFFER_EXPIRED");
+        if (!offer) {
+          if (Object.keys(doc.offers).length >= 1e3) throw new BitrixRequestError("EMPLOYEE_JOURNAL_FULL");
+          offer = {
+            token: randomBytes(12).toString("hex"),
+            draftId: draft.id,
+            draftVersion: draft.version,
+            revision: doc.revision,
+            identity: this.store.identity,
+            createdAt: this.now(),
+            expiresAt: Math.min(this.now() + 10 * 6e4, draft.expiresAt),
+            state: "offer",
+            channel: "chat",
+            fingerprint: draft.snapshot.fingerprint
+          };
+          doc.offers[offer.token] = offer;
+          await this.save(doc, false);
+        }
+        return this.view(draft, employeeChatCard(draft.snapshot.summary, offer.token, offer.expiresAt));
+      }
+      await this.save(doc);
       return this.view(draft);
     });
   }
@@ -20910,7 +20954,7 @@ ${body2 || "\u0417\u0430\u044F\u0432\u043E\u043A \u043D\u0435\u0442. \u041E\u043
       for (const offer of Object.values(doc.offers)) {
         if (offer.state !== "offer") continue;
         const draft = doc.drafts[offer.draftId];
-        if (offer.identity !== this.store.identity || this.now() < offer.createdAt || this.now() >= offer.expiresAt || draft.state !== "ready" || draft.version !== offer.draftVersion || doc.revision !== offer.revision || current.revision !== draft.snapshot?.settingsRevision) {
+        if (offer.identity !== this.store.identity || this.now() < offer.createdAt || this.now() >= offer.expiresAt || draft.state !== "ready" || draft.version !== offer.draftVersion || offer.channel !== "chat" && doc.revision !== offer.revision || current.revision !== draft.snapshot?.settingsRevision) {
           offer.state = "cancelled";
           changed = true;
         }
@@ -20931,6 +20975,7 @@ ${body2 || "\u0417\u0430\u044F\u0432\u043E\u043A \u043D\u0435\u0442. \u041E\u043
       });
       const old = doc.offers[input2.token];
       if (old) {
+        if (old.channel === "chat") throw new BitrixRequestError("EMPLOYEE_OFFER_WRONG_CHANNEL");
         if (input2.action !== `emp-${old.draftId}` || input2.revision !== old.revision)
           throw new BitrixRequestError("EMPLOYEE_DRAFT_CHANGED");
         return this.reply(old, doc);
@@ -20962,6 +21007,7 @@ ${body2 || "\u0417\u0430\u044F\u0432\u043E\u043A \u043D\u0435\u0442. \u041E\u043
     }
     const offer = doc.offers[input2.token];
     if (!offer) throw new BitrixRequestError("EMPLOYEE_OFFER_NOT_FOUND");
+    if (offer.channel === "chat") throw new BitrixRequestError("EMPLOYEE_OFFER_WRONG_CHANNEL");
     if (input2.op === "status" || offer.state !== "offer")
       return this.reply(offer, doc);
     const draft = this.get(doc, offer.draftId);
@@ -20977,6 +21023,55 @@ ${body2 || "\u0417\u0430\u044F\u0432\u043E\u043A \u043D\u0435\u0442. \u041E\u043
     draft.state = "queued";
     await this.save(doc);
     return this.reply(offer, doc);
+  }
+  /** The model supplies only the exact reply from the current owner turn.
+   * This is token-bound approval through a model, not independent proof of a click. */
+  async chatReply(reply) {
+    const match = /^b24e:(ok|no):([a-f0-9]{24})$/u.exec(reply);
+    if (!match || match[0] !== reply) throw new BitrixRequestError("EMPLOYEE_REPLY_INVALID");
+    return withPolicyLock(this.store.data, async () => {
+      const doc = await this.load();
+      const offer = doc.offers[match[2]];
+      if (!offer || offer.channel !== "chat" || offer.identity !== this.store.identity)
+        return { state: "refused", code: "EMPLOYEE_OFFER_NOT_FOUND", message: "\u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E. \u041F\u043E\u0434\u0433\u043E\u0442\u043E\u0432\u044C\u0442\u0435 \u043D\u043E\u0432\u0443\u044E \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0443." };
+      const draft = this.get(doc, offer.draftId);
+      if (offer.state !== "offer")
+        return {
+          state: "refused",
+          code: "EMPLOYEE_OFFER_USED",
+          draftId: draft.id,
+          requestState: draft.state,
+          message: offer.state === "done" ? "\u042D\u0442\u043E \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435 \u0443\u0436\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u043E. \u041F\u043E\u0432\u0442\u043E\u0440\u043D\u043E\u0433\u043E \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u043D\u0435 \u0431\u0443\u0434\u0435\u0442; \u0437\u0430\u043F\u0440\u043E\u0441\u0438\u0442\u0435 \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442 \u0437\u0430\u044F\u0432\u043A\u0438." : "\u042D\u0442\u043E \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435 \u0443\u0436\u0435 \u043E\u0442\u043C\u0435\u043D\u0435\u043D\u043E \u0438\u043B\u0438 \u0443\u0441\u0442\u0430\u0440\u0435\u043B\u043E. \u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043D\u0435 \u0432\u044B\u043F\u043E\u043B\u043D\u044F\u0435\u0442\u0441\u044F."
+        };
+      const current = await this.store.read();
+      const valid = this.now() >= offer.createdAt && this.now() < offer.expiresAt && draft.state === "ready" && draft.version === offer.draftVersion && draft.snapshot?.fingerprint === offer.fingerprint && current.revision === draft.snapshot?.settingsRevision;
+      if (!valid) {
+        offer.state = "cancelled";
+        await this.save(doc, false);
+        return {
+          state: "refused",
+          code: "EMPLOYEE_OFFER_EXPIRED",
+          draftId: draft.id,
+          message: "\u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435 \u0443\u0441\u0442\u0430\u0440\u0435\u043B\u043E: \u0438\u0441\u0442\u0451\u043A \u0441\u0440\u043E\u043A, \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0438\u0441\u044C \u0437\u0430\u044F\u0432\u043A\u0430 \u0438\u043B\u0438 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438. \u041F\u043E\u0434\u0433\u043E\u0442\u043E\u0432\u044C\u0442\u0435 \u043D\u043E\u0432\u043E\u0435 \u043F\u0440\u0435\u0432\u044C\u044E. \u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043D\u0435 \u0432\u044B\u043F\u043E\u043B\u043D\u044F\u0435\u0442\u0441\u044F."
+        };
+      }
+      if (match[1] === "no") {
+        offer.state = "cancelled";
+        draft.state = "cancelled";
+        draft.version++;
+        await this.save(doc);
+        return { state: "cancelled", draftId: draft.id, message: "\u0417\u0430\u044F\u0432\u043A\u0430 \u043E\u0442\u043C\u0435\u043D\u0435\u043D\u0430. \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0432 Bitrix24 \u043D\u0435 \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u043B\u0438\u0441\u044C." };
+      }
+      await this.allowed();
+      offer.state = "done";
+      draft.state = "queued";
+      await this.save(doc);
+      return {
+        state: "queued",
+        draftId: draft.id,
+        message: "\u0417\u0430\u044F\u0432\u043A\u0430 \u043F\u0440\u0438\u043D\u044F\u0442\u0430 \u0432 \u043E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0443. \u042D\u0442\u043E \u0435\u0449\u0451 \u043D\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0432 Bitrix24. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442 \u0437\u0430\u044F\u0432\u043A\u0438."
+      };
+    });
   }
   async runQueued() {
     if (this.#running) return;
@@ -21126,7 +21221,7 @@ function changePolicy(current, choice) {
 }
 
 // server/src/panels-api.ts
-var PANELS_VERSION = "1.0.0-rc.1";
+var PANELS_VERSION = "1.0.0-rc.2";
 var tokenSchema2 = external_exports.string().regex(/^[a-f0-9]{24}$/u);
 var revisionSchema = external_exports.number().int().min(0).max(999999999999);
 var envelope = { schema: external_exports.literal("iva-panels/rpc-v1"), plugin: external_exports.literal("bitrix24-read"), pluginVersion: external_exports.literal(PANELS_VERSION) };
@@ -21414,7 +21509,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   const api = createPanelsApi(env);
   const socket = await servePanels(api);
   const health = createServer((req, res) => {
-    if (req.method === "GET" && req.url === "/health") res.writeHead(200, { "content-type": "application/json" }).end('{"ok":true,"service":"bitrix24-panels"}');
+    if (req.method === "GET" && req.url === "/health") res.writeHead(200, { "content-type": "application/json" }).end('{"ok":true,"service":"bitrix24-runtime"}');
     else res.writeHead(404).end();
   });
   const port = Number(process.env.IVA_SERVICE_PORT ?? 8736);

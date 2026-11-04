@@ -100,6 +100,7 @@ try {
       "bitrix24_download_task_document",
       "bitrix24_employee_candidates",
       "bitrix24_employee_draft",
+      "bitrix24_employee_reply",
       "bitrix24_get_task",
       "bitrix24_list_departments",
       "bitrix24_list_task_documents",

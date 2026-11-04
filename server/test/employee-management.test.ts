@@ -625,7 +625,7 @@ test("separate drafts survive restart; one update does not overwrite another and
   assert.equal(f.writes().length, 0);
 });
 
-test("actual MCP discovers strict draft schema, collects across calls, rejects apply/hidden fields, and never leaks Panels token", async (t) => {
+test("actual MCP discovers strict draft schema, collects across calls and rejects apply/hidden fields", async (t) => {
   const f = await fixture(t);
   const server = await serverFromEnvironment(
     {
@@ -879,7 +879,12 @@ test("present validates the saved preview but does not change its revision, queu
  const ready=await f.manager.request({op:'preview',draftId:collecting.draftId,version:collecting.version});
  const before=await readFile(f.manager.path(),'utf8');
  const shown=await f.manager.request({op:'present',draftId:ready.draftId,version:ready.version});
- assert.equal(shown.state,'ready');assert.equal(await readFile(f.manager.path(),'utf8'),before);
+ assert.equal(shown.state,'ready');
+ assert.equal((await f.manager.load()).revision, JSON.parse(before).revision);
+ assert.ok(shown.presentation);
+ const persisted=await readFile(f.manager.path(),'utf8');
+ assert.deepEqual((await f.manager.request({op:'present',draftId:ready.draftId,version:ready.version})).presentation,shown.presentation);
+ assert.equal(await readFile(f.manager.path(),'utf8'),persisted);
  assert.equal(f.calls.filter(c=>c.method==='user.add'||c.method==='user.update').length,0);
  await assert.rejects(()=>f.manager.request({op:'present',draftId:ready.draftId,version:ready.version-1}),/EMPLOYEE_DRAFT_CHANGED/);
 });
@@ -896,7 +901,6 @@ test("dismissal clarifies identity, previews consequences and writes only ACTIVE
   assert.deepEqual(d.missing, []);
   for (const pattern of [/Уволить сотрудника Иван Иванов \[7\]/u, /ivan@example.test/u, /Дизайнер/u, /Компания \/ Отдел дизайна/u, /Активен → Уволен/u, /файлы сохранятся/u, /управление интеграциями не выполняются/u]) assert.match(d.summary!, pattern);
   assert.equal(f.writes().length, 0);
-  await f.manager.request({op:"present", draftId:d.draftId, version:d.version});
   assert.equal(f.writes().length, 0);
   await f.approve(d);
   assert.equal(f.writes().length, 0);
@@ -987,4 +991,83 @@ test("dismissal requires an inactive read-back even after a successful response;
       if(status.state==="unknown")await assert.rejects(f.dismiss(),/EMPLOYEE_CONFLICTING_DRAFT/u);
     });
   }
+});
+
+test("standalone chat cancel closes the draft durably with no portal write", async t => {
+  const f = await fixture(t), d = await f.preview();
+  const card = (await f.manager.request({op:"present",draftId:d.draftId,version:d.version})).presentation!;
+  assert.match(card.markdown, /<tg-button-row>/u);
+  for (const reply of [card.confirmReply,card.cancelReply]) assert.ok(Buffer.byteLength(reply)<64);
+  assert.equal((await f.manager.chatReply(card.cancelReply)).state,"cancelled");
+  const restarted = new EmployeeManager(f.directory,f.store,f.manager.now);
+  assert.equal((await restarted.chatReply(card.confirmReply)).code,"EMPLOYEE_OFFER_USED");
+  await restarted.runQueued();
+  assert.equal((await restarted.request({op:"status",draftId:d.draftId})).state,"cancelled");
+  assert.equal(f.writes().length,0);
+});
+
+test("standalone chat confirmation is durable, one-shot and checks the actual invitation", async t => {
+  const f = await fixture(t), d = await f.preview();
+  const card = (await f.manager.request({op:"present",draftId:d.draftId,version:d.version})).presentation!;
+  const first=await f.manager.chatReply(card.confirmReply);
+  assert.equal(first.state,"queued");
+  assert.equal(f.writes().length,0);
+  const restarted = new EmployeeManager(f.directory,f.store,f.manager.now);
+  assert.equal((await restarted.chatReply(card.confirmReply)).code,"EMPLOYEE_OFFER_USED");
+  await restarted.runQueued();
+  assert.equal((await restarted.request({op:"status",draftId:d.draftId})).state,"applied");
+  assert.equal((await restarted.chatReply(card.cancelReply)).code,"EMPLOYEE_OFFER_USED");
+  await restarted.runQueued();
+  assert.equal(f.writes().length,1);
+});
+
+test("standalone chat expiry, corrections, changed policy and unknown token fail closed", async t => {
+  for (const change of ["expiry","correction","policy"] as const) await t.test(change,async t=>{
+    const f=await fixture(t), d=await f.preview();
+    const card=(await f.manager.request({op:"present",draftId:d.draftId,version:d.version})).presentation!;
+    if(change==="expiry")f.advance(10*60_000);
+    if(change==="correction")await f.manager.request({op:"collect",draftId:d.draftId,version:d.version,fields:{position:"Changed"}});
+    if(change==="policy")await withPolicyLock(f.data,()=>f.store.commit(0,{...LEGACY_POLICY,employees:false}));
+    assert.equal((await f.manager.chatReply(card.confirmReply)).code,"EMPLOYEE_OFFER_EXPIRED");
+    await f.manager.runQueued();assert.equal(f.writes().length,0);
+  });
+  const f=await fixture(t);
+  assert.equal((await f.manager.chatReply(`b24e:ok:${token()}`)).code,"EMPLOYEE_OFFER_NOT_FOUND");
+  for(const invalid of ["yes",`b24e:ok:${token()}\n`,`b24e:ok:${token()}\n\n(quoted card)`,`prefix b24e:ok:${token()}`,`b24e:ok:${token()} extra`])
+    await assert.rejects(()=>f.manager.chatReply(invalid),/EMPLOYEE_REPLY_INVALID/u);
+});
+
+test("standalone chat offers survive unrelated drafts but invalidate edited payloads and legacy cross-route calls", async t => {
+  const f=await fixture(t),d=await f.preview();
+  const card=(await f.manager.request({op:"present",draftId:d.draftId,version:d.version})).presentation!;
+  await f.manager.request({op:"collect",action:"update",fields:{userId:7,position:"Other"}});
+  await f.manager.expireOffers();
+  await assert.rejects(()=>f.rpc({op:"confirm",token:card.confirmReply.split(":")[2]}),/EMPLOYEE_OFFER_WRONG_CHANNEL/u);
+  assert.equal((await f.manager.chatReply(card.confirmReply)).state,"queued");
+  await f.manager.runQueued(); assert.equal(f.writes().length,1);
+});
+
+test("standalone chat never repeats an unknown result and still revalidates external edits", async t => {
+  for(const change of ["external","lost"] as const)await t.test(change,async t=>{
+    const f=await fixture(t),d=await f.preview();
+    const card=(await f.manager.request({op:"present",draftId:d.draftId,version:d.version})).presentation!;
+    if(change==="external")f.departments[1]!.NAME="Changed department";
+    if(change==="lost")f.intercept(async method=>{if(method==="user.add")throw new Error("synthetic lost response");return undefined;});
+    assert.equal((await f.manager.chatReply(card.confirmReply)).state,"queued");
+    await f.manager.runQueued();
+    assert.equal((await f.manager.request({op:"status",draftId:d.draftId})).state,change==="lost"?"unknown":"rejected");
+    assert.equal((await f.manager.chatReply(card.confirmReply)).state,"refused");
+    await new EmployeeManager(f.directory,f.store,f.manager.now).runQueued();
+    assert.equal(f.writes().length,change==="lost"?1:0);
+  });
+});
+
+test("competing standalone confirmations across managers never queue or write twice",async t=>{
+  const f=await fixture(t),d=await f.preview();
+  const card=(await f.manager.request({op:"present",draftId:d.draftId,version:d.version})).presentation!;
+  const other=new EmployeeManager(f.directory,f.store,f.manager.now);
+  const responses=await Promise.allSettled([f.manager.chatReply(card.confirmReply),other.chatReply(card.confirmReply)]);
+  assert.equal(responses.filter(r=>r.status==="fulfilled"&&r.value.state==="queued").length,1);
+  assert.equal((await other.chatReply(card.confirmReply)).state,"refused");
+  await other.runQueued();assert.equal(f.writes().length,1);
 });

@@ -209,14 +209,17 @@ policy. Общий SettingsStore, revision и writer lock сохраняются
 
 ## Кадровые заявки
 
-0.10.0-rc.1 добавляет отдельные диалоговые черновики и очередь с финальным апрувом
-через Panels, без кадрового MCP apply. [ADR0014](adr/0014-employee-drafts-and-panels-approval.md)
-описывает intent, receipt, scope/policy gates и границу внешней транзакции.
-
-В 0.10.0-rc.4 `present` показывает готовую заявку непосредственно в чате через общий
-транспорт карточек Panels. Panels связывает доставку и нажатие; данные, проверки,
-очередь и внешний эффект принадлежат Bitrix-плагину. Поля сотрудника не передаются
-в запросе к общему транспорту. [ADR0015](adr/0015-employee-chat-cards.md).
+В 1.0.0-rc.2 готовое превью возвращается через rich reply Ивы без внешнего транспорта.
+Сохранённый chat-offer содержит token, draftId/version, identity, fingerprint, createdAt,
+expiresAt и состояние. `employee_reply` принимает точную b24e-команду из текущего
+входящего хода через модель; это не независимое доказательство клика.
+Принятие и очередь атомарны, запись и read-back выполняет тот же ограниченный worker.
+Модель не задаёт payload при подтверждении. Квитанции не удаляются при повторе/рестарте.
+Фоновая служба самого Bitrix сохраняет legacy имя panels и необязательный provider API;
+вызовов сокета или API плагина iva-panels в обычном пути нет.
+[ADR0017](adr/0017-standalone-employee-approval.md) заменяет обязательный транспорт
+из [ADR0014](adr/0014-employee-drafts-and-panels-approval.md) и
+[ADR0015](adr/0015-employee-chat-cards.md).
 
 ## Увольнение сотрудников
 

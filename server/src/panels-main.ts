@@ -92,7 +92,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   const api = createPanelsApi(env);
   const socket = await servePanels(api);
   const health = createServer((req, res) => {
-    if (req.method === "GET" && req.url === "/health") res.writeHead(200, { "content-type": "application/json" }).end('{"ok":true,"service":"bitrix24-panels"}');
+    if (req.method === "GET" && req.url === "/health") res.writeHead(200, { "content-type": "application/json" }).end('{"ok":true,"service":"bitrix24-runtime"}');
     else res.writeHead(404).end();
   });
   const port = Number(process.env.IVA_SERVICE_PORT ?? 8736);

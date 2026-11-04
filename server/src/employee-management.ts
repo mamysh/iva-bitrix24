@@ -1,3 +1,4 @@
+import { employeeChatCard } from "./employee-chat.ts";
 import { randomBytes, createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -125,6 +126,8 @@ const offerSchema = z
     createdAt: z.number().finite(),
     expiresAt: z.number().finite(),
     state: z.enum(["offer", "done", "cancelled"]),
+    channel: z.literal("chat").optional(),
+    fingerprint: z.string().optional(),
   })
   .strict();
 type Offer = z.infer<typeof offerSchema>;
@@ -152,7 +155,7 @@ const stateLabels: Record<Draft["state"], string> = {
   cancelled: "отменена",
 };
 
-/** MCP can collect/read/cancel only. enqueue is called exclusively by the private Panels service. */
+/** Durable drafts, token approvals and a shared worker that never retries an uncertain write. */
 export class EmployeeManager {
   readonly directory: EmployeeDirectory;
   readonly store: SettingsStore;
@@ -241,7 +244,7 @@ export class EmployeeManager {
           ].some(Boolean) && "changes",
         ].filter(Boolean);
   }
-  view(draft: Draft) {
+  view(draft: Draft, presentation?: ReturnType<typeof employeeChatCard>) {
     return {
       draftId: draft.id,
       version: draft.version,
@@ -258,6 +261,7 @@ export class EmployeeManager {
         draft.state === "ready"
           ? "Покажите карточку подтверждения здесь в чате через op=present. Выбор сотрудника или отдела не является подтверждением действия."
           : null,
+      ...(presentation ? { presentation } : {}),
       untrustedContent: true,
     };
   }
@@ -321,7 +325,27 @@ export class EmployeeManager {
         draft.state = "ready";
         draft.version++;
       }
-      if (input.op !== "present") await this.save(doc);
+      if (input.op === "present") {
+        // Persist before showing. Re-presenting this version reuses the same offer;
+        // it never silently extends a button's lifetime or creates an extra approval.
+        const offers = Object.values(doc.offers).filter(o => o.channel === "chat" && o.draftId === draft.id && o.draftVersion === draft.version);
+        let offer = offers.at(-1);
+        if (offer && (offer.state !== "offer" || this.now() >= offer.expiresAt || this.now() < offer.createdAt))
+          throw new BitrixRequestError("EMPLOYEE_OFFER_EXPIRED");
+        if (!offer) {
+          if (Object.keys(doc.offers).length >= 1000) throw new BitrixRequestError("EMPLOYEE_JOURNAL_FULL");
+          offer = {
+            token: randomBytes(12).toString("hex"), draftId: draft.id,
+            draftVersion: draft.version, revision: doc.revision, identity: this.store.identity,
+            createdAt: this.now(), expiresAt: Math.min(this.now() + 10 * 60_000, draft.expiresAt),
+            state: "offer", channel: "chat", fingerprint: draft.snapshot!.fingerprint,
+          };
+          doc.offers[offer.token] = offer;
+          await this.save(doc, false);
+        }
+        return this.view(draft, employeeChatCard(draft.snapshot!.summary, offer.token, offer.expiresAt));
+      }
+      await this.save(doc);
       return this.view(draft);
     });
   }
@@ -527,7 +551,7 @@ export class EmployeeManager {
           this.now() >= offer.expiresAt ||
           draft.state !== "ready" ||
           draft.version !== offer.draftVersion ||
-          doc.revision !== offer.revision ||
+          (offer.channel !== "chat" && doc.revision !== offer.revision) ||
           current.revision !== draft.snapshot?.settingsRevision
         ) {
           offer.state = "cancelled";
@@ -556,6 +580,7 @@ export class EmployeeManager {
       });
       const old = doc.offers[input.token];
       if (old) {
+        if (old.channel === "chat") throw new BitrixRequestError("EMPLOYEE_OFFER_WRONG_CHANNEL");
         if (
           input.action !== `emp-${old.draftId}` ||
           input.revision !== old.revision
@@ -601,6 +626,7 @@ export class EmployeeManager {
     }
     const offer = doc.offers[input.token];
     if (!offer) throw new BitrixRequestError("EMPLOYEE_OFFER_NOT_FOUND");
+    if (offer.channel === "chat") throw new BitrixRequestError("EMPLOYEE_OFFER_WRONG_CHANNEL");
     if (input.op === "status" || offer.state !== "offer")
       return this.reply(offer, doc);
     const draft = this.get(doc, offer.draftId);
@@ -624,6 +650,45 @@ export class EmployeeManager {
     draft.state = "queued";
     await this.save(doc);
     return this.reply(offer, doc);
+  }
+  /** The model supplies only the exact reply from the current owner turn.
+   * This is token-bound approval through a model, not independent proof of a click. */
+  async chatReply(reply: string) {
+    const match = /^b24e:(ok|no):([a-f0-9]{24})$/u.exec(reply);
+    if (!match || match[0] !== reply) throw new BitrixRequestError("EMPLOYEE_REPLY_INVALID");
+    return withPolicyLock(this.store.data, async () => {
+      const doc = await this.load();
+      const offer = doc.offers[match[2]!];
+      if (!offer || offer.channel !== "chat" || offer.identity !== this.store.identity)
+        return { state: "refused", code: "EMPLOYEE_OFFER_NOT_FOUND", message: "Подтверждение не найдено. Подготовьте новую карточку." };
+      const draft = this.get(doc, offer.draftId);
+      if (offer.state !== "offer")
+        return { state: "refused", code: "EMPLOYEE_OFFER_USED", draftId: draft.id, requestState: draft.state,
+          message: offer.state === "done" ? "Это подтверждение уже использовано. Повторного действия не будет; запросите результат заявки." : "Это подтверждение уже отменено или устарело. Действие не выполняется." };
+      const current = await this.store.read();
+      const valid = this.now() >= offer.createdAt && this.now() < offer.expiresAt &&
+        draft.state === "ready" && draft.version === offer.draftVersion &&
+        draft.snapshot?.fingerprint === offer.fingerprint && current.revision === draft.snapshot?.settingsRevision;
+      if (!valid) {
+        offer.state = "cancelled";
+        await this.save(doc, false);
+        return { state: "refused", code: "EMPLOYEE_OFFER_EXPIRED", draftId: draft.id,
+          message: "Подтверждение устарело: истёк срок, изменились заявка или настройки. Подготовьте новое превью. Действие не выполняется." };
+      }
+      if (match[1] === "no") {
+        offer.state = "cancelled";
+        draft.state = "cancelled";
+        draft.version++;
+        await this.save(doc);
+        return { state: "cancelled", draftId: draft.id, message: "Заявка отменена. Изменения в Bitrix24 не отправлялись." };
+      }
+      await this.allowed();
+      offer.state = "done";
+      draft.state = "queued";
+      await this.save(doc); // Approval and queue entry are one durable commit.
+      return { state: "queued", draftId: draft.id,
+        message: "Заявка принята в обработку. Это ещё не подтверждение изменения в Bitrix24. Проверьте результат заявки." };
+    });
   }
   async runQueued() {
     if (this.#running) return;

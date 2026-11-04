@@ -114,7 +114,7 @@ candidateSha/hidden approvalToken. Новый check заменяет offer. TTL1
 Контракт, проверки владельца/ревизии и ограничения: [PLUGIN_SCREENS](PLUGIN_SCREENS.md).
 
 
-## Сотрудники (1.0.0-rc.1)
+## Сотрудники (1.0.0-rc.2)
 
 `bitrix24_employee_candidates`: kind=people|departments, ровно один query|id|email
 (email только для people), start=0 по умолчанию. Выдаёт items, nextStart, complete,
@@ -131,16 +131,20 @@ skipped, approximate, untrustedContent. Десять исходных запис
   departmentMode=replace|add. Null снимает поле из заявки; position=null очищает должность.
 - preview: draftId/version, валидация полного запроса, точный снимок и summary. Writes нет.
 - present: draftId/version, показ сохранённого готового превью в текущем чате через
-  общий транспорт Panels. Возвращает chatCard.state; не подтверждает и не выполняет запись.
+  rich-ответ Ивы. Возвращает presentation.markdown/confirmReply/cancelReply/expiresAt;
+  сохраняет одноразовый токен, но не подтверждает и не выполняет запись.
 - cancel: draftId/version, только collecting/ready, включая истёкшие заявки.
 - status: draftId, чистое чтение; возвращает state, поля, missing, summary и actual userId/code,
-  когда доступны. Токены Panels, fingerprint и полный локальный журнал не возвращаются.
+  когда доступны. Токены подтверждения, fingerprint и полный локальный журнал не возвращаются.
 
 Возможные state: collecting|ready|queued|running|applied|rejected|unknown|cancelled.
 Новый collect и preview требуют confirmed_write + employees=true + work/email.
 Preview и исполнение проверяют user/department; при записи остаются реальные права портала.
-Ни employee apply, ни произвольного REST-call нет. Финальный апрув: только private Panels RPC.
-[Полный контракт и обработка сбоев](EMPLOYEES.md), [ADR0014](adr/0014-employee-drafts-and-panels-approval.md).
+Нет произвольного REST-call. `bitrix24_employee_reply {reply}` принимает только точную
+команду b24e:ok:<24 hex> или b24e:no:<24 hex> из текущего хода владельца.
+Результаты: queued с draftId и необязательным result (реальный статус), cancelled или
+refused с безопасным code/message. Повтор/просрочка/изменения не вызывают запись.
+[Полный контракт и обработка сбоев](EMPLOYEES.md), [ADR0017](adr/0017-standalone-employee-approval.md).
 
 ### Представление и подтверждение
 
@@ -148,12 +152,12 @@ Candidates дополнительно возвращает `presentation.markdow
 полные пути в тексте, короткие кнопки «Отдел N», «Сотрудник N», «Отмена».
 Это выбор данных, не разрешение записи. Навык `bitrix24-employees` задаёт диалог.
 
-`present` обращается только к общему транспорту `iva-panels/chat-v1`; аргументы эффекта
-Panels получает от Bitrix socket при prepare. Адресат и идентификаторы кнопок не выбираются
-моделью. `chatCard.state`: `presented`, `already_presented`, `delivery_unknown` или
-`unavailable`. Неизвестная доставка не повторяется автоматически.
-Проверенная конфигурация — Panels 0.3.0-rc.2 с одним владельцем и dynamicPanels.
-[Сценарий и ограничения](EMPLOYEES.md) · [Карточки](PANELS.md).
+`present` возвращает `<tg-button-row>` с «Подтвердить / Отменить». Его результат
+нужно отправить как rich reply, не использовать как уже полученное согласие.
+Мост может добавить к входящей команде цитату; reply tool принимает только точную
+первую строку, без цитаты. Подтверждение через модель не доказывает физический клик.
+После queued успехом считается только result.state=applied или такой же status после
+контрольного чтения. Полный протокол — [ADR0017](adr/0017-standalone-employee-approval.md).
 
 ### Увольнение
 

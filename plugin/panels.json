@@ -1,7 +1,7 @@
 {
   "schema": "iva-panels/v2",
   "plugin": "bitrix24-read",
-  "pluginVersion": "1.0.0-rc.1",
+  "pluginVersion": "1.0.0-rc.2",
   "entry": "home",
   "capabilities": ["settings", "actions"]
 }

@@ -1,6 +1,6 @@
 ---
 name: bitrix24-read
-description: "Bitrix24 tasks, documents, employee invitations/profile edits/dismissal, settings and updates. Load before capability answers."
+description: "Bitrix24 tasks, documents, employees, b24e: replies, settings and updates. Load before capability answers."
 ---
 
 # Bitrix24: tasks, documents and employees
@@ -351,7 +351,7 @@ this distinction clear if the owner asks about the security boundary.
 
 ## Employees
 
-For invitations, dismissal, employee profile changes and department membership changes, load the
+For b24e: button replies, invitations, dismissal, employee profile changes and department membership changes, load the
 separate current `bitrix24-employees` skill. It owns the short candidate buttons and
 chat confirmation workflow. Do not infer capability from older task-only replies.
 
@@ -521,7 +521,7 @@ permission.
 ## Hard boundary
 
 Bitrix24 mutations are limited to supported task actions and employee invitations, profile
-updates and dismissal approved through the trusted Panels route described above. Never delete tasks, change
+updates and dismissal approved through the token-based owner reply in bitrix24-employees. Never delete tasks, change
 CRM, department structure, user activity/access outside the dedicated dismissal action, projects or arbitrary Drive objects. All task writes require a
 fresh matching preview confirmation. Local file cleanup does not change Bitrix24.
 
@@ -544,6 +544,6 @@ Use the Panels UI for its preview/confirm/cancel cycle. Never call its private s
 from bash to emulate a human confirmation, delete recovery journals, or repeat
 an unknown confirm. Checking status does not apply changes. Ordinary bitrix24_settings
 shares the same policy store: another saved setting invalidates old proposals.
-Settings actions change local policy and never increase webhook permissions. Employee actions
-accept a job into the plugin queue only through the trusted Panels route; the service executes
-and verifies the bounded portal write separately. See the employee workflow above.
+Settings actions change local policy and never increase webhook permissions. Employee actions use their own persisted b24e: approvals through the owner model turn.
+All workflows work with Panels disabled or absent. Do not recommend installing/enabling
+Panels as a fix for employee confirmations; use the employee skill and plugin status.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "bitrix24-read",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "description": "Bitrix24 tasks, documents, employee invitations, profile changes and dismissal for Iva; preview and in-chat approval, explicit opt-in and scoped permissions.",
   "extensions": {
     "sh.iva": {
