@@ -103,42 +103,50 @@ if [[ -z "$IVA_ATTACHMENTS_ROOT" ]]; then
 fi
 [[ "$IVA_ATTACHMENTS_ROOT" == /* && "$IVA_ATTACHMENTS_ROOT" != *$'\n'* ]] || die "Каталог вложений Iva должен быть абсолютным безопасным путём."
 mkdir -p -- "$IVA_ATTACHMENTS_ROOT" || die "Не удалось подготовить каталог вложений Iva."
-if ! command -v pdftoppm >/dev/null 2>&1; then
-  warn "pdftoppm не найден: просмотр страниц PDF и Office пока недоступен. Установите poppler-utils."
+offer_document_packages() {
+  local label="$1" answer package
+  shift
+  if ! command -v apt-get >/dev/null 2>&1 || ! command -v apt-cache >/dev/null 2>&1; then
+    warn "Установите $label средствами вашего дистрибутива. Пакеты: $*."
+    return 0
+  fi
+  for package in "$@"; do
+    if ! apt-cache show "$package" >/dev/null 2>&1; then
+      warn "Пакет $package не найден. Попросите администратора проверить репозитории и установить $label."
+      return 0
+    fi
+  done
+  if ! command -v sudo >/dev/null 2>&1; then
+    warn "Попросите администратора установить $label. Пакеты: $*."
+    return 0
+  fi
+  read -r -p "Установить $label? [y/N] " answer <&3 || answer=""
+  case "$answer" in
+    y|Y|yes|YES|Yes|д|Д|да|ДА|Да)
+      if sudo -v <&3 >&3 2>&3 &&
+         sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" <&3 >&3 2>&3; then
+        ok "Установка $label завершена."
+      else
+        warn "Не удалось установить $label. Продолжаю настройку плагина."
+      fi
+      ;;
+    *) say "Пропускаю $label. Позже можно снова запустить установщик." ;;
+  esac
+}
+
+if ! command -v pdftotext >/dev/null 2>&1 || ! command -v pdftoppm >/dev/null 2>&1; then
+  warn "Для извлечения текста из PDF нужен pdftotext, для просмотра страниц PDF и Office нужен pdftoppm."
+  offer_document_packages "Poppler" poppler-utils
 fi
-if command -v libreoffice >/dev/null 2>&1; then
-  ok "LibreOffice установлен. Он нужен для извлечения текста из PPT/PPTX и визуального разбора Office."
-else
-  say ""
-  warn "LibreOffice не найден. Он нужен для извлечения текста из PPT/PPTX и визуального разбора Office."
+
+if ! command -v libreoffice >/dev/null 2>&1; then
+  warn "LibreOffice нужен для извлечения текста из PPT/PPTX и визуального разбора Office."
   say "Ива читает текст DOCX и данные XLSX своими штатными средствами."
   if [[ -r /proc/meminfo ]] && awk '/^MemTotal:/ { exit ($2 < 1536000 ? 0 : 1) }' /proc/meminfo; then
-    warn "На сервере меньше 1,5 ГБ RAM: крупные презентации могут обрабатываться медленно."
+    warn "На сервере меньше 1,5 ГБ RAM. Крупные презентации могут обрабатываться медленно."
   fi
-  if command -v apt-get >/dev/null 2>&1 &&
-     command -v apt-cache >/dev/null 2>&1 &&
-     apt-cache show libreoffice-impress-nogui >/dev/null 2>&1 &&
-     apt-cache show libreoffice-writer-nogui >/dev/null 2>&1 &&
-     apt-cache show libreoffice-calc-nogui >/dev/null 2>&1; then
-    read -r -p "Установить компоненты LibreOffice без графического интерфейса? [y/N] " OFFICE_ANSWER <&3
-    case "$OFFICE_ANSWER" in
-      y|Y|yes|YES|Yes|д|Д|да|ДА|Да)
-        if ! command -v sudo >/dev/null 2>&1; then
-          warn "sudo недоступен. Попросите администратора установить libreoffice-impress-nogui, libreoffice-writer-nogui и libreoffice-calc-nogui."
-        elif sudo -v <&3 >&3 2>&3 &&
-             sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-               libreoffice-impress-nogui libreoffice-writer-nogui libreoffice-calc-nogui <&3 >&3 2>&3 &&
-             command -v libreoffice >/dev/null 2>&1; then
-          ok "LibreOffice установлен."
-        else
-          warn "LibreOffice не удалось установить. Плагин продолжит работать без разбора презентаций."
-        fi
-        ;;
-      *) say "Продолжаю без LibreOffice. Позже можно повторно запустить этот установщик." ;;
-    esac
-  else
-    warn "Для этой системы автоматическая установка не подготовлена; установите LibreOffice средствами вашего дистрибутива."
-  fi
+  offer_document_packages "LibreOffice без графического интерфейса" \
+    libreoffice-impress-nogui libreoffice-writer-nogui libreoffice-calc-nogui
 fi
 
 say "${bold}Шаг 1 из 4. Установка плагина${reset}"

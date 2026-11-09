@@ -75,10 +75,12 @@ iva plugin add bitrix24-read@iva-bitrix24
 Для извлечения текста из PPT/PPTX нужны LibreOffice и `pdftotext` из того же
 пакета `poppler-utils`. Поиск по имени, скачивание и отправка файлов не требуют
 этих программ.
-Мастер проверяет LibreOffice и, если он отсутствует, на Ubuntu/Debian спрашивает,
-установить ли `libreoffice-impress-nogui`, `libreoffice-writer-nogui` и
-`libreoffice-calc-nogui` без графического интерфейса. Только после ответа «да» он
-вызывает `sudo apt-get install`; при отказе или ошибке продолжает настройку плагина.
+Мастер проверяет наличие `pdftotext`, `pdftoppm` и LibreOffice. На Debian и
+Ubuntu он предлагает установить недостающие пакеты отдельными шагами.
+Для Poppler нужен `poppler-utils`, для LibreOffice нужны
+`libreoffice-impress-nogui`, `libreoffice-writer-nogui` и `libreoffice-calc-nogui`.
+Мастер вызывает `sudo apt-get install` только после согласия. При отказе,
+отсутствии прав или ошибке он продолжает настройку плагина.
 На VPS с менее чем 1,5 ГБ RAM мастер предупредит о возможной медленной обработке
 крупных презентаций.
 
