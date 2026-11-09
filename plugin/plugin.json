@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "bitrix24-read",
-  "version": "1.0.0-rc.3",
-  "description": "Bitrix24 tasks, documents, employee invitations, profile changes and dismissal for Iva; preview and in-chat approval, explicit opt-in and webhook permission diagnostics.",
+  "version": "1.0.0",
+  "description": "Work with Bitrix24 tasks and documents in Iva. Preview and approve task and employee changes in chat. Check which webhook permissions each feature needs.",
   "extensions": {
     "sh.iva": {
       "telegramScreen": {

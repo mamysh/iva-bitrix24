@@ -21222,7 +21222,7 @@ function changePolicy(current, choice) {
 }
 
 // server/src/panels-api.ts
-var PANELS_VERSION = "1.0.0-rc.3";
+var PANELS_VERSION = "1.0.0";
 var tokenSchema2 = external_exports.string().regex(/^[a-f0-9]{24}$/u);
 var revisionSchema = external_exports.number().int().min(0).max(999999999999);
 var envelope = { schema: external_exports.literal("iva-panels/rpc-v1"), plugin: external_exports.literal("bitrix24-read"), pluginVersion: external_exports.literal(PANELS_VERSION) };
