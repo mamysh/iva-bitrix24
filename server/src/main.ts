@@ -1,7 +1,7 @@
 import { EmployeeDirectory } from "./employee-directory.ts";
 import { EmployeeManager } from "./employee-management.ts";
 import { registerEmployeeTools } from "./mcp-server.ts";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -28,7 +28,7 @@ function unavailableServer(
   updater: PluginUpdaterPort | null,
   settings: SettingsStore,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "1.0.0-rc.2" });
+  const server = new McpServer({ name: "bitrix24-read", title: "Bitrix24", version: "1.0.0-rc.3" });
   registerUpdaterTools(server, updater);
   registerSettingsTool(server, new SettingsMenu(settings, { configured: false }));
   server.registerTool(
@@ -72,8 +72,11 @@ export async function serverFromEnvironment(
       throw new ConfigurationError("BITRIX24_SETTINGS_DEFAULTS must be restricted or legacy");
     const client = new BitrixClient(loadConfig(env), dependencies);
     const tasks = new TaskReader(client, undefined, settings.policy);
-    const capabilities = new ReadCapabilityReader(client, settings.policy);
     const attachmentsRoot = await resolveAttachmentsRoot(env);
+    const capabilities = new ReadCapabilityReader(client, settings.policy, {
+      privateData: Boolean(settings.data && isAbsolute(settings.data)),
+      attachments: Boolean(attachmentsRoot),
+    });
     const files = new TaskFileReader(client, attachmentsRoot);
     const writer = new TaskWriter(client, env.PLUGIN_DATA, attachmentsRoot, Date.now, settings);
     const server = createMcpServer(
@@ -83,7 +86,7 @@ export async function serverFromEnvironment(
         getTask: (taskId) => protect(() => tasks.getTask(taskId)),
         taskHistory: (options) => protect(() => tasks.taskHistory(options)),
         taskFields: () => protect(() => tasks.taskFields()),
-        capabilities: () => protect(() => capabilities.capabilities()),
+        capabilities: () => capabilities.capabilities(),
         taskComments: (options) => protect(() => capabilities.taskComments(options)),
         searchProjects: (options) => protect(() => capabilities.searchProjects(options)),
         searchPeople: (options) => protect(() => capabilities.searchPeople(options)),

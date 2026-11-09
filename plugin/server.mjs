@@ -27316,6 +27316,7 @@ var BitrixClient = class {
 };
 
 // server/src/employee-directory.ts
+var employeeScopes = ["user", "department"];
 var employeeId = external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 var employeeLookupSchema = external_exports.object({
   kind: external_exports.enum(["people", "departments"]),
@@ -27400,7 +27401,7 @@ var EmployeeDirectory = class {
     const granted = new Set(
       scopes.filter((v) => typeof v === "string").map((v) => v.toLowerCase())
     );
-    for (const scope of ["user", "department"])
+    for (const scope of employeeScopes)
       if (!granted.has(scope))
         throw new BitrixRequestError("INSUFFICIENT_SCOPE", false, scope);
   }
@@ -27443,9 +27444,9 @@ var EmployeeDirectory = class {
     if (person.id !== id3) throw new BitrixRequestError("EMPLOYEE_NOT_FOUND");
     return person;
   }
-  async byEmail(email3) {
+  async byEmail(email4) {
     const page = await this.client.callPage("user.get", {
-      FILTER: { EMAIL: email3 },
+      FILTER: { EMAIL: email4 },
       select: [
         "ID",
         "NAME",
@@ -27460,7 +27461,7 @@ var EmployeeDirectory = class {
     if (!Array.isArray(page.result) || page.next !== null || page.result.length > 1)
       throw new BitrixRequestError("EMPLOYEE_EMAIL_AMBIGUOUS");
     const result = page.result.map((v) => this.person(v));
-    if (result.some((v) => v.email.toLowerCase() !== email3.toLowerCase()))
+    if (result.some((v) => v.email.toLowerCase() !== email4.toLowerCase()))
       throw new BitrixRequestError("EMPLOYEE_EMAIL_AMBIGUOUS");
     return result;
   }
@@ -28010,12 +28011,12 @@ var EmployeeManager = class {
     });
   }
   async noConflict(doc, draft) {
-    const email3 = draft.fields.email?.toLowerCase();
+    const email4 = draft.fields.email?.toLowerCase();
     for (const other of Object.values(doc.drafts)) {
       if (other.state === "ready" && this.now() >= other.expiresAt) continue;
       if (other.id === draft.id || other.identity !== draft.identity || !["queued", "running", "unknown", "ready"].includes(other.state))
         continue;
-      if (email3 && other.fields.email?.toLowerCase() === email3 || draft.fields.userId && draft.fields.userId === other.fields.userId)
+      if (email4 && other.fields.email?.toLowerCase() === email4 || draft.fields.userId && draft.fields.userId === other.fields.userId)
         throw new BitrixRequestError("EMPLOYEE_CONFLICTING_DRAFT");
     }
   }
@@ -35378,12 +35379,12 @@ var Protocol = class {
     this._taskMessageQueue = _options?.taskMessageQueue;
     if (this._taskStore) {
       this.setRequestHandler(GetTaskRequestSchema, async (request, extra) => {
-        const task = await this._taskStore.getTask(request.params.taskId, extra.sessionId);
-        if (!task) {
+        const task2 = await this._taskStore.getTask(request.params.taskId, extra.sessionId);
+        if (!task2) {
           throw new McpError(ErrorCode.InvalidParams, "Failed to retrieve task: Task not found");
         }
         return {
-          ...task
+          ...task2
         };
       });
       this.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra) => {
@@ -35417,15 +35418,15 @@ var Protocol = class {
               await this._transport?.send(queuedMessage.message, { relatedRequestId: extra.requestId });
             }
           }
-          const task = await this._taskStore.getTask(taskId, extra.sessionId);
-          if (!task) {
+          const task2 = await this._taskStore.getTask(taskId, extra.sessionId);
+          if (!task2) {
             throw new McpError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
           }
-          if (!isTerminal(task.status)) {
+          if (!isTerminal(task2.status)) {
             await this._waitForTaskUpdate(taskId, extra.signal, extra.sessionId);
             return await handleTaskResult();
           }
-          if (isTerminal(task.status)) {
+          if (isTerminal(task2.status)) {
             const result = await this._taskStore.getTaskResult(taskId, extra.sessionId);
             this._clearTaskQueue(taskId, extra.sessionId);
             return {
@@ -35456,12 +35457,12 @@ var Protocol = class {
       });
       this.setRequestHandler(CancelTaskRequestSchema, async (request, extra) => {
         try {
-          const task = await this._taskStore.getTask(request.params.taskId, extra.sessionId);
-          if (!task) {
+          const task2 = await this._taskStore.getTask(request.params.taskId, extra.sessionId);
+          if (!task2) {
             throw new McpError(ErrorCode.InvalidParams, `Task not found: ${request.params.taskId}`);
           }
-          if (isTerminal(task.status)) {
-            throw new McpError(ErrorCode.InvalidParams, `Cannot cancel task in terminal status: ${task.status}`);
+          if (isTerminal(task2.status)) {
+            throw new McpError(ErrorCode.InvalidParams, `Cannot cancel task in terminal status: ${task2.status}`);
           }
           await this._taskStore.updateTaskStatus(request.params.taskId, "cancelled", "Client cancelled task execution.", extra.sessionId);
           this._clearTaskQueue(request.params.taskId, extra.sessionId);
@@ -35768,10 +35769,10 @@ var Protocol = class {
     if (isJSONRPCResultResponse(response) && response.result && typeof response.result === "object") {
       const result = response.result;
       if (result.task && typeof result.task === "object") {
-        const task = result.task;
-        if (typeof task.taskId === "string") {
+        const task2 = result.task;
+        if (typeof task2.taskId === "string") {
           isTaskResponse = true;
-          this._taskProgressTokens.set(task.taskId, messageId);
+          this._taskProgressTokens.set(task2.taskId, messageId);
         }
       }
     }
@@ -35822,8 +35823,8 @@ var Protocol = class {
    * @experimental Use `client.experimental.tasks.requestStream()` to access this method.
    */
   async *requestStream(request, resultSchema, options) {
-    const { task } = options ?? {};
-    if (!task) {
+    const { task: task2 } = options ?? {};
+    if (!task2) {
       try {
         const result = await this.request(request, resultSchema, options);
         yield { type: "result", result };
@@ -35845,18 +35846,18 @@ var Protocol = class {
         throw new McpError(ErrorCode.InternalError, "Task creation did not return a task");
       }
       while (true) {
-        const task2 = await this.getTask({ taskId }, options);
-        yield { type: "taskStatus", task: task2 };
-        if (isTerminal(task2.status)) {
-          if (task2.status === "completed") {
+        const task3 = await this.getTask({ taskId }, options);
+        yield { type: "taskStatus", task: task3 };
+        if (isTerminal(task3.status)) {
+          if (task3.status === "completed") {
             const result = await this.getTaskResult({ taskId }, resultSchema, options);
             yield { type: "result", result };
-          } else if (task2.status === "failed") {
+          } else if (task3.status === "failed") {
             yield {
               type: "error",
               error: new McpError(ErrorCode.InternalError, `Task ${taskId} failed`)
             };
-          } else if (task2.status === "cancelled") {
+          } else if (task3.status === "cancelled") {
             yield {
               type: "error",
               error: new McpError(ErrorCode.InternalError, `Task ${taskId} was cancelled`)
@@ -35864,12 +35865,12 @@ var Protocol = class {
           }
           return;
         }
-        if (task2.status === "input_required") {
+        if (task3.status === "input_required") {
           const result = await this.getTaskResult({ taskId }, resultSchema, options);
           yield { type: "result", result };
           return;
         }
-        const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
+        const pollInterval = task3.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
         await new Promise((resolve6) => setTimeout(resolve6, pollInterval));
         options?.signal?.throwIfAborted();
       }
@@ -35886,7 +35887,7 @@ var Protocol = class {
    * Do not use this method to emit notifications! Use notification() instead.
    */
   request(request, resultSchema, options) {
-    const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
+    const { relatedRequestId, resumptionToken, onresumptiontoken, task: task2, relatedTask } = options ?? {};
     return new Promise((resolve6, reject) => {
       const earlyReject = (error62) => {
         reject(error62);
@@ -35898,7 +35899,7 @@ var Protocol = class {
       if (this._options?.enforceStrictCapabilities === true) {
         try {
           this.assertCapabilityForMethod(request.method);
-          if (task) {
+          if (task2) {
             this.assertTaskCapability(request.method);
           }
         } catch (e) {
@@ -35923,10 +35924,10 @@ var Protocol = class {
           }
         };
       }
-      if (task) {
+      if (task2) {
         jsonrpcRequest.params = {
           ...jsonrpcRequest.params,
-          task
+          task: task2
         };
       }
       if (relatedTask) {
@@ -36221,9 +36222,9 @@ var Protocol = class {
   async _waitForTaskUpdate(taskId, signal, sessionId) {
     let interval = this._options?.defaultTaskPollInterval ?? 1e3;
     try {
-      const task = await this._taskStore?.getTask(taskId, sessionId);
-      if (task?.pollInterval) {
-        interval = task.pollInterval;
+      const task2 = await this._taskStore?.getTask(taskId, sessionId);
+      if (task2?.pollInterval) {
+        interval = task2.pollInterval;
       }
     } catch {
     }
@@ -36255,22 +36256,22 @@ var Protocol = class {
         }, sessionId);
       },
       getTask: async (taskId) => {
-        const task = await taskStore.getTask(taskId, sessionId);
-        if (!task) {
+        const task2 = await taskStore.getTask(taskId, sessionId);
+        if (!task2) {
           throw new McpError(ErrorCode.InvalidParams, "Failed to retrieve task: Task not found");
         }
-        return task;
+        return task2;
       },
       storeTaskResult: async (taskId, status, result) => {
         await taskStore.storeTaskResult(taskId, status, result, sessionId);
-        const task = await taskStore.getTask(taskId, sessionId);
-        if (task) {
+        const task2 = await taskStore.getTask(taskId, sessionId);
+        if (task2) {
           const notification = TaskStatusNotificationSchema.parse({
             method: "notifications/tasks/status",
-            params: task
+            params: task2
           });
           await this.notification(notification);
-          if (isTerminal(task.status)) {
+          if (isTerminal(task2.status)) {
             this._cleanupTaskProgressHandler(taskId);
           }
         }
@@ -36279,12 +36280,12 @@ var Protocol = class {
         return taskStore.getTaskResult(taskId, sessionId);
       },
       updateTaskStatus: async (taskId, status, statusMessage) => {
-        const task = await taskStore.getTask(taskId, sessionId);
-        if (!task) {
+        const task2 = await taskStore.getTask(taskId, sessionId);
+        if (!task2) {
           throw new McpError(ErrorCode.InvalidParams, `Task "${taskId}" not found - it may have been cleaned up`);
         }
-        if (isTerminal(task.status)) {
-          throw new McpError(ErrorCode.InvalidParams, `Cannot update task "${taskId}" from terminal status "${task.status}" to "${status}". Terminal states (completed, failed, cancelled) cannot transition to other states.`);
+        if (isTerminal(task2.status)) {
+          throw new McpError(ErrorCode.InvalidParams, `Cannot update task "${taskId}" from terminal status "${task2.status}" to "${status}". Terminal states (completed, failed, cancelled) cannot transition to other states.`);
         }
         await taskStore.updateTaskStatus(taskId, status, statusMessage, sessionId);
         const updatedTask = await taskStore.getTask(taskId, sessionId);
@@ -37360,15 +37361,15 @@ var McpServer = class {
       await Promise.resolve(handler.createTask(taskExtra))
     );
     const taskId = createTaskResult.task.taskId;
-    let task = createTaskResult.task;
-    const pollInterval = task.pollInterval ?? 5e3;
-    while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
+    let task2 = createTaskResult.task;
+    const pollInterval = task2.pollInterval ?? 5e3;
+    while (task2.status !== "completed" && task2.status !== "failed" && task2.status !== "cancelled") {
       await new Promise((resolve6) => setTimeout(resolve6, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
       }
-      task = updatedTask;
+      task2 = updatedTask;
     }
     return await extra.taskStore.getTaskResult(taskId);
   }
@@ -38129,18 +38130,8 @@ Email: ${on(p.email)}`)),
             await this.#diagnostics.connectionCheck();
             lines.push(block("\u2705 \u0421\u043E\u0435\u0434\u0438\u043D\u0435\u043D\u0438\u0435 \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442", "\u0414\u043E\u0441\u0442\u0443\u043F \u043A \u043C\u0435\u0442\u043E\u0434\u0430\u043C \u0437\u0430\u0434\u0430\u0447 \u043F\u0440\u043E\u0432\u0435\u0440\u0435\u043D. \u0417\u0430\u0434\u0430\u0447\u0438 \u0438 \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u044B \u043D\u0435 \u0447\u0438\u0442\u0430\u043B\u0438\u0441\u044C."));
           } else {
-            const result = await this.#diagnostics.capabilities();
-            const scopes = new Set(result.grantedScopes ?? []);
-            const hasPeople = ["user_brief", "user_basic", "user"].some((value) => scopes.has(value));
-            const features = [["\u0417\u0430\u0434\u0430\u0447\u0438 \u0438 \u0447\u0435\u043A-\u043B\u0438\u0441\u0442\u044B", scopes.has("task")], ["\u041E\u0431\u0441\u0443\u0436\u0434\u0435\u043D\u0438\u044F \u043D\u043E\u0432\u043E\u0433\u043E \u0447\u0430\u0442\u0430", scopes.has("task") && scopes.has("im")], ["\u041F\u0440\u043E\u0435\u043A\u0442\u044B", scopes.has("sonet_group")], ["\u0421\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0438", hasPeople], ["\u041F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0435\u043D\u0438\u044F", scopes.has("department")], ["\u0412\u043B\u043E\u0436\u0435\u043D\u0438\u044F \u0437\u0430\u0434\u0430\u0447", scopes.has("task") && scopes.has("disk")], ["\u041C\u0435\u0442\u043E\u0434\u044B \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439", scopes.has("task") && hasPeople]];
-            lines.push(
-              block("\u041F\u0440\u0430\u0432\u0430 webhook", features.map(([label, available]) => `${available ? "\u2705" : "\u25CB"} ${label}: ${available ? "\u0435\u0441\u0442\u044C" : "\u043D\u0435\u0442"}`).join("  \n")),
-              block("\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F \u043F\u043B\u0430\u0433\u0438\u043D\u0430", richText2(`\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F: ${modeLabel(p)}
-Email: ${p.email ? "\u0440\u0430\u0437\u0440\u0435\u0448\u0451\u043D \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u043E\u0439" : "\u0441\u043A\u0440\u044B\u0442 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u043E\u0439"}
-\u041F\u0440\u0430\u0432\u043E \u043D\u0430 email: ${scopes.has("user_basic") || scopes.has("user") ? "\u0435\u0441\u0442\u044C" : "\u043D\u0443\u0436\u0435\u043D user_basic"}`)),
-              block("\u041A\u0430\u043A \u043F\u043E\u043D\u0438\u043C\u0430\u0442\u044C \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443", "\u041F\u0440\u0430\u0432\u0430 webhook \u043D\u0435 \u0434\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442 \u0434\u043E\u0441\u0442\u0443\u043F \u043A\u043E \u0432\u0441\u0435\u043C \u043E\u0431\u044A\u0435\u043A\u0442\u0430\u043C \u0438\u043B\u0438 \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u044C \u0437\u0430\u043F\u0438\u0441\u0438. \u041F\u0440\u0430\u0432\u0430 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u044E\u0442\u0441\u044F \u0434\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0433\u043E \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F."),
-              block("\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u043F\u0440\u0430\u0432\u0430", "Bitrix24 \u2192 \u041F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u044F \u2192 \u0420\u0435\u0441\u0443\u0440\u0441\u044B \u0440\u0430\u0437\u0440\u0430\u0431\u043E\u0442\u0447\u0438\u043A\u0430 \u2192 webhook \u2192 \u041F\u0440\u0430\u0432\u0430 \u0434\u043E\u0441\u0442\u0443\u043F\u0430.")
-            );
+            const { report } = await this.#diagnostics.capabilities();
+            lines.push(report.markdown);
           }
           const timestamp2 = new Date(this.#now()).toISOString().replace("T", " ").replace(/\.\d{3}Z$/u, " UTC");
           lines.push(block("\u041F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u043E", escape2(timestamp2)));
@@ -38162,7 +38153,7 @@ ${hint}`));
         row(select(p.uploads ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u2713" : "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u25CB", p.uploads ? "upload_off" : "upload_on"), select(p.deletions ? "\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u2713" : "\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u25CB", p.deletions ? "delete_off" : "delete_on")),
         "**\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430** \u2014 \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0442\u044C \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0435 \u0444\u0430\u0439\u043B\u044B \u0432 Bitrix.  \n**\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435** \u2014 \u0443\u0434\u0430\u043B\u044F\u0442\u044C \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0438 \u0444\u0430\u0439\u043B\u044B \u0447\u0430\u0442\u0430.",
         select(p.employees ? "\u0423\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430\u043C\u0438 \u2713" : "\u0423\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430\u043C\u0438 \u25CB", p.employees ? "employees_off" : "employees_on"),
-        "\u0421\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0438: \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u044B\u0435 \u0437\u0430\u044F\u0432\u043A\u0438 \u0438 \u0444\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0439 \u0430\u043F\u0440\u0443\u0432 \u0447\u0435\u0440\u0435\u0437 Panels; \u043D\u0443\u0436\u043D\u044B \u0440\u0430\u0431\u043E\u0447\u0438\u0439 \u043F\u0440\u043E\u0444\u0438\u043B\u044C, email \u0438 \u043F\u0440\u0430\u0432\u0430 user/department.",
+        "\u0421\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0438: \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u044B\u0435 \u0437\u0430\u044F\u0432\u043A\u0438 \u0438 \u0444\u0438\u043D\u0430\u043B\u044C\u043D\u043E\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435 \u0432 \u0447\u0430\u0442\u0435 \u0418\u0432\u044B; \u043D\u0443\u0436\u043D\u044B \u0440\u0430\u0431\u043E\u0447\u0438\u0439 \u043F\u0440\u043E\u0444\u0438\u043B\u044C, email \u0438 \u043F\u0440\u0430\u0432\u0430 user/department.",
         block("\u041A\u043E\u0433\u0434\u0430 \u0434\u0435\u0439\u0441\u0442\u0432\u0443\u044E\u0442 \u0440\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u044F", "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B \u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u0440\u0435\u0436\u0438\u043C\u0435 \u0437\u0430\u043F\u0438\u0441\u0438. \u0421\u043A\u0430\u0447\u0438\u0432\u0430\u043D\u0438\u0435 \u043E\u0442\u043D\u043E\u0441\u0438\u0442\u0441\u044F \u043A \u0447\u0442\u0435\u043D\u0438\u044E. \u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u0441\u0430\u043C\u043E\u0433\u043E \u043F\u043B\u0430\u0433\u0438\u043D\u0430 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0430\u0435\u0442\u0441\u044F \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E.")
       );
     } else {
@@ -38405,9 +38396,9 @@ var TaskWriter = class {
     const person = (Array.isArray(raw) ? raw : []).map(object3).find((p) => positive(p.ID) === userId);
     if (!person || person.ACTIVE !== true && person.ACTIVE !== "Y")
       return fail("EMPLOYEE_NOT_FOUND_OR_INACTIVE");
-    const email3 = this.#policy.email && this.#emailAvailable && typeof person.EMAIL === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(person.EMAIL.trim()) ? person.EMAIL.trim().slice(0, 320) : null;
+    const email4 = this.#policy.email && this.#emailAvailable && typeof person.EMAIL === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(person.EMAIL.trim()) ? person.EMAIL.trim().slice(0, 320) : null;
     if (this.#policy.people === "ids") return { person, label: `ID ${userId}` };
-    const label = `${[person.NAME, person.LAST_NAME].filter((s) => typeof s === "string").join(" ").slice(0, 200)} (${email3 ?? `ID ${userId}${this.#policy.email ? "; \u043F\u043E\u0447\u0442\u0430 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430" : ""}`})`;
+    const label = `${[person.NAME, person.LAST_NAME].filter((s) => typeof s === "string").join(" ").slice(0, 200)} (${email4 ?? `ID ${userId}${this.#policy.email ? "; \u043F\u043E\u0447\u0442\u0430 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430" : ""}`})`;
     if (!withDetails || this.#policy.people !== "work") return { person, label };
     const position = typeof person.WORK_POSITION === "string" && person.WORK_POSITION.trim() ? person.WORK_POSITION.trim().replace(/\s+/gu, " ").slice(0, 300) : "\u043D\u0435 \u0443\u043A\u0430\u0437\u0430\u043D\u0430";
     const departments = [...new Set((Array.isArray(person.UF_DEPARTMENT) ? person.UF_DEPARTMENT : []).map(positive).filter((value) => value !== null))].slice(0, 20);
@@ -38477,7 +38468,7 @@ var TaskWriter = class {
     return fail("MESSAGE_NOT_IN_TASK_CHAT");
   }
   async #snapshot(input2, owner) {
-    const task = object3(
+    const task2 = object3(
       object3(
         await this.#client.call("tasks.task.get", {
           taskId: input2.taskId,
@@ -38501,34 +38492,34 @@ var TaskWriter = class {
         })
       ).task
     );
-    if (positive(task.id) !== input2.taskId)
+    if (positive(task2.id) !== input2.taskId)
       return fail("TASK_NOT_FOUND_OR_DENIED");
-    const status = Number(task.status);
-    const rights = object3(task.action);
+    const status = Number(task2.status);
+    const rights = object3(task2.action);
     let method;
     let actionState;
     switch (input2.action) {
       case "comment":
-        method = positive(task.chatId) ? "im.message.add" : "task.commentitem.add";
+        method = positive(task2.chatId) ? "im.message.add" : "task.commentitem.add";
         break;
       case "upload":
-        if (!positive(task.chatId)) return fail("TASK_CHAT_UNAVAILABLE");
+        if (!positive(task2.chatId)) return fail("TASK_CHAT_UNAVAILABLE");
         method = "im.v2.File.upload";
         break;
       case "stage": {
-        const projectId = positive(task.groupId) ?? fail("TASK_PROJECT_UNAVAILABLE");
+        const projectId = positive(task2.groupId) ?? fail("TASK_PROJECT_UNAVAILABLE");
         const stage = (await this.stages(projectId)).stages.find((s) => s.id === input2.stageId);
         if (!stage) return fail("STAGE_NOT_IN_TASK_PROJECT");
         if (await this.#client.call("task.stages.canmovetask", { entityId: projectId, entityType: "G" }) !== true)
           return fail("ACTION_NOT_ALLOWED");
-        actionState = { projectId, stageId: task.stageId ?? "0", destination: stage };
+        actionState = { projectId, stageId: task2.stageId ?? "0", destination: stage };
         method = "task.stages.movetask";
         break;
       }
       case "delete_file":
       case "delete_message":
-        if (!positive(task.chatId)) return fail("TASK_CHAT_UNAVAILABLE");
-        actionState = await this.#chatTarget(positive(task.chatId), input2, owner);
+        if (!positive(task2.chatId)) return fail("TASK_CHAT_UNAVAILABLE");
+        actionState = await this.#chatTarget(positive(task2.chatId), input2, owner);
         method = input2.action === "delete_file" ? "im.disk.file.delete" : "im.message.delete";
         break;
       case "update":
@@ -38556,26 +38547,26 @@ var TaskWriter = class {
           return fail("ACTION_NOT_ALLOWED");
         break;
     }
-    if (typeof task.title !== "string" || typeof task.changedDate !== "string" || !positive(task.responsibleId) || !Number.isInteger(status))
+    if (typeof task2.title !== "string" || typeof task2.changedDate !== "string" || !positive(task2.responsibleId) || !Number.isInteger(status))
       return fail("INVALID_RESPONSE");
     return {
       id: input2.taskId,
-      title: task.title.slice(0, 250),
-      responsibleId: positive(task.responsibleId),
-      deadline: typeof task.deadline === "string" ? task.deadline : null,
+      title: task2.title.slice(0, 250),
+      responsibleId: positive(task2.responsibleId),
+      deadline: typeof task2.deadline === "string" ? task2.deadline : null,
       status,
-      changedDate: task.changedDate,
-      chatId: positive(task.chatId),
+      changedDate: task2.changedDate,
+      chatId: positive(task2.chatId),
       method,
       ...actionState ? { editState: actionState } : {},
       ...input2.action === "update" ? {
         editState: {
-          description: task.description ?? null,
-          auditors: task.auditors ?? [],
-          accomplices: task.accomplices ?? [],
-          projectId: task.groupId ?? null,
-          priority: task.priority ?? null,
-          tags: task.tags ?? [],
+          description: task2.description ?? null,
+          auditors: task2.auditors ?? [],
+          accomplices: task2.accomplices ?? [],
+          projectId: task2.groupId ?? null,
+          priority: task2.priority ?? null,
+          tags: task2.tags ?? [],
           checklist: input2.checklist?.length || input2.checklistUpdates?.length ? await this.#client.call("task.checklistitem.getlist", {
             TASKID: input2.taskId
           }) : null
@@ -39601,7 +39592,7 @@ var TaskReader = class {
     const hasMoreInFetchedPage = tasks.length > options.limit;
     const nextStart = hasMoreInFetchedPage ? options.start + options.limit : page.next;
     const selected = tasks.slice(0, options.limit);
-    const normalized = selected.filter(isRecordLike).map((task) => normalizeTask(task, (id3) => this.#client.taskWebUrl(id3))).filter((task) => task.id !== null);
+    const normalized = selected.filter(isRecordLike).map((task2) => normalizeTask(task2, (id3) => this.#client.taskWebUrl(id3))).filter((task2) => task2.id !== null);
     const skippedMalformed = selected.length - normalized.length;
     return {
       tasks: normalized,
@@ -39624,13 +39615,13 @@ var TaskReader = class {
       })
     );
     if (!isRecordLike(raw.task)) throw new BitrixRequestError("INVALID_RESPONSE");
-    const task = normalizeTask(
+    const task2 = normalizeTask(
       raw.task,
       (id3) => this.#client.taskWebUrl(id3),
       true
     );
-    if (task.id !== String(taskId)) throw new BitrixRequestError("TASK_ID_MISMATCH");
-    return { task };
+    if (task2.id !== String(taskId)) throw new BitrixRequestError("TASK_ID_MISMATCH");
+    return { task: task2 };
   }
   async taskHistory(options) {
     const page = await this.#client.callPage("tasks.task.history.list", {
@@ -39894,7 +39885,7 @@ function registerSettingsTool(server, menu) {
   }, (input2) => safe(() => menu.run(input2)));
 }
 function createMcpServer(reader, updater = null, files = null, writer = null) {
-  const server = new McpServer({ name: "bitrix24-read", version: "1.0.0-rc.2" });
+  const server = new McpServer({ name: "bitrix24-read", title: "Bitrix24", version: "1.0.0-rc.3" });
   registerUpdaterTools(server, updater);
   if (writer) {
     server.registerTool("bitrix24_project_stages", {
@@ -39999,7 +39990,7 @@ function createMcpServer(reader, updater = null, files = null, writer = null) {
   server.registerTool(
     "bitrix24_capabilities",
     {
-      description: "Report which iva-bitrix24 read and task-action capability blocks are enabled by the webhook scopes and how to add only a missing permission.",
+      description: "Check Bitrix24 webhook scopes and local plugin settings without reading task content. For a full webhook rights check deliver report.markdown as a private rich reply, or open the Bitrix24 settings capabilities screen. Portal user permissions and object access are not verified.",
       inputSchema: external_exports.object({}).strict(),
       annotations: readOnly
     },
@@ -40227,7 +40218,7 @@ function registerEmployeeTools(server, employees, directory) {
 }
 
 // server/src/main.ts
-import { resolve as resolve5 } from "node:path";
+import { isAbsolute as isAbsolute6, resolve as resolve5 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
@@ -40466,8 +40457,8 @@ var TaskFileReader = class {
       const selected = tasks.slice(0, 5 - scannedTasks);
       for (const rawTask of selected) {
         scannedTasks += 1;
-        const task = object4(rawTask);
-        const taskId = id2(task.ID ?? task.id);
+        const task2 = object4(rawTask);
+        const taskId = id2(task2.ID ?? task2.id);
         if (!taskId) {
           partial2 = true;
           continue;
@@ -40476,7 +40467,7 @@ var TaskFileReader = class {
         partial2 ||= inventory.partial;
         for (const file2 of inventory.files) {
           if ((file2.name ?? "").toLocaleLowerCase().includes(query) || (file2.context ?? "").toLocaleLowerCase().includes(query))
-            matches.push({ taskId, taskTitle: str(task.TITLE ?? task.title, 300), file: file2 });
+            matches.push({ taskId, taskTitle: str(task2.TITLE ?? task2.title, 300), file: file2 });
         }
       }
       if (selected.length === 0) {
@@ -40565,14 +40556,14 @@ var TaskFileReader = class {
       taskId,
       select: ["ID", "CHAT_ID", "UF_TASK_WEBDAV_FILES"]
     }));
-    const task = object4(envelope.task);
-    if (id2(task.ID ?? task.id) !== String(taskId)) throw new BitrixRequestError("TASK_NOT_FOUND_OR_DENIED");
+    const task2 = object4(envelope.task);
+    if (id2(task2.ID ?? task2.id) !== String(taskId)) throw new BitrixRequestError("TASK_NOT_FOUND_OR_DENIED");
     const found = [];
     let skippedUnavailable = 0;
     const missingScopes = /* @__PURE__ */ new Set();
     let scannedMessages = 0;
     let scannedChecklist = 0;
-    const allTaskAttachmentIds = values(task.UF_TASK_WEBDAV_FILES ?? task.ufTaskWebdavFiles).map(attachmentId).filter((value) => value !== null);
+    const allTaskAttachmentIds = values(task2.UF_TASK_WEBDAV_FILES ?? task2.ufTaskWebdavFiles).map(attachmentId).filter((value) => value !== null);
     const directTruncated = allTaskAttachmentIds.length > 100;
     const taskAttachmentIds2 = allTaskAttachmentIds.slice(0, 100);
     for (const attached of [...new Set(taskAttachmentIds2)]) {
@@ -40591,7 +40582,7 @@ var TaskFileReader = class {
         else throw error62;
       }
     }
-    const chatId = id2(task.CHAT_ID ?? task.chatId);
+    const chatId = id2(task2.CHAT_ID ?? task2.chatId);
     let messagesTruncated = false;
     if (chatId) {
       try {
@@ -40684,9 +40675,9 @@ var TaskFileReader = class {
     if (item.size !== null && item.size > 50 * 1024 * 1024) throw new BitrixRequestError("FILE_TOO_LARGE");
     let signed;
     if (item.source === "chat") {
-      const task = object4(object4(await this.#client.call("tasks.task.get", { taskId, select: ["ID", "CHAT_ID"] })).task);
-      const chatId = id2(task.CHAT_ID ?? task.chatId);
-      if (id2(task.ID ?? task.id) !== String(taskId) || !chatId) throw new BitrixRequestError("FILE_NOT_FOUND_OR_DENIED");
+      const task2 = object4(object4(await this.#client.call("tasks.task.get", { taskId, select: ["ID", "CHAT_ID"] })).task);
+      const chatId = id2(task2.CHAT_ID ?? task2.chatId);
+      if (id2(task2.ID ?? task2.id) !== String(taskId) || !chatId) throw new BitrixRequestError("FILE_NOT_FOUND_OR_DENIED");
       signed = object4(await this.#client.call("im.v2.File.download", { dialogId: `chat${chatId}`, fileId: Number(item.fileId) })).downloadUrl;
     } else {
       const diskFile = object4(await this.#client.call("disk.file.get", { id: Number(item.fileId) }));
@@ -41382,6 +41373,87 @@ var PluginUpdater = class {
   }
 };
 
+// server/src/webhook-report.ts
+var people2 = ["user_brief", "user_basic", "user"];
+var email3 = ["user_basic", "user"];
+var task = ["task"];
+var taskChat = [task, ["im"]];
+var taskWrite = [task, people2];
+var chatWrite = [...taskWrite, ["im"]];
+var employeeWrite = employeeScopes.map((scope) => [scope]);
+var writeSettings = ["data", "write"];
+var employeeSettings = [...writeSettings, "employees", "work", "email"];
+var features = {
+  checklistAndRelations: ["\u0417\u0430\u0434\u0430\u0447\u0438, \u0447\u0435\u043A-\u043B\u0438\u0441\u0442\u044B \u0438 \u0441\u0432\u044F\u0437\u0438", [task], []],
+  taskDiscussion: ["\u041E\u0431\u0441\u0443\u0436\u0434\u0435\u043D\u0438\u044F \u0432 \u0447\u0430\u0442\u0435 \u0437\u0430\u0434\u0430\u0447\u0438", taskChat, []],
+  projects: ["\u041F\u043E\u0438\u0441\u043A \u043F\u0440\u043E\u0435\u043A\u0442\u043E\u0432", [["sonet_group"]], []],
+  people: ["\u041F\u043E\u0438\u0441\u043A \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430 \u043F\u043E ID", [people2], []],
+  peopleByName: ["\u041F\u043E\u0438\u0441\u043A \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430 \u043F\u043E \u0438\u043C\u0435\u043D\u0438", [people2], ["names"]],
+  employeeEmail: ["\u0420\u0430\u0431\u043E\u0447\u0438\u0439 email", [email3], ["work", "email"]],
+  departments: ["\u041F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0435\u043D\u0438\u044F", [["department"]], []],
+  taskFiles: ["\u0412\u043B\u043E\u0436\u0435\u043D\u0438\u044F \u0437\u0430\u0434\u0430\u0447", [task, ["disk"]], []],
+  taskChatFiles: ["\u0412\u043B\u043E\u0436\u0435\u043D\u0438\u044F \u0438\u0437 \u0447\u0430\u0442\u0430 \u0437\u0430\u0434\u0430\u0447\u0438", taskChat, []],
+  taskFileDownload: ["\u0421\u043A\u0430\u0447\u0438\u0432\u0430\u043D\u0438\u0435 \u0432\u043B\u043E\u0436\u0435\u043D\u0438\u0439 \u0437\u0430\u0434\u0430\u0447\u0438", [task, ["disk"]], ["attachments"]],
+  taskChatDownload: ["\u0421\u043A\u0430\u0447\u0438\u0432\u0430\u043D\u0438\u0435 \u0432\u043B\u043E\u0436\u0435\u043D\u0438\u0439 \u0438\u0437 \u0447\u0430\u0442\u0430", taskChat, ["attachments"]],
+  taskActions: ["\u0421\u043E\u0437\u0434\u0430\u043D\u0438\u0435 \u0438 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u0437\u0430\u0434\u0430\u0447", taskWrite, writeSettings],
+  taskReassignment: ["\u0421\u043C\u0435\u043D\u0430 \u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0435\u043D\u043D\u043E\u0433\u043E", taskWrite, writeSettings],
+  taskChatActions: ["\u041A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0439 \u0432 \u0447\u0430\u0442\u0435 \u0437\u0430\u0434\u0430\u0447\u0438", chatWrite, writeSettings],
+  taskUpload: ["\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0444\u0430\u0439\u043B\u0430 \u0432 \u0447\u0430\u0442 \u0437\u0430\u0434\u0430\u0447\u0438", chatWrite, [...writeSettings, "uploads", "attachments"]],
+  taskChatDeletion: ["\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0444\u0430\u0439\u043B\u0430 \u0438\u043B\u0438 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0438\u0437 \u0447\u0430\u0442\u0430", chatWrite, [...writeSettings, "deletions"]],
+  employeeInvite: ["\u041F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u0435 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430", employeeWrite, employeeSettings],
+  employeeUpdate: ["\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u043F\u0440\u043E\u0444\u0438\u043B\u044F \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430", employeeWrite, employeeSettings],
+  employeeDismiss: ["\u0423\u0432\u043E\u043B\u044C\u043D\u0435\u043D\u0438\u0435 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430", employeeWrite, employeeSettings]
+};
+function missingWebhookScopes(id3, granted) {
+  return features[id3][1].filter((group) => !group.some((scope) => granted.has(scope))).map((group) => group[0]);
+}
+function webhookReport(grantedScopes, policy, runtime) {
+  const granted = new Set(grantedScopes);
+  const settings = {
+    data: runtime.privateData ? null : "\u043D\u0430\u0441\u0442\u0440\u043E\u0438\u0442\u044C \u043F\u0440\u0438\u0432\u0430\u0442\u043D\u044B\u0439 \u043A\u0430\u0442\u0430\u043B\u043E\u0433 \u043F\u043B\u0430\u0433\u0438\u043D\u0430",
+    write: policy.mode === "confirmed_write" ? null : "\u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0437\u0430\u043F\u0438\u0441\u044C \u0441 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435\u043C \u0432 \xAB\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F\u0445\xBB",
+    employees: policy.employees ? null : "\u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0443\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430\u043C\u0438 \u0432 \xAB\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F\u0445\xBB",
+    names: policy.people === "ids" ? "\u0440\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C \u0438\u043C\u0435\u043D\u0430 \u0432 \xAB\u0414\u0430\u043D\u043D\u044B\u0445\xBB" : null,
+    work: policy.people === "work" ? null : "\u0432\u044B\u0431\u0440\u0430\u0442\u044C \u0440\u0430\u0431\u043E\u0447\u0438\u0439 \u043F\u0440\u043E\u0444\u0438\u043B\u044C \u0432 \xAB\u0414\u0430\u043D\u043D\u044B\u0445\xBB",
+    email: policy.email ? null : "\u0440\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C email \u0432 \xAB\u0414\u0430\u043D\u043D\u044B\u0445\xBB",
+    uploads: policy.uploads ? null : "\u0440\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0443 \u0444\u0430\u0439\u043B\u043E\u0432 \u0432 \xAB\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F\u0445\xBB",
+    deletions: policy.deletions ? null : "\u0440\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0432 \xAB\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F\u0445\xBB",
+    attachments: runtime.attachments ? null : "\u043D\u0430\u0441\u0442\u0440\u043E\u0438\u0442\u044C \u043A\u0430\u0442\u0430\u043B\u043E\u0433 \u0432\u043B\u043E\u0436\u0435\u043D\u0438\u0439 \u0418\u0432\u044B"
+  };
+  const rows = Object.keys(features).map((id3) => {
+    const [label, , settingKeys] = features[id3];
+    return {
+      id: id3,
+      label,
+      missingScopes: missingWebhookScopes(id3, granted),
+      settingHints: settingKeys.flatMap((key) => settings[key] ?? []),
+      portalAccess: "not_checked"
+    };
+  });
+  const markdown = [
+    "**\u0412\u044B\u0434\u0430\u043D\u043D\u044B\u0435 \u043F\u0440\u0430\u0432\u0430 \u0434\u043B\u044F Bitrix24 \u0432 \u0418\u0432\u0435**",
+    grantedScopes.map((scope) => `\`${scope}\``).join(", ") || "\u041F\u0440\u0430\u0432\u0430 \u0434\u043B\u044F \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u0435\u0439 \u043F\u043B\u0430\u0433\u0438\u043D\u0430 \u043D\u0435 \u0432\u044B\u0434\u0430\u043D\u044B.",
+    "",
+    "**\u0412\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u0438 Bitrix24**",
+    ...rows.map(({ label, missingScopes, settingHints }) => {
+      const next = [
+        ...missingScopes.length ? [`\u0432 Bitrix24 \u0434\u043E\u0431\u0430\u0432\u0438\u0442\u044C ${missingScopes.map((scope) => `\`${scope}\``).join(", ")}`] : [],
+        ...settingHints
+      ];
+      return next.length ? `\u25CB ${label} \xB7 ${next.join(" \xB7 ")}  ` : `\u2713 ${label} \xB7 \u043F\u0440\u0430\u0432\u0430 \u0438 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0435\u0441\u0442\u044C  `;
+    }),
+    "",
+    "\u0421\u0442\u0430\u0440\u044B\u0435 \u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0438 \u043C\u043E\u0433\u0443\u0442 \u0440\u0430\u0431\u043E\u0442\u0430\u0442\u044C \u0441 \u043F\u0440\u0430\u0432\u043E\u043C `task` \u0431\u0435\u0437 `im`.",
+    "",
+    "**\u0414\u043E\u0441\u0442\u0443\u043F \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F Bitrix24**",
+    "\u041F\u0440\u0430\u0432\u0430 \u043D\u0430 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438, \u0447\u0430\u0442\u044B, \u0444\u0430\u0439\u043B\u044B \u0438 \u043A\u0430\u0434\u0440\u043E\u0432\u044B\u0435 \u043E\u043F\u0435\u0440\u0430\u0446\u0438\u0438 \u044D\u0442\u0430 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u043D\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0430\u0435\u0442. \u0414\u043B\u044F \u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u0439 \u0438 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0447\u0443\u0436\u0438\u0445 \u043F\u0440\u043E\u0444\u0438\u043B\u0435\u0439 \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043F\u0440\u0430\u0432\u0430 \u0432\u043B\u0430\u0434\u0435\u043B\u044C\u0446\u0430 \u0432\u0435\u0431\u0445\u0443\u043A\u0430 \u0432 Bitrix24. \u0417\u0430\u043F\u0438\u0441\u044C \u043F\u043E-\u043F\u0440\u0435\u0436\u043D\u0435\u043C\u0443 \u0442\u0440\u0435\u0431\u0443\u0435\u0442 \u043F\u0440\u0435\u0432\u044C\u044E \u0438 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u044F \u0432 \u0447\u0430\u0442\u0435 \u0418\u0432\u044B.",
+    "",
+    "**\u0413\u0434\u0435 \u0434\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u043F\u0440\u0430\u0432\u0430**",
+    "Bitrix24 \u2192 \u041F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u044F \u2192 \u0420\u0435\u0441\u0443\u0440\u0441\u044B \u0440\u0430\u0437\u0440\u0430\u0431\u043E\u0442\u0447\u0438\u043A\u0430 \u2192 \u0418\u043D\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u0438 \u2192 \u0432\u0430\u0448 \u0432\u0435\u0431\u0445\u0443\u043A \u2192 \u041F\u0440\u0430\u0432\u0430 \u0434\u043E\u0441\u0442\u0443\u043F\u0430. \u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u0438 \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0441\u043D\u043E\u0432\u0430. \u0415\u0441\u043B\u0438 URL \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0441\u044F, \u0432\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u043E\u0432\u044B\u0439 URL \u0447\u0435\u0440\u0435\u0437 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0449\u0438\u043A. \u0421\u0435\u043A\u0440\u0435\u0442 \u0432 \u0447\u0430\u0442 \u043D\u0435 \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0439\u0442\u0435."
+  ].join("\n");
+  return { rows, markdown, taskContentChecked: false };
+}
+
 // server/src/read-capabilities.ts
 function isRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -41463,39 +41535,30 @@ var PERMISSIONS = {
     nameRu: "\u041F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u0438 (\u0431\u0430\u0437\u043E\u0432\u044B\u0435)",
     purpose: "\u0440\u0430\u0431\u043E\u0447\u0438\u0439 \u043F\u0440\u043E\u0444\u0438\u043B\u044C \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430, \u0432\u043A\u043B\u044E\u0447\u0430\u044F email; \u0442\u0435\u043B\u0435\u0444\u043E\u043D\u044B \u043F\u043B\u0430\u0433\u0438\u043D \u043D\u0435 \u0437\u0430\u043F\u0440\u0430\u0448\u0438\u0432\u0430\u0435\u0442"
   },
-  user: { nameRu: "\u041F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u0438", purpose: "\u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F \u0432\u043A\u043B\u044E\u0447\u0451\u043D\u043D\u044B\u0445 \u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u0439 \u0438 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043F\u0440\u043E\u0444\u0438\u043B\u044F \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432" },
+  user: { nameRu: "\u041F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u0438", purpose: "\u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u0435, \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u043F\u0440\u043E\u0444\u0438\u043B\u044F \u0438 \u0443\u0432\u043E\u043B\u044C\u043D\u0435\u043D\u0438\u0435 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432" },
   department: { nameRu: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0430 \u043A\u043E\u043C\u043F\u0430\u043D\u0438\u0438", purpose: "\u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044F \u043F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0435\u043D\u0438\u0439" },
   disk: { nameRu: "\u0414\u0438\u0441\u043A", purpose: "\u043C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0435 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B\u0445 \u0432\u043B\u043E\u0436\u0435\u043D\u0438\u0439" }
 };
 var ReadCapabilityReader = class {
   #client;
   #policy;
-  constructor(client, policy = legacyPolicy) {
+  #runtime;
+  constructor(client, policy = legacyPolicy, runtime = { privateData: false, attachments: false }) {
     this.#client = client;
     this.#policy = policy;
+    this.#runtime = runtime;
   }
   async capabilities() {
+    const policy = await this.#policy();
     const raw = await this.#client.call("scope");
     if (!Array.isArray(raw)) throw new BitrixRequestError("INVALID_RESPONSE");
     const granted = new Set(
       raw.filter((value) => typeof value === "string").map((value) => value.toLowerCase())
     );
-    const effectiveUserScope = ["user_brief", "user_basic", "user"].find(
-      (scope) => granted.has(scope)
-    );
-    const hasUsers = effectiveUserScope !== void 0;
-    const hasUserEmail = granted.has("user_basic") || granted.has("user");
-    const recognized = /* @__PURE__ */ new Set([
-      "task",
-      "im",
-      "sonet_group",
-      "user_brief",
-      "user_basic",
-      "user",
-      "department",
-      "disk"
-    ]);
-    const knownGranted = [...granted].filter((scope) => recognized.has(scope)).sort();
+    const effectiveUserScope = ["user", "user_basic", "user_brief"].find((scope) => granted.has(scope));
+    const hasScope = (id3) => missingWebhookScopes(id3, granted).length === 0;
+    const hasUserEmail = hasScope("employeeEmail");
+    const knownGranted = [...granted].filter((scope) => Object.hasOwn(PERMISSIONS, scope)).sort();
     const block2 = (requiredScopes, available, note) => ({
       available,
       status: available ? "available" : "unavailable",
@@ -41505,36 +41568,41 @@ var ReadCapabilityReader = class {
     return {
       contractVersion: "0.4",
       grantedScopes: knownGranted,
+      report: webhookReport(knownGranted, policy, this.#runtime),
       blocks: {
         taskDiscussion: granted.has("task") ? {
           available: true,
-          status: granted.has("im") ? "available" : "limited",
+          status: hasScope("taskDiscussion") ? "available" : "limited",
           requiredScopes: ["task", "im"],
           note: granted.has("im") ? "New task chat and legacy comments are available." : "Legacy comments may work; new task cards require im."
         } : block2(["task", "im"], false),
-        projects: block2(["sonet_group"], granted.has("sonet_group")),
+        projects: block2(["sonet_group"], hasScope("projects")),
         people: {
-          ...block2(["user_brief"], hasUsers),
+          ...block2(["user_brief"], hasScope("people")),
           effectiveScope: effectiveUserScope ?? null,
           emailAvailable: hasUserEmail,
           emailRequiredScope: hasUserEmail ? null : "user_basic",
           note: hasUserEmail ? "Names, positions, departments and email are available; phone and photo fields are not requested." : "Names, positions and departments are available; email requires user_basic."
         },
-        departments: block2(["department"], granted.has("department")),
-        employeeManagement: block2(["user", "department"], granted.has("user") && granted.has("department"), "Invitation and profile updates additionally require explicit employee-management opt-in, work profiles/email, confirmed-write mode and final approval through trusted Panels. Scopes do not prove account permissions."),
+        departments: block2(["department"], hasScope("departments")),
+        employeeManagement: block2(
+          employeeScopes,
+          hasScope("employeeInvite"),
+          "Invitation, profile updates and dismissal require employee-management opt-in, work profile and email settings, confirmed-write mode and approval in Iva chat. Portal user permissions are separate."
+        ),
         taskActions: block2(
           ["task", "user_brief"],
-          granted.has("task") && hasUsers,
+          hasScope("taskActions"),
           "Scope availability only; private plugin data, a fresh preview, confirmation and employee rights are also required."
         ),
-        taskChatActions: block2(["task", "user_brief", "im"], granted.has("task") && hasUsers && granted.has("im")),
+        taskChatActions: block2(["task", "user_brief", "im"], hasScope("taskChatActions")),
         taskReassignment: block2(
           ["task", "user_brief"],
-          granted.has("task") && hasUsers,
+          hasScope("taskReassignment"),
           "Reassignment is subject to employee access and portal permissions."
         ),
-        taskFiles: block2(["task", "disk"], granted.has("task") && granted.has("disk")),
-        checklistAndRelations: block2(["task"], granted.has("task"))
+        taskFiles: block2(["task", "disk"], hasScope("taskFiles")),
+        checklistAndRelations: block2(["task"], hasScope("checklistAndRelations"))
       },
       permissionGuide: {
         path: ["\u041F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u044F", "\u0420\u0435\u0441\u0443\u0440\u0441\u044B \u0434\u043B\u044F \u0440\u0430\u0437\u0440\u0430\u0431\u043E\u0442\u0447\u0438\u043A\u043E\u0432", "\u0418\u043D\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u0438", "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430 \u043F\u0440\u0430\u0432"],
@@ -41548,13 +41616,13 @@ var ReadCapabilityReader = class {
     let mode = options.mode;
     let chatId = null;
     if (mode !== "legacy_comments") {
-      const task = record3(
+      const task2 = record3(
         await this.#client.call("tasks.task.get", {
           taskId: options.taskId,
           select: ["ID", "CHAT_ID"]
         })
       );
-      const taskRecord = record3(task.task);
+      const taskRecord = record3(task2.task);
       if (identifier2(pick3(taskRecord, "ID", "id")) !== String(options.taskId))
         throw new BitrixRequestError("TASK_NOT_FOUND_OR_DENIED");
       chatId = identifier2(pick3(taskRecord, "CHAT_ID", "chatId"));
@@ -41803,11 +41871,11 @@ var ReadCapabilityReader = class {
         select: ["ID", "UF_TASK_WEBDAV_FILES"]
       })
     );
-    const task = record3(raw.task);
-    if (identifier2(pick3(task, "ID", "id")) !== String(options.taskId))
+    const task2 = record3(raw.task);
+    if (identifier2(pick3(task2, "ID", "id")) !== String(options.taskId))
       throw new BitrixRequestError("TASK_NOT_FOUND_OR_DENIED");
     const attachmentIds = taskAttachmentIds(
-      pick3(task, "UF_TASK_WEBDAV_FILES", "ufTaskWebdavFiles"),
+      pick3(task2, "UF_TASK_WEBDAV_FILES", "ufTaskWebdavFiles"),
       1e3
     );
     const selectedIds = attachmentIds.slice(options.start, options.start + options.limit);
@@ -41916,11 +41984,11 @@ var ReadCapabilityReader = class {
         select: ["ID", "PARENT_ID", "DEPENDS_ON"]
       })
     );
-    const task = record3(raw.task);
-    if (identifier2(pick3(task, "ID", "id")) !== String(options.taskId))
+    const task2 = record3(raw.task);
+    if (identifier2(pick3(task2, "ID", "id")) !== String(options.taskId))
       throw new BitrixRequestError("TASK_NOT_FOUND_OR_DENIED");
-    const parentId = identifier2(pick3(task, "PARENT_ID", "parentId"));
-    const dependencyIds = positiveIds(pick3(task, "DEPENDS_ON", "dependsOn"), 20);
+    const parentId = identifier2(pick3(task2, "PARENT_ID", "parentId"));
+    const dependencyIds = positiveIds(pick3(task2, "DEPENDS_ON", "dependsOn"), 20);
     const relatedIds = [...new Set([parentId, ...dependencyIds].filter((id3) => id3 !== null))];
     const relatedResult = relatedIds.length === 0 ? { tasks: [], truncated: false } : await this.#taskSummaries({ ID: relatedIds }, 20);
     const subtaskResult = await this.#taskSummaries(
@@ -41946,13 +42014,13 @@ var ReadCapabilityReader = class {
     });
     const raw = record3(page.result);
     if (!Array.isArray(raw.tasks)) throw new BitrixRequestError("INVALID_RESPONSE");
-    const tasks = raw.tasks.filter(isRecord2).map((task) => ({
-      id: identifier2(pick3(task, "ID", "id")),
-      title: text4(pick3(task, "TITLE", "title"), 1e3),
-      status: integer3(pick3(task, "STATUS", "status")),
-      deadline: date6(pick3(task, "DEADLINE", "deadline")),
+    const tasks = raw.tasks.filter(isRecord2).map((task2) => ({
+      id: identifier2(pick3(task2, "ID", "id")),
+      title: text4(pick3(task2, "TITLE", "title"), 1e3),
+      status: integer3(pick3(task2, "STATUS", "status")),
+      deadline: date6(pick3(task2, "DEADLINE", "deadline")),
       untrustedContent: true
-    })).filter((task) => task.id !== null).slice(0, limit);
+    })).filter((task2) => task2.id !== null).slice(0, limit);
     return {
       tasks,
       truncated: raw.tasks.length > limit || page.next !== null
@@ -42004,7 +42072,7 @@ function settingsFromEnvironment(env) {
 
 // server/src/main.ts
 function unavailableServer(error62, updater, settings) {
-  const server = new McpServer({ name: "bitrix24-read", version: "1.0.0-rc.2" });
+  const server = new McpServer({ name: "bitrix24-read", title: "Bitrix24", version: "1.0.0-rc.3" });
   registerUpdaterTools(server, updater);
   registerSettingsTool(server, new SettingsMenu(settings, { configured: false }));
   server.registerTool(
@@ -42043,8 +42111,11 @@ async function serverFromEnvironment(env = process.env, dependencies = {}) {
       throw new ConfigurationError("BITRIX24_SETTINGS_DEFAULTS must be restricted or legacy");
     const client = new BitrixClient(loadConfig(env), dependencies);
     const tasks = new TaskReader(client, void 0, settings.policy);
-    const capabilities = new ReadCapabilityReader(client, settings.policy);
     const attachmentsRoot = await resolveAttachmentsRoot(env);
+    const capabilities = new ReadCapabilityReader(client, settings.policy, {
+      privateData: Boolean(settings.data && isAbsolute6(settings.data)),
+      attachments: Boolean(attachmentsRoot)
+    });
     const files = new TaskFileReader(client, attachmentsRoot);
     const writer = new TaskWriter(client, env.PLUGIN_DATA, attachmentsRoot, Date.now, settings);
     const server = createMcpServer(
@@ -42054,7 +42125,7 @@ async function serverFromEnvironment(env = process.env, dependencies = {}) {
         getTask: (taskId) => protect(() => tasks.getTask(taskId)),
         taskHistory: (options) => protect(() => tasks.taskHistory(options)),
         taskFields: () => protect(() => tasks.taskFields()),
-        capabilities: () => protect(() => capabilities.capabilities()),
+        capabilities: () => capabilities.capabilities(),
         taskComments: (options) => protect(() => capabilities.taskComments(options)),
         searchProjects: (options) => protect(() => capabilities.searchProjects(options)),
         searchPeople: (options) => protect(() => capabilities.searchPeople(options)),

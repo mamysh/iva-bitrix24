@@ -3,6 +3,8 @@ import { z } from "zod/v4";
 import { BitrixClient, BitrixRequestError } from "./bitrix-client.ts";
 import type { SettingsStore } from "./settings.ts";
 
+export const employeeScopes = ["user", "department"] as const;
+
 export const employeeId = z
   .number()
   .int()
@@ -117,7 +119,7 @@ export class EmployeeDirectory {
         .filter((v): v is string => typeof v === "string")
         .map((v) => v.toLowerCase()),
     );
-    for (const scope of ["user", "department"])
+    for (const scope of employeeScopes)
       if (!granted.has(scope))
         throw new BitrixRequestError("INSUFFICIENT_SCOPE", false, scope);
   }

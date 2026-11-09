@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import { z } from "zod/v4";
+import type { ReadCapabilityReader } from "./read-capabilities.ts";
 import { BitrixRequestError } from "./bitrix-client.ts";
 import { SettingsStore, policySchema, withPolicyLock, writePrivateJson, type PluginPolicy } from "./settings.ts";
 
@@ -29,7 +30,7 @@ export function settingsScreenView(markdown: string) {
   return { markdown: text, rows };
 }
 type Screen = typeof screens[number];
-type Diagnostics = { configured: boolean; connectionCheck?: () => Promise<unknown>; capabilities?: () => Promise<unknown> };
+type Diagnostics = { configured: boolean; connectionCheck?: () => Promise<unknown>; capabilities?: () => Promise<Pick<Awaited<ReturnType<ReadCapabilityReader["capabilities"]>>, "report">> };
 const offerSchema = z.object({ schema: z.literal(1), identity: z.string(), revision: z.number().int().min(0), policy: policySchema, screen: z.enum(screens), createdAt: z.number().finite(), token: z.uuid() }).strict();
 const TTL = 10 * 60_000;
 const escape = (value: string) => value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;").replace(/([\\`*_{}\[\]()#+.!|~=-])/gu, "\\$1");
@@ -148,14 +149,8 @@ export class SettingsMenu {
             await this.#diagnostics.connectionCheck!();
             lines.push(block("✅ Соединение работает", "Доступ к методам задач проверен. Задачи и документы не читались."));
           } else {
-            const result = await this.#diagnostics.capabilities!() as { grantedScopes?: string[] };
-            const scopes = new Set(result.grantedScopes ?? []);
-            const hasPeople = ["user_brief", "user_basic", "user"].some(value => scopes.has(value));
-            const features = [["Задачи и чек-листы", scopes.has("task")], ["Обсуждения нового чата", scopes.has("task") && scopes.has("im")], ["Проекты", scopes.has("sonet_group")], ["Сотрудники", hasPeople], ["Подразделения", scopes.has("department")], ["Вложения задач", scopes.has("task") && scopes.has("disk")], ["Методы действий", scopes.has("task") && hasPeople]] as const;
-            lines.push(block("Права webhook", features.map(([label, available]) => `${available ? "✅" : "○"} ${label}: ${available ? "есть" : "нет"}`).join("  \n")),
-              block("Ограничения плагина", richText(`Действия: ${modeLabel(p)}\nEmail: ${p.email ? "разрешён настройкой" : "скрыт настройкой"}\nПраво на email: ${scopes.has("user_basic") || scopes.has("user") ? "есть" : "нужен user_basic"}`)),
-              block("Как понимать проверку", "Права webhook не доказывают доступ ко всем объектам или возможность записи. Права сотрудника проверяются для каждого действия."),
-              block("Изменить права", "Bitrix24 → Приложения → Ресурсы разработчика → webhook → Права доступа."));
+            const { report } = await this.#diagnostics.capabilities!();
+            lines.push(report.markdown);
           }
           const timestamp = new Date(this.#now()).toISOString().replace("T", " ").replace(/\.\d{3}Z$/u, " UTC");
           lines.push(block("Проверено", escape(timestamp)));
@@ -176,7 +171,7 @@ export class SettingsMenu {
         row(select(p.uploads ? "Загрузка ✓" : "Загрузка ○", p.uploads ? "upload_off" : "upload_on"), select(p.deletions ? "Удаление ✓" : "Удаление ○", p.deletions ? "delete_off" : "delete_on")),
         "**Загрузка** — отправлять выбранные файлы в Bitrix.  \n**Удаление** — удалять выбранные сообщения и файлы чата.",
         select(p.employees ? "Управление сотрудниками ✓" : "Управление сотрудниками ○", p.employees ? "employees_off" : "employees_on"),
-        "Сотрудники: отдельные заявки и финальный апрув через Panels; нужны рабочий профиль, email и права user/department.",
+        "Сотрудники: отдельные заявки и финальное подтверждение в чате Ивы; нужны рабочий профиль, email и права user/department.",
         block("Когда действуют разрешения", "Загрузка и удаление доступны только в режиме записи. Скачивание относится к чтению. Обновление самого плагина подтверждается отдельно."));
     } else {
       lines.push(block("Поля сотрудников", escape(peopleLabel(p))),

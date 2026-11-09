@@ -1,5 +1,6 @@
 import { BitrixClient, BitrixRequestError } from "./bitrix-client.ts";
-
+import { employeeScopes } from "./employee-directory.ts";
+import { missingWebhookScopes, webhookReport } from "./webhook-report.ts";
 import { legacyPolicy, type PolicyReader } from "./settings.ts";
 
 type RecordLike = Readonly<Record<string, unknown>>;
@@ -102,7 +103,7 @@ const PERMISSIONS = {
     nameRu: "Пользователи (базовые)",
     purpose: "рабочий профиль сотрудника, включая email; телефоны плагин не запрашивает",
   },
-  user: { nameRu: "Пользователи", purpose: "только для включённых приглашений и изменения профиля сотрудников" },
+  user: { nameRu: "Пользователи", purpose: "приглашение, изменение профиля и увольнение сотрудников" },
   department: { nameRu: "Структура компании", purpose: "названия подразделений" },
   disk: { nameRu: "Диск", purpose: "метаданные доступных вложений" },
 } as const;
@@ -158,34 +159,29 @@ export type RelationsOptions = {
 export class ReadCapabilityReader {
   readonly #client: BitrixClient;
   readonly #policy: PolicyReader;
+  readonly #runtime: { privateData: boolean; attachments: boolean };
 
-  constructor(client: BitrixClient, policy: PolicyReader = legacyPolicy) {
+  constructor(
+    client: BitrixClient,
+    policy: PolicyReader = legacyPolicy,
+    runtime = { privateData: false, attachments: false },
+  ) {
     this.#client = client;
     this.#policy = policy;
+    this.#runtime = runtime;
   }
 
   async capabilities() {
+    const policy = await this.#policy();
     const raw = await this.#client.call("scope");
     if (!Array.isArray(raw)) throw new BitrixRequestError("INVALID_RESPONSE");
     const granted = new Set(
       raw.filter((value): value is string => typeof value === "string").map((value) => value.toLowerCase()),
     );
-    const effectiveUserScope = ["user_brief", "user_basic", "user"].find((scope) =>
-      granted.has(scope),
-    );
-    const hasUsers = effectiveUserScope !== undefined;
-    const hasUserEmail = granted.has("user_basic") || granted.has("user");
-    const recognized = new Set([
-      "task",
-      "im",
-      "sonet_group",
-      "user_brief",
-      "user_basic",
-      "user",
-      "department",
-      "disk",
-    ]);
-    const knownGranted = [...granted].filter((scope) => recognized.has(scope)).sort();
+    const effectiveUserScope = ["user", "user_basic", "user_brief"].find(scope => granted.has(scope));
+    const hasScope = (id: Parameters<typeof missingWebhookScopes>[0]) => missingWebhookScopes(id, granted).length === 0;
+    const hasUserEmail = hasScope("employeeEmail");
+    const knownGranted = [...granted].filter(scope => Object.hasOwn(PERMISSIONS, scope)).sort();
     const block = (requiredScopes: readonly string[], available: boolean, note?: string) => ({
       available,
       status: available ? ("available" as const) : ("unavailable" as const),
@@ -195,20 +191,21 @@ export class ReadCapabilityReader {
     return {
       contractVersion: "0.4",
       grantedScopes: knownGranted,
+      report: webhookReport(knownGranted, policy, this.#runtime),
       blocks: {
         taskDiscussion: granted.has("task")
           ? {
               available: true,
-              status: granted.has("im") ? ("available" as const) : ("limited" as const),
+              status: hasScope("taskDiscussion") ? ("available" as const) : ("limited" as const),
               requiredScopes: ["task", "im"],
               note: granted.has("im")
                 ? "New task chat and legacy comments are available."
                 : "Legacy comments may work; new task cards require im.",
             }
           : block(["task", "im"], false),
-        projects: block(["sonet_group"], granted.has("sonet_group")),
+        projects: block(["sonet_group"], hasScope("projects")),
         people: {
-          ...block(["user_brief"], hasUsers),
+          ...block(["user_brief"], hasScope("people")),
           effectiveScope: effectiveUserScope ?? null,
           emailAvailable: hasUserEmail,
           emailRequiredScope: hasUserEmail ? null : "user_basic",
@@ -216,15 +213,16 @@ export class ReadCapabilityReader {
             ? "Names, positions, departments and email are available; phone and photo fields are not requested."
             : "Names, positions and departments are available; email requires user_basic.",
         },
-        departments: block(["department"], granted.has("department")),
-        employeeManagement: block(["user", "department"], granted.has("user") && granted.has("department"), "Invitation and profile updates additionally require explicit employee-management opt-in, work profiles/email, confirmed-write mode and final approval through trusted Panels. Scopes do not prove account permissions."),
-        taskActions: block(["task", "user_brief"], granted.has("task") && hasUsers,
+        departments: block(["department"], hasScope("departments")),
+        employeeManagement: block(employeeScopes, hasScope("employeeInvite"),
+          "Invitation, profile updates and dismissal require employee-management opt-in, work profile and email settings, confirmed-write mode and approval in Iva chat. Portal user permissions are separate."),
+        taskActions: block(["task", "user_brief"], hasScope("taskActions"),
           "Scope availability only; private plugin data, a fresh preview, confirmation and employee rights are also required."),
-        taskChatActions: block(["task", "user_brief", "im"], granted.has("task") && hasUsers && granted.has("im")),
-        taskReassignment: block(["task", "user_brief"], granted.has("task") && hasUsers,
+        taskChatActions: block(["task", "user_brief", "im"], hasScope("taskChatActions")),
+        taskReassignment: block(["task", "user_brief"], hasScope("taskReassignment"),
           "Reassignment is subject to employee access and portal permissions."),
-        taskFiles: block(["task", "disk"], granted.has("task") && granted.has("disk")),
-        checklistAndRelations: block(["task"], granted.has("task")),
+        taskFiles: block(["task", "disk"], hasScope("taskFiles")),
+        checklistAndRelations: block(["task"], hasScope("checklistAndRelations")),
       },
       permissionGuide: {
         path: ["Приложения", "Ресурсы для разработчиков", "Интеграции", "Настройка прав"],

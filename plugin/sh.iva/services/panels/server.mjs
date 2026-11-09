@@ -20120,6 +20120,7 @@ function date4(params) {
 }
 
 // server/src/employee-directory.ts
+var employeeScopes = ["user", "department"];
 var employeeId = external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 var employeeLookupSchema = external_exports.object({
   kind: external_exports.enum(["people", "departments"]),
@@ -20204,7 +20205,7 @@ var EmployeeDirectory = class {
     const granted = new Set(
       scopes.filter((v) => typeof v === "string").map((v) => v.toLowerCase())
     );
-    for (const scope of ["user", "department"])
+    for (const scope of employeeScopes)
       if (!granted.has(scope))
         throw new BitrixRequestError("INSUFFICIENT_SCOPE", false, scope);
   }
@@ -21221,7 +21222,7 @@ function changePolicy(current, choice) {
 }
 
 // server/src/panels-api.ts
-var PANELS_VERSION = "1.0.0-rc.2";
+var PANELS_VERSION = "1.0.0-rc.3";
 var tokenSchema2 = external_exports.string().regex(/^[a-f0-9]{24}$/u);
 var revisionSchema = external_exports.number().int().min(0).max(999999999999);
 var envelope = { schema: external_exports.literal("iva-panels/rpc-v1"), plugin: external_exports.literal("bitrix24-read"), pluginVersion: external_exports.literal(PANELS_VERSION) };

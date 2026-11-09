@@ -51,6 +51,14 @@ try{
  assert.deepEqual(schema.properties.op.enum,["collect","preview","present","cancel","status"]);
  assert.ok(tools.find(t=>t.name==="bitrix24_employee_reply").inputSchema.properties.reply.pattern);
  for(const name of ["bitrix24_settings","iva_bitrix24_update_check","bitrix24_prepare_task_action"])assert.ok(tools.some(t=>t.name===name),name);
+ const {report}=await call("bitrix24_capabilities",{});
+ const capabilities=await call("bitrix24_settings",{screen:"capabilities"});
+ assert.equal(client.getServerVersion().title,"Bitrix24");
+ assert.ok(capabilities.markdown.includes(report.markdown));
+ assert.deepEqual(report.rows.find(row=>row.id==="employeeDismiss").missingScopes,[]);
+ assert.equal(report.rows.find(row=>row.id==="employeeDismiss").portalAccess,"not_checked");
+ assert.deepEqual(report.rows.find(row=>row.id==="taskFiles").missingScopes,["task","disk"]);
+ assert.equal(writes,0);
  const fields={name:"Synthetic",lastName:"Example",email:"synthetic@example.test",departmentIds:[1],position:"Designer"};
  let d=await card("invite",fields);
  assert.match(d.presentation.markdown,/<tg-button-row>/u);
@@ -80,7 +88,7 @@ try{
  const confirmed=await call("bitrix24_settings",{reply:`b24s:set:${settings.settings.revision}:employees_off`});
  assert.equal((await call("bitrix24_settings",{reply:confirmed.confirmReply})).settings.policy.employees,false);
  await assert.rejects(access(join(root,"iva-panels")));
- console.log("standalone employee bundle ok: actual MCP discovery, rich cancel/invite/update/dismiss, readback, restart/replay, settings; no Panels; synthetic portal only");
+ console.log("standalone employee bundle ok: actual MCP discovery, rich cancel/invite/update/dismiss, readback, restart/replay, settings and webhook report; no Panels; synthetic portal only");
 }finally{
  await client?.close();await server?.close();await rm(root,{recursive:true,force:true});
 }

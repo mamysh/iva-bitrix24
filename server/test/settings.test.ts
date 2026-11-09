@@ -1,3 +1,4 @@
+import { webhookReport } from "../src/webhook-report.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtemp, mkdir, readFile, stat, writeFile, rm } from "node:fs/promises";
@@ -96,7 +97,7 @@ test("menu buttons navigate all sections, fit Telegram callbacks and diagnose me
   const menu = new SettingsMenu(f.store, {
     configured: true,
     connectionCheck: async () => { calls.push("connection"); return { user: { name: "should-not-appear" } }; },
-    capabilities: async () => { calls.push("scope"); return { grantedScopes: ["task", "user_brief", "im", "user_basic"] }; },
+    capabilities: async () => { calls.push("scope"); return { report: webhookReport(["task", "user_brief", "im", "user_basic"], await f.store.policy(), { privateData: true, attachments: false }) }; },
   });
   const all: string[] = [];
   for (const screen of ["home", "connection", "capabilities", "actions", "privacy"] as const) {
@@ -113,7 +114,7 @@ test("menu buttons navigate all sections, fit Telegram callbacks and diagnose me
   for (const callback of buttons) assert.ok(Buffer.byteLength(callback, "utf8") <= 64);
   assert.deepEqual(calls, ["connection", "connection", "scope"]);
   assert.match(all[0]!, /Webhook: работает/u);
-  assert.match(all[2]!, /Права webhook не доказывают/u);
+  assert.match(all[2]!, /эта проверка не подтверждает/u);
   assert.match(all[4]!, /не обезличивает/u);
   await assert.rejects(f.menu.run({ screen: "actions", reply: "b24s:open:home" }));
 });

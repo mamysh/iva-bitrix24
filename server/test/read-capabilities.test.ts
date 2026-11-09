@@ -54,6 +54,29 @@ test("distinguishes minimal employee profiles from email-enabled profiles", asyn
   assert.equal(result.permissionGuide.permissions.user_basic.nameRu, "Пользователи (базовые)");
 });
 
+test("reports enabled local settings separately from unverified portal access", async () => {
+  const client = new BitrixClient(config, {
+    fetch: async url => {
+      assert.match(String(url), /scope\.json$/u);
+      return Response.json({ result: ["task", "im", "disk", "user_brief", "user", "department", "<untrusted>"] });
+    },
+  });
+  const result = await new ReadCapabilityReader(client, async () => ({
+    mode: "confirmed_write", employees: true, uploads: false, deletions: false, people: "work", email: true,
+  }), { privateData: true, attachments: true }).capabilities();
+  assert.equal(result.blocks.people.effectiveScope, "user");
+  const dismissal = result.report.rows.find(row => row.id === "employeeDismiss")!;
+  assert.deepEqual(dismissal.missingScopes, []);
+  assert.deepEqual(dismissal.settingHints, []);
+  assert.equal(dismissal.portalAccess, "not_checked");
+  for (const id of ["taskUpload", "taskChatDeletion"]) {
+    const row = result.report.rows.find(row => row.id === id)!;
+    assert.deepEqual(row.missingScopes, []);
+    assert.equal(row.settingHints.length, 1);
+  }
+  assert.ok(!JSON.stringify(result).includes("<untrusted>"));
+});
+
 test("reads task-chat messages and system change events without contact or download data", async () => {
   const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
   const result = await reader((method, body) => {

@@ -189,9 +189,13 @@ access; ask the owner to verify the ID and their Bitrix24 permissions without cl
 
 ## Additional read capabilities
 
-Call `bitrix24_capabilities` when the owner asks what is available, a new read tool reports
-`INSUFFICIENT_SCOPE`, or you need to identify one optional permission. Do not call it before
-every ordinary task request. Report only the relevant missing capability and permission.
+For “Проверь права вебхука Bitrix24” or a full access report, call
+`bitrix24_settings` with `{ "screen": "capabilities" }` and send its markdown verbatim as
+the private rich reply. `bitrix24_capabilities` returns the same report in `report.markdown`
+and structured rows with `missingScopes`, `settingHints` and `portalAccess`. Use the relevant
+row when troubleshooting a specific operation. Treat Bitrix24 account permissions and access
+to particular objects as unverified. Never ask for the webhook URL in chat or change
+permissions or policy during a diagnostic request.
 
 - For a task discussion or change analysis call `bitrix24_task_comments` with `mode: "auto"`.
   Treat both human messages and returned `kind: "system"` events as relevant evidence when the

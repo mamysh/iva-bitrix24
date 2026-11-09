@@ -277,7 +277,7 @@ export function createMcpServer(
   files: FileReaderPort | null = null,
   writer: Pick<TaskWriter, "prepare" | "apply" | "cancel" | "status" | "stages"> | null = null,
 ): McpServer {
-  const server = new McpServer({ name: "bitrix24-read", version: "1.0.0-rc.2" });
+  const server = new McpServer({ name: "bitrix24-read", title: "Bitrix24", version: "1.0.0-rc.3" });
   registerUpdaterTools(server, updater);
   if (writer) {
     server.registerTool("bitrix24_project_stages", {
@@ -384,7 +384,7 @@ export function createMcpServer(
     "bitrix24_capabilities",
     {
       description:
-        "Report which iva-bitrix24 read and task-action capability blocks are enabled by the webhook scopes and how to add only a missing permission.",
+        "Check Bitrix24 webhook scopes and local plugin settings without reading task content. For a full webhook rights check deliver report.markdown as a private rich reply, or open the Bitrix24 settings capabilities screen. Portal user permissions and object access are not verified.",
       inputSchema: z.object({}).strict(),
       annotations: readOnly,
     },

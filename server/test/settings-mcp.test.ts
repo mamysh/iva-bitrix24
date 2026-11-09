@@ -56,6 +56,29 @@ test("production MCP exposes settings schema and safe home before configuration"
   assert.equal(f.calls.length, 0);
 });
 
+test("webhook diagnostics share the same report in MCP and the settings menu", async t => {
+  const f = await fixture(t);
+  const result = parsed(await f.client.callTool({ name: "bitrix24_capabilities", arguments: {} }));
+  const menu = parsed(await f.client.callTool({
+    name: "bitrix24_settings", arguments: { screen: "capabilities" },
+  }));
+  const report = result.report as { markdown: string; taskContentChecked: boolean; rows: Array<{
+    id: string; missingScopes: string[]; settingHints: string[]; portalAccess: string;
+  }> };
+  assert.ok(String(menu.markdown).includes(report.markdown));
+  assert.ok(String(menu.markdown).length < 4096);
+  assert.equal(report.taskContentChecked, false);
+  assert.deepEqual(f.calls.map(call => call.method), ["scope", "scope"]);
+  assert.deepEqual(report.rows.find(row => row.id === "taskFiles")?.missingScopes, ["disk"]);
+  for (const id of ["employeeInvite", "employeeUpdate", "employeeDismiss"]) {
+    const row = report.rows.find(row => row.id === id)!;
+    assert.deepEqual(row.missingScopes, ["user"]);
+    assert.equal(row.settingHints.length, 4);
+    assert.equal(row.portalAccess, "not_checked");
+  }
+  assert.deepEqual(report.rows.find(row => row.id === "employeeEmail")?.missingScopes, []);
+});
+
 test("actual MCP minimizes connection, people, task, history, comments and checklist members", async t => {
   const f = await fixture(t);
   for (const [name, args] of [
