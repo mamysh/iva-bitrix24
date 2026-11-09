@@ -107,11 +107,11 @@ if ! command -v pdftoppm >/dev/null 2>&1; then
   warn "pdftoppm не найден: просмотр страниц PDF и Office пока недоступен. Установите poppler-utils."
 fi
 if command -v libreoffice >/dev/null 2>&1; then
-  ok "LibreOffice уже установлен: презентации и страницы Office можно разбирать."
+  ok "LibreOffice установлен. Он нужен для извлечения текста из PPT/PPTX и визуального разбора Office."
 else
   say ""
-  warn "LibreOffice не найден. Он нужен для разбора PPT/PPTX и просмотра страниц Office."
-  say "Поиск, скачивание и отправка файлов работают и без него."
+  warn "LibreOffice не найден. Он нужен для извлечения текста из PPT/PPTX и визуального разбора Office."
+  say "Ива читает текст DOCX и данные XLSX своими штатными средствами."
   if [[ -r /proc/meminfo ]] && awk '/^MemTotal:/ { exit ($2 < 1536000 ? 0 : 1) }' /proc/meminfo; then
     warn "На сервере меньше 1,5 ГБ RAM: крупные презентации могут обрабатываться медленно."
   fi

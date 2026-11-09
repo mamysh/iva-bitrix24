@@ -71,7 +71,7 @@ departments if permitted; absent metadata has an explicit fallback. Tools and in
 are unchanged. Rich block spacing is preserved verbatim by the skill.
 
 
-### bitrix24_settings (предварительный выпуск 0.7.1-rc.1)
+### bitrix24_settings
 
 Вход: пустой объект для home; `screen` home/connection/capabilities/actions/privacy;
 либо `reply` — точный callback `b24s:...` из реального ответа владельца. screen и reply
@@ -110,7 +110,7 @@ candidateSha/hidden approvalToken. Новый check заменяет offer. TTL1
 
 ## Экспериментальный обработчик экрана
 
-Кандидат 0.9.0-rc.1 добавляет MCP `bitrix24_screen` (28 tools при полной конфигурации).
+Плагин предоставляет обработчик экрана `bitrix24_screen`.
 Прямая команда `/bitrix` требует экспериментального API Ивы; штатная 0.4.11 его не содержит.
 Прежний `bitrix24_settings`/skill остаётся fallback после возврата на штатное ядро.
 Контракт, проверки владельца/ревизии и ограничения: [PLUGIN_SCREENS](PLUGIN_SCREENS.md).
